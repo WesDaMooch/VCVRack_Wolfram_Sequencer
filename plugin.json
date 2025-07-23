@@ -1,0 +1,25 @@
+{
+  "slug": "WolframPlugin",
+  "name": "Wolfram",
+  "version": "2.0.0",
+  "license": "proprietary",
+  "brand": "Wolfram",
+  "author": "Wesley Lawrence Leggo-Morrell",
+  "authorEmail": "wes.mm@outlook.com",
+  "authorUrl": "",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "",
+  "donateUrl": "",
+  "changelogUrl": "",
+  "modules": [
+    {
+      "slug": "WolframModule",
+      "name": "WolframModule",
+      "description": "Cellular Automata Sequencer",
+      "tags": [
+        "Sequencer"
+      ]
+    }
+  ]
+}
