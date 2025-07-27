@@ -15,7 +15,7 @@
   "modules": [
     {
       "slug": "WolframModule",
-      "name": "WolframModule",
+      "name": "Wolfram",
       "description": "Cellular Automata Sequencer",
       "tags": [
         "Sequencer"
