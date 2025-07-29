@@ -8,7 +8,7 @@
 
 struct WolframModule : Module {
 	enum ParamId {
-		PITCH_PARAM,
+		RULE_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId {
@@ -28,52 +28,55 @@ struct WolframModule : Module {
 
 	dsp::SchmittTrigger clockTrigger;
 
+	//uint8_t rule = paramQuantities[RULE_PARAM]->getDefaultValue();
+	// Want some paramChanged thing
+	uint8_t rule = 30;
+	uint8_t prevRule = rule;
+
 	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-		configParam(PITCH_PARAM, 0.f, 1.f, 0.f, "");
+		configParam(RULE_PARAM, 0.f, 255.f, 30.f, "Rule");
+		paramQuantities[RULE_PARAM]->snapEnabled = true;
 		configInput(CLOCK_INPUT, "Clock");
 		configOutput(SINE_OUTPUT, "");
 	}
 
-	 int leds[64] = {};
-
 	void process(const ProcessArgs& args) override {
 		
-		int trig = clockTrigger.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 2.f);
 
+		rule = params[RULE_PARAM].getValue();
+		if (rule != prevRule) { Ca.setRule(rule); }
+		prevRule = rule;
+
+		int trig = clockTrigger.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 2.f);
 		if (trig) {
 			// Step
 			Ca.generateRow();
-
-			// Debug
-			outputs[SINE_OUTPUT].setVoltage(1.f);
-		}
-		else
-		{
-			outputs[SINE_OUTPUT].setVoltage(0.f);
 		}
 
-		// Display
-		// Want to talk to Ca
-		for (int i = 0; i < 64; i++) {
-			leds[i] = Ca.circularBuffer[i];
-		}
+		float outputVoltage = (Ca.getRow() / 255.f) * 10.f;
+		outputs[SINE_OUTPUT].setVoltage(outputVoltage);
 	}
 };
 
 
 struct MatrixDisplay : Widget {
-	// Draw one led
+	// Draw LED matrix
 	WolframModule* module;
 ;	
 	void draw(const DrawArgs& args) override {
-		int i = 0;
-		for (int y = 0; y < 8; y++) {
+		for (int y = 0; y < 8; y++) {	
+			int row = (module->Ca.readRow + 1 + y) % 8;
+
 			for (int x = 0; x < 8; x++) {
 				nvgBeginPath(args.vg);
+
+				// Draw rects
+				
 				nvgCircle(args.vg, 10 + x * 15, 10 + y * 15, 5);
 
-				if (module && module->leds[i]) {
+				// Preview crash errrr
+				if (module && ((module->Ca.circularBuffer[row] >> (7 - x)) & 1)) {
 					nvgFillColor(args.vg, nvgRGB(255, 0, 0));
 				}
 				else {
@@ -81,22 +84,8 @@ struct MatrixDisplay : Widget {
 				}
 
 				nvgFill(args.vg);
-				i += 1;
 			}
 		}
-
-		//for (int x = 0; x < 8; x++) {
-		//	nvgBeginPath(args.vg);
-		//	nvgCircle(args.vg, 10 + x * 15, 10, 5);
-		//	// Safe in module preview
-		//	if (module && module->leds[x]) {
-		//		nvgFillColor(args.vg, nvgRGB(255, 0, 0));
-		//	}
-		//	else {
-		//		nvgFillColor(args.vg, nvgRGB(0, 0, 0));
-		//	}
-		//	nvgFill(args.vg);
-		//}
 	}
 };
 
@@ -106,12 +95,13 @@ struct WolframModuleWidget : ModuleWidget {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/WolframModule.svg")));
 
+		// Srews
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-		//addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(15.24, 46.063)), module, WolframModule::PITCH_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(30.f, 77.478)), module, WolframModule::RULE_PARAM));
 
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(15.24, 77.478)), module, WolframModule::CLOCK_INPUT));
 
@@ -122,6 +112,7 @@ struct WolframModuleWidget : ModuleWidget {
 		MatrixDisplay* matrixDisplay = createWidget<MatrixDisplay>(mm2px(Vec(0.f, 20.f)));
 		matrixDisplay->module = module;
 		addChild(matrixDisplay);
+
 	}
 };
 
