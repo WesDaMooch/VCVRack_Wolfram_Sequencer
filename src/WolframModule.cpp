@@ -4,6 +4,9 @@
 // Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
 
+
+// Use rack pulseGenerator for pulse outs...
+
 #include "plugin.hpp"
 #include "WolframCA.hpp"
 
@@ -49,19 +52,21 @@ struct WolframModule : Module {
 	}
 
 	void process(const ProcessArgs& args) override {
+		Ca.setChance(params[CHANCE_PARAM].getValue());
+
 		rule = params[RULE_PARAM].getValue();
 		if (rule != prevRule) { Ca.setRule(rule); }
 		prevRule = rule;
 
 		int trig = clockTrigger.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 2.f);
 		if (trig) {
-			Ca.step(params[CHANCE_PARAM].getValue());
+			Ca.step();
 		}
 
-		float XoutputVoltage = (Ca.getRow(0) / 255.f) * 10.f; // div is slow
+		float XoutputVoltage = (Ca.getVoltageX() / 255.f) * 10.f; // div is slow
 		outputs[X_CV_OUTPUT].setVoltage(XoutputVoltage);
 
-		outputs[DEBUG_OUTPUT].setVoltage(params[CHANCE_PARAM].getValue());
+		//outputs[DEBUG_OUTPUT].setVoltage(params[CHANCE_PARAM].getValue());
 	}
 };
 
@@ -79,14 +84,15 @@ struct MatrixDisplay : Widget {
 
 		for (int y = 0; y < matrixCols; y++) {
 
+			int rowOffset = (y - 7) * -1;
+			uint8_t rowBits = 0;
+
 			// Preview calls draw before Module init
 			// Needs something to draw
-			//int row = 0;
-			uint8_t rowBits = 0;
 			if (module) {
 				//rowBits = module->Ca.outputBuffer[y];
-				rowBits = module->Ca.getRow(y);
 				//rowBits = module->Ca.circularBuffer[y];
+				rowBits = module->Ca.getDisplayRow(rowOffset);
 			}
 
 			for (int x = 0; x < matrixRows; x++) {

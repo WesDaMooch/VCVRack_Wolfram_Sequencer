@@ -6,35 +6,34 @@
 class CellularAutomata
 {
 public:
-	// Make private!
-	std::array<uint8_t, 8> outputBuffer = {};
-
 	CellularAutomata() {
-		// Fill all buffers with 0?
-
+		// Empty all buffers
+		circularBuffer.fill(0);
+		outputBuffer.fill(0);
 		// Init seed
 		circularBuffer[readRow] = seed;
+		//outputBuffer[readRow] = seed;
 	}
 
-	void step(float passedChance) {
+	void step() {
+		bool generateFlag = false;
+		int randomNum = 50;
+		if (randomNum < chance) {
+			generateFlag = true;
+		}
 
-		if (reset_flag) {
+		// Messy Logic
+		if (reset_flag && generateFlag) {
 			circularBuffer[writeRow] = seed;
 			reset_flag = false;
 		}
 		else {
 			// Generate random number (0 - 100)
-			int randomNum = 50;
-			if (randomNum < passedChance) {
+			
+			if (generateFlag) {
 				generateRow();
 			}
 		}
-
-		// Dont want to use 'back()'
-		for (std::size_t i = 0; i < outputBuffer.size() - 1; i++) {
-			outputBuffer[i] = outputBuffer[i + 1];
-		}
-		outputBuffer.back() = circularBuffer[writeRow];
 
 		// Advance row write head
 		readRow = writeRow;
@@ -50,14 +49,27 @@ public:
 		reset();
 	}
 
-	float getRow(int passedRow) {
-		return outputBuffer[passedRow];
+	void setChance(float passedChance) {
+		chance = passedChance;
+	}
+
+	float getVoltageX() {
+		//return outputBuffer[passedRow];
+		return circularBuffer[readRow];
+	}
+
+	float getDisplayRow(int passedOffset) {
+		// Returns readRow - offset, wrapped around sequence lenght
+		int rowIndex = (readRow - passedOffset + sequenceLength) % sequenceLength;
+		return circularBuffer[rowIndex];
 	}
 
 private:
 
 	static constexpr std::size_t MAX_ROWS = 64;
 	std::array<uint8_t, MAX_ROWS> circularBuffer = {};
+	// Could use rack RingBuffer?
+	std::array<uint8_t, 8> outputBuffer = {};
 
 	int readRow = 0;
 	int writeRow = 1;
@@ -65,6 +77,8 @@ private:
 
 	uint8_t rule = 30;
 	uint8_t seed = 8;	// 00001000
+
+	float chance = 100;
 
 	bool reset_flag = false;
 
