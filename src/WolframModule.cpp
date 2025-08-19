@@ -13,7 +13,9 @@
 struct WolframModule : Module {
 	enum ParamId {
 		RULE_PARAM,
+		LENGTH_PARAM,
 		CHANCE_PARAM,
+		OFFSET_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId {
@@ -44,7 +46,11 @@ struct WolframModule : Module {
 		// Params
 		configParam(RULE_PARAM, 0.f, 255.f, 30.f, "Rule");
 		paramQuantities[RULE_PARAM]->snapEnabled = true;
+		configParam(LENGTH_PARAM, 2.f, 64.f, 8.f, "Length");
+		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 100.f, 100.f, "Chance");
+		configParam(OFFSET_PARAM, -4.f, 4.f, 0.f, "Offset");
+		paramQuantities[OFFSET_PARAM]->snapEnabled = true;
 		// Inputs
 		configInput(CLOCK_INPUT, "Clock");
 		// Outputs
@@ -52,6 +58,7 @@ struct WolframModule : Module {
 	}
 
 	void process(const ProcessArgs& args) override {
+		Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
 		Ca.setChance(params[CHANCE_PARAM].getValue());
 
 		rule = params[RULE_PARAM].getValue();
@@ -72,57 +79,96 @@ struct WolframModule : Module {
 
 
 struct MatrixDisplay : Widget {
-	// Draw LED matrix
-	WolframModule* module;
-;	
+
+	// Display ideas
+	// Can get all number digits in 3x5 square matrix
+
+
+	MatrixDisplay() {
+		setSize(mm2px(Vec(matrixSize, matrixSize)));
+	}
+
+	WolframModule* module;	
+
+	int matrixCols = 8;
+	int matrixRows = 8;
+
+	// Working in mm
+	float matrixSize = 31.7;
+	float ledSize = 5;
+	float ledRectSize = mm2px(matrixSize / matrixCols);
+	float ledPaddingPx = mm2px(matrixSize / matrixCols);
+
 	void draw(const DrawArgs& args) override {
 
-		// Draw LED matrix
-		// Pos middle 30.1 x 26.14
-		int matrixCols = 8; 
-		int matrixRows = 8;
+		// Background
+		nvgBeginPath(args.vg);
+		nvgRect(args.vg, 0, 0, mm2px(matrixSize), mm2px(matrixSize));
+		nvgFillColor(args.vg, nvgRGB(0, 0, 0));
+		nvgFill(args.vg);
+		nvgClosePath(args.vg);
 
 		for (int y = 0; y < matrixCols; y++) {
 
 			int rowOffset = (y - 7) * -1;
-			uint8_t rowBits = 0;
-
+			
 			// Preview calls draw before Module init
 			// Needs something to draw
+			uint8_t displayRow = 0;
 			if (module) {
-				//rowBits = module->Ca.outputBuffer[y];
-				//rowBits = module->Ca.circularBuffer[y];
-				rowBits = module->Ca.getDisplayRow(rowOffset);
+				displayRow = module->Ca.getDisplayRow(rowOffset);
 			}
 
 			for (int x = 0; x < matrixRows; x++) {
 				nvgBeginPath(args.vg);
 
-				// Draw rects
 				// circle(args, x, y, size)
 				// rect(args, x, y, w, h)
 				
-				nvgCircle(args.vg, 10 + x * 15, 10 + y * 15, 5);
-				//nvgRect(args.vg, 10 + x * 15, 10 + y * 15, 10, 10);
+				// Cirlce LEDs
+				//nvgCircle(args.vg, (ledPaddingPx / 2) + x * ledPaddingPx, (ledPaddingPx / 2) + y * ledPaddingPx, ledSize);
+				// Rect LEDs
+				//nvgRect(args.vg, x * ledPaddingPx, y * ledPaddingPx, ledRectSize, ledRectSize);
+				// Robus LEDs
+				drawRhombus(args.vg, x * ledPaddingPx, y * ledPaddingPx, ledRectSize, displayRow);
 
-				// Prevent preview crash 
-				//if (module && ((module->Ca.displayBuffer[row] >> (7 - x)) & 1)) {
-				//	nvgFillColor(args.vg, nvgRGB(255, 0, 0));
-				//}
-				//else {
-				//	nvgFillColor(args.vg, nvgRGB(0, 0, 0));
-				//}
-				//nvgFill(args.vg);
-
-				if ((rowBits >> (7 - x)) & 1) {
+				if ((displayRow >> (7 - x)) & 1) {
 					nvgFillColor(args.vg, nvgRGB(255, 0, 0));
 				}
 				else {
 					nvgFillColor(args.vg, nvgRGB(0, 0, 0));
 				}
 				nvgFill(args.vg);
+				nvgClosePath(args.vg);
 			}
 		}
+
+		
+	}
+
+	void drawRhombus(NVGcontext* vg, float x, float y, float size, uint8_t row) {
+		// Draw a rhombus
+		//   __
+		//	/ /
+		//	--
+
+		nvgBeginPath(vg);
+
+		nvgMoveTo(vg, x, y + size);					// Bottom right
+		nvgLineTo(vg, x + size * 0.5, y + size);	// Bottom middle
+		nvgLineTo(vg, x + size, y + size * 0.5);	// Right middle
+		nvgLineTo(vg, x + size, y);					// Right top
+		nvgLineTo(vg, x + size * 0.5, y);			// Top Middle
+		nvgLineTo(vg, x, y + size * 0.5);			// Left Middle
+		nvgLineTo(vg, x, y + size);					// Bottom right
+
+		//if ((row >> (7 - x)) & 1) {
+		//	nvgFillColor(vg, nvgRGB(255, 0, 0));
+		//}
+		//else {
+		//	nvgFillColor(vg, nvgRGB(0, 0, 0));
+		//}
+		//nvgFill(vg);
 	}
 };
 
@@ -131,6 +177,8 @@ struct WolframModuleWidget : ModuleWidget {
 	WolframModuleWidget(WolframModule* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/WolframModule.svg")));
+		//setPanel(createPanel(asset::plugin(pluginInstance, "res/WolframV3Silkscreen.svg")));
+		
 
 		// Srews
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
@@ -139,7 +187,9 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		// Params
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8, 18.5)), module, WolframModule::RULE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(15.24, 60)), module, WolframModule::LENGTH_PARAM));
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(45.72, 60)), module, WolframModule::CHANCE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(30.48, 80)), module, WolframModule::OFFSET_PARAM));
 		// Inputs
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4, 111.5)), module, WolframModule::CLOCK_INPUT));
 		// Outputs
@@ -148,7 +198,8 @@ struct WolframModuleWidget : ModuleWidget {
 
 		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(15.24, 25.81)), module, WolframModule::BLINK_LIGHT));
 
-		MatrixDisplay* matrixDisplay = createWidget<MatrixDisplay>(mm2px(Vec(0.f, 20.f)));
+		//MatrixDisplay* matrixDisplay = createWidgetCentered<MatrixDisplay>(mm2px(Vec(30.1, 26.14)));
+		MatrixDisplay* matrixDisplay = createWidgetCentered<MatrixDisplay>(Vec(box.size.x / 2, mm2px(26.14)));
 		matrixDisplay->module = module;
 		addChild(matrixDisplay);
 
@@ -156,3 +207,4 @@ struct WolframModuleWidget : ModuleWidget {
 };
 
 Model* modelWolframModule = createModel<WolframModule, WolframModuleWidget>("WolframModule");
+

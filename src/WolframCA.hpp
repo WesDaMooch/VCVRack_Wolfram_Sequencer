@@ -7,16 +7,17 @@ class CellularAutomata
 {
 public:
 	CellularAutomata() {
-		// Empty all buffers
-		circularBuffer.fill(0);
-		outputBuffer.fill(0);
+		// Empty buffer
+		internalCircularBuffer.fill(0);
+		outputCircularBuffer.fill(0);
 		// Init seed
-		circularBuffer[readRow] = seed;
-		//outputBuffer[readRow] = seed;
+		internalCircularBuffer[internalReadHead] = seed;
+		outputCircularBuffer[outputReadHead] = seed;
 	}
 
 	void step() {
 		bool generateFlag = false;
+		// Generate random number (0 - 100)
 		int randomNum = 50;
 		if (randomNum < chance) {
 			generateFlag = true;
@@ -24,20 +25,25 @@ public:
 
 		// Messy Logic
 		if (reset_flag && generateFlag) {
-			circularBuffer[writeRow] = seed;
+			internalCircularBuffer[internalWriteHead] = seed;
 			reset_flag = false;
 		}
 		else {
-			// Generate random number (0 - 100)
-			
 			if (generateFlag) {
 				generateRow();
 			}
 		}
+		// Copy internal buffer to output buffer
+		outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];
+		// Push right bit to Y output array or uint8_t...
+		
+		// Advance output read and write heads
+		outputReadHead = outputWriteHead;
+		outputWriteHead = (outputWriteHead + 1) % 8;
 
-		// Advance row write head
-		readRow = writeRow;
-		writeRow = (writeRow + 1) % sequenceLength;
+		// Advance internal read and write heads
+		internalReadHead = internalWriteHead;
+		internalWriteHead = (internalWriteHead + 1) % sequenceLength;
 	}
 
 	void reset() {
@@ -49,35 +55,38 @@ public:
 		reset();
 	}
 
+	void setSequenceLength(float passedSequenceLength) {
+		sequenceLength = passedSequenceLength;
+	}
+
 	void setChance(float passedChance) {
 		chance = passedChance;
 	}
 
 	float getVoltageX() {
-		//return outputBuffer[passedRow];
-		return circularBuffer[readRow];
+		return outputCircularBuffer[outputReadHead];
 	}
 
 	float getDisplayRow(int passedOffset) {
-		// Returns readRow - offset, wrapped around sequence lenght
-		int rowIndex = (readRow - passedOffset + sequenceLength) % sequenceLength;
-		return circularBuffer[rowIndex];
+		int rowIndex = (outputReadHead - passedOffset + 8) % 8; // could do a & 7 thing?
+		return outputCircularBuffer[rowIndex];
 	}
 
 private:
 
 	static constexpr std::size_t MAX_ROWS = 64;
-	std::array<uint8_t, MAX_ROWS> circularBuffer = {};
-	// Could use rack RingBuffer?
-	std::array<uint8_t, 8> outputBuffer = {};
+	std::array<uint8_t, MAX_ROWS> internalCircularBuffer = {};
+	std::array<uint8_t, 8> outputCircularBuffer = {};
 
-	int readRow = 0;
-	int writeRow = 1;
+	int internalReadHead = 0;
+	int internalWriteHead = 1;
+	int outputReadHead = internalReadHead;
+	int outputWriteHead = internalWriteHead;
+
 	int sequenceLength = 8;
 
 	uint8_t rule = 30;
 	uint8_t seed = 8;	// 00001000
-
 	float chance = 100;
 
 	bool reset_flag = false;
@@ -92,19 +101,19 @@ private:
 			if (left_index < 0) { left_index = 7; }
 			if (right_index > 7) { right_index = 0; }
 
-			int left_cell = (circularBuffer[readRow] >> left_index) & 1;
-			int cell = (circularBuffer[readRow] >> i) & 1;
-			int right_cell = (circularBuffer[readRow] >> right_index) & 1;
+			int left_cell = (internalCircularBuffer[internalReadHead] >> left_index) & 1;
+			int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
+			int right_cell = (internalCircularBuffer[internalReadHead] >> right_index) & 1;
 
 			// Generate tag
 			int tag = 7 - ((left_cell << 2) | (cell << 1) | right_cell);
 
 			int ruleBit = (rule >> (7 - tag)) & 1;
 			if (ruleBit > 0) {
-				circularBuffer[writeRow] |= (1 << i);
+				internalCircularBuffer[internalWriteHead] |= (1 << i);
 			}
 			else {
-				circularBuffer[writeRow] &= ~(1 << i);
+				internalCircularBuffer[internalWriteHead] &= ~(1 << i);
 			}
 		}
 	}
