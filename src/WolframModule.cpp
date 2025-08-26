@@ -9,8 +9,14 @@
 
 #include "plugin.hpp"
 #include "WolframCA.hpp"
-
 #include <vector>
+
+
+namespace Colours {
+	const NVGcolor offState = nvgRGB(30, 30, 30);
+	const NVGcolor primaryAccent = nvgRGB(251, 134, 38);
+	const NVGcolor secondaryAccent = nvgRGB(255, 0, 255);
+}
 
 struct WolframModule : Module {
 	enum ParamId {
@@ -18,15 +24,20 @@ struct WolframModule : Module {
 		LENGTH_PARAM,
 		CHANCE_PARAM,
 		OFFSET_PARAM,
+		X_SCALE_PARAM,
+		Y_SCALE_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId {
-		CLOCK_INPUT,
+		TRIG_INPUT,
+		INJECT_INPUT, 
 		INPUTS_LEN
 	};
 	enum OutputId {
 		X_CV_OUTPUT,
-		DEBUG_OUTPUT,
+		X_PULSE_OUTPUT,
+		Y_CV_OUTPUT,
+		Y_PULSE_OUTPUT,
 		OUTPUTS_LEN
 	};
 	enum LightId {
@@ -36,32 +47,44 @@ struct WolframModule : Module {
 
 	CellularAutomata Ca;
 
-	dsp::SchmittTrigger clockTrigger;
+	dsp::SchmittTrigger trigTrigger;
+	dsp::SchmittTrigger injectTrigger;
+	dsp::PulseGenerator xPulseGenerator; 
+	dsp::PulseGenerator yPulseGenerator;
 
 	//uint8_t rule = paramQuantities[RULE_PARAM]->getDefaultValue();
 	// Want some paramChanged thing
 	uint8_t rule = 30;
 	uint8_t prevRule = rule; // dont like prev
 
-	bool menuState = true;
+	bool menuState = false;
 
 	// Redraw matrix display 
 	bool dirty = true;
 
 	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-		// Params
+
 		configParam(RULE_PARAM, 0.f, 255.f, 30.f, "Rule");
 		paramQuantities[RULE_PARAM]->snapEnabled = true;
-		configParam(LENGTH_PARAM, 2.f, 64.f, 8.f, "Length");
+		configParam(LENGTH_PARAM, 2.f, 64.f, 8.f, "Length"); // Fix
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
-		configParam(CHANCE_PARAM, 0.f, 100.f, 100.f, "Chance");
-		configParam(OFFSET_PARAM, -4.f, 4.f, 0.f, "Offset");
-		paramQuantities[OFFSET_PARAM]->snapEnabled = true;
-		// Inputs
-		configInput(CLOCK_INPUT, "Clock");
-		// Outputs
-		configOutput(X_CV_OUTPUT, "X CV");
+		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
+		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
+		configParam(OFFSET_PARAM, -1.f, 1.f, 0.f, "Offset", "degrees", 0.f, 180.f); // Make work -180 to +180?
+		//paramQuantities[OFFSET_PARAM]->snapEnabled = true;
+		configParam(X_SCALE_PARAM, 0.f, 10.f, 5.f, "X CV Scale", "V");
+		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
+		configParam(Y_SCALE_PARAM, 0.f, 10.f, 5.f, "Y CV Scale", "V");
+		paramQuantities[Y_SCALE_PARAM]->displayPrecision = 3;
+
+		configInput(TRIG_INPUT, "Trigger input");
+		configInput(INJECT_INPUT, "Inject input");
+
+		configOutput(X_CV_OUTPUT, "X CV output");
+		configOutput(X_PULSE_OUTPUT, "X pulse output");
+		configOutput(Y_CV_OUTPUT, "Y CV");
+		configOutput(Y_PULSE_OUTPUT, "Y pulse output");
 	}
 
 	void process(const ProcessArgs& args) override {
@@ -72,9 +95,23 @@ struct WolframModule : Module {
 		if (rule != prevRule) { Ca.setRule(rule); }
 		prevRule = rule;
 
-		int trig = clockTrigger.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 2.f);
-		if (trig) {
+		if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
+			Ca.inject();
+		}
+	
+		int trigInput = inputs[TRIG_INPUT].getVoltage();					// Square for bipolar signals
+		if (trigTrigger.process(trigInput * trigInput, 0.2f, 4.f)) {
 			Ca.step();
+
+			bool xPulseTrigger = (Ca.getRowX() >> 7) & 1;
+			if (xPulseTrigger) {
+				xPulseGenerator.trigger(1e-3f);
+			}
+
+			bool yPulseTrigger = Ca.getRowY() & 1;
+			if (yPulseTrigger) {
+				yPulseGenerator.trigger(1e-3f);
+			}
 
 			// Redraw matrix display;
 			if (!menuState) {
@@ -82,21 +119,26 @@ struct WolframModule : Module {
 			}
 		}
 
-		float XoutputVoltage = (Ca.getVoltageX() / 255.f) * 10.f; // div is slow
-		outputs[X_CV_OUTPUT].setVoltage(XoutputVoltage);
+		float xCV = (Ca.getRowX() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow
+		outputs[X_CV_OUTPUT].setVoltage(xCV);
+		bool xPulseOutput = xPulseGenerator.process(args.sampleTime);
+		outputs[X_PULSE_OUTPUT].setVoltage(xPulseOutput ? 10.f : 0.f);
 
-		//outputs[DEBUG_OUTPUT].setVoltage(params[CHANCE_PARAM].getValue());
+		float yCV = (Ca.getRowY() / 255.f) * params[Y_SCALE_PARAM].getValue(); 
+		outputs[Y_CV_OUTPUT].setVoltage(yCV);
+		bool yPulseOutput = yPulseGenerator.process(args.sampleTime);
+		outputs[Y_PULSE_OUTPUT].setVoltage(yPulseOutput ? 10.f : 0.f);
 	}
 };
 
-
+// Make a nice why to display module in preview window
 struct MatrixDisplayBuffer : FramebufferWidget {
 	WolframModule* module;
 	MatrixDisplayBuffer(WolframModule* m) {
 		module = m;
 	}
 	void step() override {
-		if (module->dirty) {
+		if (module && module->dirty) {
 			FramebufferWidget::dirty = true;
 			module->dirty = false;
 		}
@@ -180,7 +222,7 @@ struct MatrixDisplay : Widget {
 		nvgFill(vg);
 		nvgClosePath(vg);
 
-		if (module->menuState) {
+		if (module && module->menuState) {
 
 			// this is a bad way to do it
 			std::array<int, 8> space{ 36, 36, 36, 36, 36, 36, 36, 36 };
@@ -203,7 +245,7 @@ struct MatrixDisplay : Widget {
 				// Preview calls draw before Module init
 				uint8_t displayRow = 0;
 				if (module) {
-					displayRow = module->Ca.getDisplayRow(rowOffset);
+					displayRow = module->Ca.getRowX(rowOffset);
 				}
 
 				for (int col = 0; col < matrixCols; col++) {
@@ -229,29 +271,19 @@ struct MatrixDisplay : Widget {
 
 			nvgBeginPath(vg);
 			nvgMoveTo(vg, x + drawingPoints[0].x * grid, y + drawingPoints[0].y * grid);
-			for (size_t i = 1; i < drawingPoints.size(); i++) {
-				nvgLineTo(vg, x + drawingPoints[i].x * grid, y + drawingPoints[i].y * grid);
+			for (size_t point = 1; point < drawingPoints.size(); point++) {
+				nvgLineTo(vg, x + drawingPoints[point].x * grid, y + drawingPoints[point].y * grid);
 			}
 			nvgClosePath(vg);
 
-
 			bool on = (cellState >> segmentNum) & 1;
-			nvgFillColor(vg, on ? nvgRGB(255, 0, 0) : nvgRGB(40, 40, 40));
+			nvgFillColor(vg, on ? Colours::primaryAccent : Colours::offState);
 			nvgFill(vg);
 		}
 	}
 
 	void drawText(NVGcontext* vg, int row, float size, const std::array<int, 8>& displayCharacters) {
-
-		// Size of one cell - 11 segement display
-		//float tenthGrid = size * 0.1;
-
-
 		for (size_t col = 0; col < 8; col++) {
-			//float x = col * size;
-			//float yUpper = row * size;
-			//float yLower = (row + 1) * size;
-
 			auto segmentPair = charactersSegments[displayCharacters[col]];
 
 			drawCell(vg, col, row, size, segmentPair[0]);
@@ -264,9 +296,6 @@ struct WolframModuleWidget : ModuleWidget {
 	WolframModuleWidget(WolframModule* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/WolframModule.svg")));
-		//setPanel(createPanel(asset::plugin(pluginInstance, "res/WolframV3Silkscreen.svg")));
-		
-
 		// Srews
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
@@ -274,30 +303,26 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		// Params
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8, 18.5)), module, WolframModule::RULE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(15.24, 60)), module, WolframModule::LENGTH_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(45.72, 60)), module, WolframModule::CHANCE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(30.48, 80)), module, WolframModule::OFFSET_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24, 60)), module, WolframModule::LENGTH_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72, 60)), module, WolframModule::CHANCE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48, 80)), module, WolframModule::OFFSET_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16, 80)), module, WolframModule::X_SCALE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8, 80)), module, WolframModule::Y_SCALE_PARAM));
 		// Inputs
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4, 111.5)), module, WolframModule::CLOCK_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4, 111.5)), module, WolframModule::TRIG_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56, 111.5)), module, WolframModule::INJECT_INPUT));
 		// Outputs
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62, 96.5)), module, WolframModule::X_CV_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34, 96.5)), module, WolframModule::DEBUG_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62, 111.5)), module, WolframModule::X_PULSE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34, 96.5)), module, WolframModule::Y_CV_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34, 111.5)), module, WolframModule::Y_PULSE_OUTPUT));
 
 		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(15.24, 25.81)), module, WolframModule::BLINK_LIGHT));
 
-		////MatrixDisplay* matrixDisplay = createWidgetCentered<MatrixDisplay>(mm2px(Vec(30.1, 26.14)));
-		//MatrixDisplay* matrixDisplay = createWidgetCentered<MatrixDisplay>(Vec(box.size.x * 0.5, mm2px(26.14)));
-		////matrixDisplay->setSize(mm2px(Vec(32.f, 32.f)));	// Makes display vanish, why?
-		//matrixDisplay->module = module;
-		//addChild(matrixDisplay);
-
-
-
-		MatrixDisplayBuffer* fb = new MatrixDisplayBuffer(module);
-		MatrixDisplay* dw = new MatrixDisplay(module);
-		//SomeDrawingWidget* dw = createWidgetCentered<SomeDrawingWidget>(Vec(box.size.x * 0.5, mm2px(26.14)));
-		fb->addChild(dw);
-		addChild(fb);
+		MatrixDisplayBuffer* matrixDisplayFb = new MatrixDisplayBuffer(module);
+		MatrixDisplay* matrixDisplay = new MatrixDisplay(module);
+		matrixDisplayFb->addChild(matrixDisplay);
+		addChild(matrixDisplayFb);
 	}
 };
 

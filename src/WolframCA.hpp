@@ -17,12 +17,18 @@ public:
 	}
 
 	void step() {
-		bool generateFlag = false;
-		// Generate random number (0 - 100)
-		int randomNum = 50;
-		if (randomNum < chance) {
-			generateFlag = true;
-		}
+		bool generateFlag = random::get<float>() < chance;
+
+		//if (reset_flag && generateFlag) {
+		//	internalCircularBuffer[internalWriteHead] = seed;
+		//}
+		//else if (reset_flag) {
+		//	internalReadHead = 0;
+		//}
+		//else
+		//{
+		//	generateRow();
+		//}
 
 		// Messy Logic
 		if (reset_flag && generateFlag) {
@@ -35,9 +41,20 @@ public:
 			}
 		}
 
+		// Apply offset
+		//if (offset >= 1) {
+		//	// Shift right
+		//	inter
+		//}
+		//else if (offset > 0) {
+		//	// Shift left
+		//}
+
 		// Copy internal buffer to output buffer
 		outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];
-		// Push right bit to Y output array or uint8_t...
+		
+		yRow = yRow >> 1;																// Advance Y row
+		yRow |= (outputCircularBuffer[outputWriteHead] & 0b00000001 ? 0b10000000 : 0);							
 		
 		// Advance output read and write heads
 		outputReadHead = outputWriteHead;
@@ -50,6 +67,7 @@ public:
 
 	void reset() {
 		reset_flag = true;
+		//internalCircularBuffer[internalWriteHead] = seed;
 	}
 
 	void setRule(uint8_t passedRule) {
@@ -65,20 +83,31 @@ public:
 		chance = passedChance;
 	}
 
-	float getVoltageX() {
-		return outputCircularBuffer[outputReadHead];
+	void setOffset(float passedOffset) {
+		offset = passedOffset;
 	}
 
-	float getDisplayRow(int passedOffset) {
-		int rowIndex = (outputReadHead - passedOffset + 8) % 8;		// could do a & 7 thing?
+	void inject() {
+		// Set 5th bit to 1 
+		internalCircularBuffer[internalReadHead] |= (1 << 3);
+	}
+
+	uint8_t getRowX(int passedOffset = 0) {
+		size_t rowIndex = (outputReadHead - passedOffset + 8) & 7;
 		return outputCircularBuffer[rowIndex];
+	}
+
+	uint8_t getRowY() {
+		return yRow;
 	}
 
 private:
 
-	static constexpr std::size_t MAX_ROWS = 64;
+	constexpr static size_t MAX_ROWS = 64;
 	std::array<uint8_t, MAX_ROWS> internalCircularBuffer = {};
 	std::array<uint8_t, 8> outputCircularBuffer = {};
+	
+	uint8_t yRow = 0;
 
 	int internalReadHead = 0;
 	int internalWriteHead = 1;
@@ -90,6 +119,7 @@ private:
 	uint8_t rule = 30;
 	uint8_t seed = 8;	// 00001000
 	float chance = 100;
+	int offset = 0;
 
 	bool reset_flag = false;
 
