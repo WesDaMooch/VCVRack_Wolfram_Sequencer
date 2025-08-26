@@ -10,6 +10,8 @@
 #include "plugin.hpp"
 #include "WolframCA.hpp"
 
+#include <vector>
+
 struct WolframModule : Module {
 	enum ParamId {
 		RULE_PARAM,
@@ -68,6 +70,9 @@ struct WolframModule : Module {
 		int trig = clockTrigger.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 2.f);
 		if (trig) {
 			Ca.step();
+
+			// Redraw matrix display
+			//matrixDisplayFb->setDirty();
 		}
 
 		float XoutputVoltage = (Ca.getVoltageX() / 255.f) * 10.f; // div is slow
@@ -79,25 +84,93 @@ struct WolframModule : Module {
 
 
 struct MatrixDisplay : Widget {
-
-	// Display ideas
-	// Can get all number digits in 3x5 square matrix
-
-
+	// Need a way to only draw new text if the cell is changing state...
+	
 	MatrixDisplay() {
 		setSize(mm2px(Vec(matrixSize, matrixSize)));
+
+
+		cellStateMemory.fill(0);
 	}
 
 	WolframModule* module;	
 
 	int matrixCols = 8;
 	int matrixRows = 8;
+	float matrixSize = 32;	//31.7
+	float segementSize = mm2px(matrixSize / matrixCols);
 
-	// Working in mm
-	float matrixSize = 31.7;
-	float ledSize = 5;
-	float ledRectSize = mm2px(matrixSize / matrixCols);
-	float ledPaddingPx = mm2px(matrixSize / matrixCols);
+	//static const?
+	std::array<std::vector<Vec>, 11> segmentShapes{ {
+		// Segment 0 - top left
+		{ Vec(0,0), Vec(0,4), Vec(1,5), Vec(4,2), Vec(4,0), Vec(0,0) },
+		// Segment 1 - top middle left
+		{ Vec(4,0), Vec(4,2), Vec(5,1), Vec(4,0) },
+		// Segment 2 - top middle right
+		{ Vec(5,1), Vec(6,2), Vec(6,0), Vec(5,1) },
+		// Segment 3 - top right
+		{ Vec(6,0), Vec(6,2), Vec(9,5), Vec(10,4), Vec(10,0), Vec(6,0) },
+		// Segment 4 - middle left
+		{ Vec(1,5), Vec(4,8), Vec(4,2), Vec(1,5) },
+		// Segment 5 - middle
+		{ Vec(4,2), Vec(4,8), Vec(5,9), Vec(6,8), Vec(6,2), Vec(5,1), Vec(4,2) },
+		// Segment 6 - middle right
+		{ Vec(6,2), Vec(6,8), Vec(9,5), Vec(6,2) },
+		// Segment 7 - bottom left
+		{ Vec(0,6), Vec(0,10), Vec(4,10), Vec(4,8), Vec(1,5), Vec(0,6) },
+		// Segment 8 - bottom middle left
+		{ Vec(4,8), Vec(4,10), Vec(5,9), Vec(4,8) },
+		// Segment 9 - bottom middle right
+		{ Vec(5,9), Vec(6,10), Vec(6,8), Vec(5,9) },
+		// Segment 10 - bottom right
+		{ Vec(6,8), Vec(6,10), Vec(10,10), Vec(10,6), Vec(9,5), Vec(6,8) }
+	} };
+
+	std::array<std::array<uint16_t, 2>, 37> charactersSegments{ {
+		{0b11111110000, 0b00001111111},	// 0
+		{0b10001111100, 0b10001001000},	// 1
+		{0b11001001111, 0b11110010011},	// 2
+		{0b11101001111, 0b11111001110},	// 3
+		{0b11111011001, 0b10001001000},	// 4
+		{0b00110011111, 0b11111001100},	// 5
+		{0b00010011111, 0b11110001111},	// 6
+		{0b10001001111, 0b10001001000},	// 7
+		{0b01101011111, 0b11111010110},	// 8
+		{0b11111011111, 0b10001001000},	// 9
+		{0b10011110000, 0b10011011111},	// A 
+		{0b01111010011, 0b00111010111},	// B
+		{0b00010011111, 0b11110010001},	// C
+		{0b11011110011, 0b00111111101},	// D
+		{0b01110011111, 0b11110010111},	// E
+		{0b00010011111, 0b00010011111},	// F
+		{0b00010011111, 0b11111011101},	// G
+		{0b11111011001, 0b10011011111},	// H
+		{0b01100101111, 0b11110100110},	// I
+		{0b01100101111, 0b00110100110},	// J
+		{0b00111111101, 0b11011110011},	// K
+		{0b00010010001, 0b11110010001},	// L
+		{0b10011111111, 0b10011011001},	// M
+		{0b11110000000, 0b10011011001},	// N
+		{0b10011011111, 0b11111011001},	// O
+		{0b11111011111, 0b00010010001},	// P
+		{0b10011110000, 0b11001111001},	// Q
+		{0b11111011111, 0b11011110011},	// R
+		{0b00100011111, 0b11111000100},	// S
+		{0b01100101111, 0b01100100110},	// T
+		{0b10010000000, 0b11111011001},	// U
+		{0b10011011001, 0b00001111001},	// V
+		{0b10011011001, 0b11111111001},	// W
+		{0b01101011001, 0b10011010110},	// X
+		{0b01101011001, 0b01100100110},	// Y
+		{0b01001001111, 0b11110010010},	// Z
+		{0, 0},							// Space
+	} };
+
+	std::array<uint16_t, 64> cellStateMemory;
+
+	bool menuState = false;
+
+	
 
 	void draw(const DrawArgs& args) override {
 
@@ -107,68 +180,93 @@ struct MatrixDisplay : Widget {
 		nvgFillColor(args.vg, nvgRGB(0, 0, 0));
 		nvgFill(args.vg);
 		nvgClosePath(args.vg);
+		
+		if (menuState) {
 
-		for (int y = 0; y < matrixCols; y++) {
+			// this is a bad way to do it
+			std::array<int, 8> space{ 36, 36, 36, 36, 36, 36, 36, 36};
+			//std::array<int, 8> wolf{ 36, 9 + 23, 36, 9 + 15, 36, 9 + 12, 36, 9 + 6 };
+			//std::array<int, 8> ram{ 9 + 18, 36, 9 + 1, 36 ,9 + 13 , 36, 36, 36};
 
-			int rowOffset = (y - 7) * -1;
-			
-			// Preview calls draw before Module init
-			// Needs something to draw
-			uint8_t displayRow = 0;
-			if (module) {
-				displayRow = module->Ca.getDisplayRow(rowOffset);
-			}
+			std::array<int, 8> wolf{ 36, 0, 36, 1, 36, 2, 36, 3 };
+			std::array<int, 8> ram{ 4, 36, 5, 36, 6, 36, 7, 36 };
 
-			for (int x = 0; x < matrixRows; x++) {
-				nvgBeginPath(args.vg);
-
-				// circle(args, x, y, size)
-				// rect(args, x, y, w, h)
-				
-				// Cirlce LEDs
-				//nvgCircle(args.vg, (ledPaddingPx / 2) + x * ledPaddingPx, (ledPaddingPx / 2) + y * ledPaddingPx, ledSize);
-				// Rect LEDs
-				//nvgRect(args.vg, x * ledPaddingPx, y * ledPaddingPx, ledRectSize, ledRectSize);
-				// Robus LEDs
-				drawRhombus(args.vg, x * ledPaddingPx, y * ledPaddingPx, ledRectSize, displayRow);
-
-				if ((displayRow >> (7 - x)) & 1) {
-					nvgFillColor(args.vg, nvgRGB(255, 0, 0));
-				}
-				else {
-					nvgFillColor(args.vg, nvgRGB(0, 0, 0));
-				}
-				nvgFill(args.vg);
-				nvgClosePath(args.vg);
-			}
+			drawText(args.vg, 0, segementSize, space);
+			drawText(args.vg, 2, segementSize, wolf);
+			drawText(args.vg, 4, segementSize, ram);
+			drawText(args.vg, 6, segementSize, space);
 		}
 
-		
+		else {
+			for (int y = 0; y < matrixCols; y++) {
+
+				int rowOffset = (y - 7) * -1;
+
+				// Preview calls draw before Module init
+				uint8_t displayRow = 0;
+				if (module) {
+					displayRow = module->Ca.getDisplayRow(rowOffset);
+				}
+
+				for (int x = 0; x < matrixRows; x++) {
+					uint16_t state = 0;
+					if ((displayRow >> (7 - x)) & 1) {
+						state = 0b11001110011; //0b11111111111, 0b00111111100, 0b11001110011
+					}
+
+					// Dont draw if cell state has not changed
+					drawCell(args.vg, x, y, segementSize, state);
+				}
+			}
+		}
 	}
 
-	void drawRhombus(NVGcontext* vg, float x, float y, float size, uint8_t row) {
-		// Draw a rhombus
-		//   __
-		//	/ /
-		//	--
-
-		nvgBeginPath(vg);
-
-		nvgMoveTo(vg, x, y + size);					// Bottom right
-		nvgLineTo(vg, x + size * 0.5, y + size);	// Bottom middle
-		nvgLineTo(vg, x + size, y + size * 0.5);	// Right middle
-		nvgLineTo(vg, x + size, y);					// Right top
-		nvgLineTo(vg, x + size * 0.5, y);			// Top Middle
-		nvgLineTo(vg, x, y + size * 0.5);			// Left Middle
-		nvgLineTo(vg, x, y + size);					// Bottom right
-
-		//if ((row >> (7 - x)) & 1) {
-		//	nvgFillColor(vg, nvgRGB(255, 0, 0));
+	void drawCell(NVGcontext* vg, float col, float row, float size, uint16_t cellState) {
+		// Check to see if cell state has change and only update if it has
+		//size_t index = row * 8 + col;;
+		//if (cellState != cellStateMemory[index]) {
 		//}
-		//else {
-		//	nvgFillColor(vg, nvgRGB(0, 0, 0));
-		//}
-		//nvgFill(vg);
+		//cellStateMemory[index] = cellState;
+
+		//
+		float grid = size * 0.1;
+		float x = col * size;
+		float y = row * size;
+
+		for (int segmentNum = 0; segmentNum < 11; segmentNum++) {
+			// Get the points to draw for each segment
+			const auto& drawingPoints = segmentShapes[segmentNum];
+
+			nvgBeginPath(vg);
+			nvgMoveTo(vg, x + drawingPoints[0].x * grid, y + drawingPoints[0].y * grid);
+			for (size_t i = 1; i < drawingPoints.size(); i++) {
+				nvgLineTo(vg, x + drawingPoints[i].x * grid, y + drawingPoints[i].y * grid);
+			}
+			nvgClosePath(vg);
+
+
+			bool on = (cellState >> segmentNum) & 1;
+			nvgFillColor(vg, on ? nvgRGB(255, 0, 0) : nvgRGB(40, 40, 40));
+			nvgFill(vg);
+		}
+	}
+
+	void drawText(NVGcontext* vg, int row, float size, const std::array<int, 8>& displayCharacters) {
+
+		// Size of one cell - 11 segement display
+		//float tenthGrid = size * 0.1;
+
+		
+		for (size_t col = 0; col < 8; col++) {
+			//float x = col * size;
+			//float yUpper = row * size;
+			//float yLower = (row + 1) * size;
+			
+			auto segmentPair = charactersSegments[displayCharacters[col]];
+
+			drawCell(vg, col, row, size, segmentPair[0]);
+			drawCell(vg, col, row + 1, size, segmentPair[1]);
+		}
 	}
 };
 
@@ -199,12 +297,11 @@ struct WolframModuleWidget : ModuleWidget {
 		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(15.24, 25.81)), module, WolframModule::BLINK_LIGHT));
 
 		//MatrixDisplay* matrixDisplay = createWidgetCentered<MatrixDisplay>(mm2px(Vec(30.1, 26.14)));
-		MatrixDisplay* matrixDisplay = createWidgetCentered<MatrixDisplay>(Vec(box.size.x / 2, mm2px(26.14)));
+		MatrixDisplay* matrixDisplay = createWidgetCentered<MatrixDisplay>(Vec(box.size.x * 0.5, mm2px(26.14)));
+		//matrixDisplay->setSize(mm2px(Vec(32.f, 32.f)));	// Makes display vanish, why?
 		matrixDisplay->module = module;
 		addChild(matrixDisplay);
-
 	}
 };
 
 Model* modelWolframModule = createModel<WolframModule, WolframModuleWidget>("WolframModule");
-

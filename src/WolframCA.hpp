@@ -1,7 +1,8 @@
 // Wolfram Cellular Automata Brain
 #pragma once
-//#include <rack.hpp>
+
 #include <array>
+//#include <rack.hpp>
 
 class CellularAutomata
 {
@@ -33,13 +34,14 @@ public:
 				generateRow();
 			}
 		}
+
 		// Copy internal buffer to output buffer
 		outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];
 		// Push right bit to Y output array or uint8_t...
 		
 		// Advance output read and write heads
 		outputReadHead = outputWriteHead;
-		outputWriteHead = (outputWriteHead + 1) % 8;
+		outputWriteHead = (outputWriteHead + 1) % 8;	// could do a & 7 thing?
 
 		// Advance internal read and write heads
 		internalReadHead = internalWriteHead;
@@ -68,7 +70,7 @@ public:
 	}
 
 	float getDisplayRow(int passedOffset) {
-		int rowIndex = (outputReadHead - passedOffset + 8) % 8; // could do a & 7 thing?
+		int rowIndex = (outputReadHead - passedOffset + 8) % 8;		// could do a & 7 thing?
 		return outputCircularBuffer[rowIndex];
 	}
 
