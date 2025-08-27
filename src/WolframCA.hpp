@@ -72,7 +72,7 @@ public:
 
 	void setRule(uint8_t passedRule) {
 		rule = passedRule;
-		reset();
+		//reset();
 	}
 
 	void setSequenceLength(float passedSequenceLength) {

@@ -14,13 +14,14 @@
 
 namespace Colours {
 	const NVGcolor offState = nvgRGB(30, 30, 30);
-	const NVGcolor primaryAccent = nvgRGB(251, 134, 38);
+	//const NVGcolor primaryAccent = nvgRGB(251, 134, 38);
+	const NVGcolor primaryAccent = nvgRGB(251, 0, 0);
 	const NVGcolor secondaryAccent = nvgRGB(255, 0, 255);
 }
 
 struct WolframModule : Module {
 	enum ParamId {
-		RULE_PARAM,
+		SELECT_PARAM,
 		LENGTH_PARAM,
 		CHANCE_PARAM,
 		OFFSET_PARAM,
@@ -52,12 +53,13 @@ struct WolframModule : Module {
 	dsp::PulseGenerator xPulseGenerator; 
 	dsp::PulseGenerator yPulseGenerator;
 
-	//uint8_t rule = paramQuantities[RULE_PARAM]->getDefaultValue();
-	// Want some paramChanged thing
 	uint8_t rule = 30;
-	uint8_t prevRule = rule; // dont like prev
+	float rotaryEncoderIndent = 1.0f / 60.0f;	
+	float prevRotaryEncoderValue = 0.f;
 
 	bool menuState = false;
+	bool displaySelectState = false;
+	dsp::Timer selectStateTimer;
 
 	// Redraw matrix display 
 	bool dirty = true;
@@ -65,8 +67,10 @@ struct WolframModule : Module {
 	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
-		configParam(RULE_PARAM, 0.f, 255.f, 30.f, "Rule");
-		paramQuantities[RULE_PARAM]->snapEnabled = true;
+		//configParam(RULE_PARAM, 0.f, 255.f, 30.f, "Rule");
+		//paramQuantities[RULE_PARAM]->snapEnabled = true;		
+		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");				// Rotary encoder
+		//paramQuantities[SELECT_PARAM]->snapEnabled = true;
 		configParam(LENGTH_PARAM, 2.f, 64.f, 8.f, "Length"); // Fix
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
@@ -87,13 +91,47 @@ struct WolframModule : Module {
 		configOutput(Y_PULSE_OUTPUT, "Y pulse output");
 	}
 
+
+	// Rotary encoder handling
+
+	void onEncoderStep() {
+		Ca.reset();
+		// Update display
+		displaySelectState = true;
+		selectStateTimer.reset();
+		dirty = true;
+		
+	}
+
+	float rotaryEncoder(float rotaryEncoderValue) {
+		float difference = rotaryEncoderValue - prevRotaryEncoderValue;
+		while (difference >= rotaryEncoderIndent) {
+			rule = (rule + 1) % 256;
+			prevRotaryEncoderValue += rotaryEncoderIndent;
+			difference = rotaryEncoderValue - prevRotaryEncoderValue;
+			onEncoderStep();
+		}
+		while (difference <= -rotaryEncoderIndent) {
+			rule = (rule + 255) % 256; 
+			prevRotaryEncoderValue -= rotaryEncoderIndent;
+			difference = rotaryEncoderValue - prevRotaryEncoderValue;
+			onEncoderStep();	
+		}
+
+		return rule;
+	}
+
+
 	void process(const ProcessArgs& args) override {
+		// Put in 64 sample clock limit?
 		Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
 		Ca.setChance(params[CHANCE_PARAM].getValue());
 
-		rule = params[RULE_PARAM].getValue();
-		if (rule != prevRule) { Ca.setRule(rule); }
-		prevRule = rule;
+		Ca.setRule(rotaryEncoder(params[SELECT_PARAM].getValue()));
+		if (displaySelectState && selectStateTimer.process(args.sampleTime) > 0.75f) {
+			displaySelectState = false;
+			dirty = true;
+		}
 
 		if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
 			Ca.inject();
@@ -213,6 +251,7 @@ struct MatrixDisplay : Widget {
 		{0b01001001111, 0b11110010010},	// Z
 		{0, 0},							// Space
 	} };
+	int spaceChar = 36;
 
 	void draw(NVGcontext* vg) override {
 		// Background
@@ -222,42 +261,92 @@ struct MatrixDisplay : Widget {
 		nvgFill(vg);
 		nvgClosePath(vg);
 
-		if (module && module->menuState) {
-
-			// this is a bad way to do it
-			std::array<int, 8> space{ 36, 36, 36, 36, 36, 36, 36, 36 };
-			//std::array<int, 8> wolf{ 36, 9 + 23, 36, 9 + 15, 36, 9 + 12, 36, 9 + 6 };
-			//std::array<int, 8> ram{ 9 + 18, 36, 9 + 1, 36 ,9 + 13 , 36, 36, 36};
-
-			std::array<int, 8> wolf{ 36, 0, 36, 1, 36, 2, 36, 3 };
-			std::array<int, 8> ram{ 4, 36, 5, 36, 6, 36, 7, 36 };
-
-			drawText(vg, 0, segementSize, space);
-			drawText(vg, 2, segementSize, wolf);
-			drawText(vg, 4, segementSize, ram);
-			drawText(vg, 6, segementSize, space);
-		}
-		else {
+		if (module) {
 			for (int row = 0; row < matrixRows; row++) {
-
-				int rowOffset = (row - 7) * -1;
-
-				// Preview calls draw before Module init
-				uint8_t displayRow = 0;
-				if (module) {
-					displayRow = module->Ca.getRowX(rowOffset);
+				// Work out what needs to be drawn on each row
+				if (module->menuState) {
+					//drawText(vg, row, segementSize, { 9+18, spaceChar, 9+21, spaceChar, 9+12, spaceChar, 9+5, spaceChar });
+					if (row == 0) { drawBlankRow(vg, row, segementSize); }
 				}
-
-				for (int col = 0; col < matrixCols; col++) {
-					uint16_t state = 0;
-					if ((displayRow >> (7 - col)) & 1) {
-						state = 0b00111111100; //0b11111111111, 0b00111111100, 0b11001110011
+				else if (module->displaySelectState && row < 4) {
+					// Display rule number
+					if (row == 0) { drawBlankRow(vg, row, segementSize); }
+					else if (row == 1) {
+						uint8_t displayRule = module->rule;
+						std::array<int, 8> ruleDigits{ 36, 36, 36, 36, 36, 36, 36, 36 };
+						if (displayRule >= 100) {
+							ruleDigits[2] = (displayRule / 100) % 10;	// Hundreds
+						}
+						if (displayRule >= 10) {
+							ruleDigits[4] = (displayRule / 10) % 10;	// Tens
+						}
+						ruleDigits[6] = displayRule % 10;				// Ones
+						drawText(vg, row, segementSize, ruleDigits);
 					}
+					else if (row == 3) {
+						drawBlankRow(vg, row, segementSize);
+					}
+				}
+				else {
+					int rowOffset = (row - 7) * -1;
 
-					drawCell(vg, col, row, segementSize, state);
+					// Preview calls draw before Module init
+					uint8_t displayRow = module->Ca.getRowX(rowOffset);;
+
+					for (int col = 0; col < matrixCols; col++) {
+						uint16_t state = 0;
+						if ((displayRow >> (7 - col)) & 1) {
+							state = 0b00111111100; //0b11111111111, 0b00111111100, 0b11001110011
+						}
+						drawCell(vg, col, row, segementSize, state);
+					}
 				}
 			}
 		}
+
+		//if (module && module->menuState) {
+
+		//	// this is a bad way to do it
+		//	std::array<int, 8> space{ 36, 36, 36, 36, 36, 36, 36, 36 };
+		//	//std::array<int, 8> wolf{ 36, 9 + 23, 36, 9 + 15, 36, 9 + 12, 36, 9 + 6 };
+		//	//std::array<int, 8> ram{ 9 + 18, 36, 9 + 1, 36 ,9 + 13 , 36, 36, 36};
+
+		//	std::array<int, 8> wolf{ 36, 0, 36, 1, 36, 2, 36, 3 };
+		//	std::array<int, 8> ram{ 4, 36, 5, 36, 6, 36, 7, 36 };
+
+		//	drawText(vg, 0, segementSize, space);
+		//	drawText(vg, 2, segementSize, wolf);
+		//	drawText(vg, 4, segementSize, ram);
+		//	drawText(vg, 6, segementSize, space);
+		//}
+		//else {
+		//	if (module->displaySelectState) {
+
+		//	}
+		//	else
+		//	{
+		//		// Display 
+		//		for (int row = 0; row < matrixRows; row++) {
+
+		//			int rowOffset = (row - 7) * -1;
+
+		//			// Preview calls draw before Module init
+		//			uint8_t displayRow = 0;
+		//			if (module) {
+		//				displayRow = module->Ca.getRowX(rowOffset);
+		//			}
+
+		//			for (int col = 0; col < matrixCols; col++) {
+		//				uint16_t state = 0;
+		//				if ((displayRow >> (7 - col)) & 1) {
+		//					state = 0b00111111100; //0b11111111111, 0b00111111100, 0b11001110011
+		//				}
+
+		//				drawCell(vg, col, row, segementSize, state);
+		//			}
+		//		}
+		//	}
+		//}
 	}
 
 	void drawCell(NVGcontext* vg, float col, float row, float size, uint16_t cellState) {
@@ -282,6 +371,12 @@ struct MatrixDisplay : Widget {
 		}
 	}
 
+	void drawBlankRow(NVGcontext* vg, int row, float size) {
+		for (size_t col = 0; col < 8; col++) {
+			drawCell(vg, col, row, size, 0);
+		}
+	}
+
 	void drawText(NVGcontext* vg, int row, float size, const std::array<int, 8>& displayCharacters) {
 		for (size_t col = 0; col < 8; col++) {
 			auto segmentPair = charactersSegments[displayCharacters[col]];
@@ -302,7 +397,7 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		// Params
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8, 18.5)), module, WolframModule::RULE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8, 18.5)), module, WolframModule::SELECT_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24, 60)), module, WolframModule::LENGTH_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72, 60)), module, WolframModule::CHANCE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48, 80)), module, WolframModule::OFFSET_PARAM));
