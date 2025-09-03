@@ -41,24 +41,12 @@ public:
 			}
 		}
 
-		// Apply offset
-		//if (offset >= 1) {
-		//	// Shift right
-		//	inter
-		//}
-		//else if (offset > 0) {
-		//	// Shift left
-		//}
-
 		// Copy internal buffer to output buffer
-		outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];
-		
-		yRow = yRow >> 1;																// Advance Y row
-		yRow |= (outputCircularBuffer[outputWriteHead] & 0b00000001 ? 0b10000000 : 0);							
+		outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];					
 		
 		// Advance output read and write heads
 		outputReadHead = outputWriteHead;
-		outputWriteHead = (outputWriteHead + 1) % 8;	// could do a & 7 thing?
+		outputWriteHead = (outputWriteHead + 1) & 7;
 
 		// Advance internal read and write heads
 		internalReadHead = internalWriteHead;
@@ -88,17 +76,26 @@ public:
 	}
 
 	void inject() {
-		// Set 5th bit to 1 
-		internalCircularBuffer[internalReadHead] |= (1 << 3);
+		int pos = 3;
+		int displayPos = (pos + offset + 8) & 7;
+		internalCircularBuffer[internalReadHead] |= (1 << pos);
+		// I want inject to be indepent from offset
+		// work out what the offset is for it with offset applied
+		outputCircularBuffer[outputReadHead] |= (1 << displayPos);
 	}
 
-	uint8_t getRowX(int passedOffset = 0) {
-		size_t rowIndex = (outputReadHead - passedOffset + 8) & 7;
-		return outputCircularBuffer[rowIndex];
+	uint8_t getRow(int index = 0) {
+		size_t rowIndex = (outputReadHead - index + 8) & 7;
+		return applyOffset(outputCircularBuffer[rowIndex]);
 	}
 
-	uint8_t getRowY() {
-		return yRow;
+	uint8_t getColumn() {
+		uint8_t col = 0;
+		for (int i = 0; i < 8; i++) {
+			size_t row = getRow(i);
+			col |= ((row & 0x01) << (7 - i));
+		}
+		return col;
 	}
 
 private:
@@ -106,8 +103,6 @@ private:
 	constexpr static size_t MAX_ROWS = 64;
 	std::array<uint8_t, MAX_ROWS> internalCircularBuffer = {};
 	std::array<uint8_t, 8> outputCircularBuffer = {};
-	
-	uint8_t yRow = 0;
 
 	int internalReadHead = 0;
 	int internalWriteHead = 1;
@@ -118,10 +113,23 @@ private:
 
 	uint8_t rule = 30;
 	uint8_t seed = 8;	// 00001000
-	float chance = 100;
-	int offset = 0;
+	float chance = 1;
+	int offset = 0;		
 
 	bool reset_flag = false;
+
+	uint8_t applyOffset(uint8_t row) {
+		int shift = offset;
+		if (shift < 0) {
+			shift = -shift;
+			return (row << shift) | (row >> (8 - shift));
+		}
+		else if (shift > 0) {
+			return (row >> shift) | (row << (8 - shift));
+		}
+		return row;
+	}
+
 
 	void generateRow() {
 

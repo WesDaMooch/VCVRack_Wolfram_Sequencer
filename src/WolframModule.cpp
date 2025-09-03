@@ -46,6 +46,8 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
+	constexpr static int CONTROL_INTERVAL = 64;
+
 	CellularAutomata Ca;
 
 	dsp::SchmittTrigger trigTrigger;
@@ -75,8 +77,8 @@ struct WolframModule : Module {
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
-		configParam(OFFSET_PARAM, -1.f, 1.f, 0.f, "Offset", "degrees", 0.f, 180.f); // Make work -180 to +180?
-		//paramQuantities[OFFSET_PARAM]->snapEnabled = true;
+		configParam(OFFSET_PARAM, -4.f, 4.f, 0.f, "Offset", " Col"); // Make work -180 to +180?
+		paramQuantities[OFFSET_PARAM]->snapEnabled = true;
 		configParam(X_SCALE_PARAM, 0.f, 10.f, 5.f, "X CV Scale", "V");
 		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
 		configParam(Y_SCALE_PARAM, 0.f, 10.f, 5.f, "Y CV Scale", "V");
@@ -123,46 +125,55 @@ struct WolframModule : Module {
 
 
 	void process(const ProcessArgs& args) override {
-		// Put in 64 sample clock limit?
-		Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
-		Ca.setChance(params[CHANCE_PARAM].getValue());
 
-		Ca.setRule(rotaryEncoder(params[SELECT_PARAM].getValue()));
-		if (displaySelectState && selectStateTimer.process(args.sampleTime) > 0.75f) {
-			displaySelectState = false;
-			dirty = true;
-		}
+		if (((args.frame + this->id) % CONTROL_INTERVAL) == 0) {
+			// need a smart way to set dirty flag when params change or things are triggered
+			Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
+			Ca.setChance(params[CHANCE_PARAM].getValue());
 
-		if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
-			Ca.inject();
+			Ca.setRule(rotaryEncoder(params[SELECT_PARAM].getValue()));
+			if (displaySelectState && selectStateTimer.process(args.sampleTime) > 0.75f) {
+				displaySelectState = false;
+				dirty = true;
+			}
+
+			if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
+				Ca.inject();
+				dirty = true;
+			}
+
+			// Apply offset
+			Ca.setOffset(params[OFFSET_PARAM].getValue());
+			//dirty = true;
 		}
 	
-		int trigInput = inputs[TRIG_INPUT].getVoltage();					// Square for bipolar signals
+		float trigInput = inputs[TRIG_INPUT].getVoltage();					// Squared for bipolar signals
 		if (trigTrigger.process(trigInput * trigInput, 0.2f, 4.f)) {
 			Ca.step();
 
-			bool xPulseTrigger = (Ca.getRowX() >> 7) & 1;
-			if (xPulseTrigger) {
-				xPulseGenerator.trigger(1e-3f);
-			}
-
-			bool yPulseTrigger = Ca.getRowY() & 1;
-			if (yPulseTrigger) {
-				yPulseGenerator.trigger(1e-3f);
-			}
-
-			// Redraw matrix display;
+			// Redraw matrix display
 			if (!menuState) {
 				dirty = true;
 			}
 		}
 
-		float xCV = (Ca.getRowX() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow
+		// Works nicely, not sure if its the correct use of the pulse generator
+		bool xPulseTrigger = (Ca.getRow() >> 7) & 1;
+		if (xPulseTrigger) {
+			xPulseGenerator.trigger(1e-3f);
+		}
+
+		bool yPulseTrigger = Ca.getColumn() & 1;
+		if (yPulseTrigger) {
+			yPulseGenerator.trigger(1e-3f);
+		}
+
+		float xCV = (Ca.getRow() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow
 		outputs[X_CV_OUTPUT].setVoltage(xCV);
 		bool xPulseOutput = xPulseGenerator.process(args.sampleTime);
 		outputs[X_PULSE_OUTPUT].setVoltage(xPulseOutput ? 10.f : 0.f);
 
-		float yCV = (Ca.getRowY() / 255.f) * params[Y_SCALE_PARAM].getValue(); 
+		float yCV = (Ca.getColumn() / 255.f) * params[Y_SCALE_PARAM].getValue(); 
 		outputs[Y_CV_OUTPUT].setVoltage(yCV);
 		bool yPulseOutput = yPulseGenerator.process(args.sampleTime);
 		outputs[Y_PULSE_OUTPUT].setVoltage(yPulseOutput ? 10.f : 0.f);
@@ -291,7 +302,7 @@ struct MatrixDisplay : Widget {
 					int rowOffset = (row - 7) * -1;
 
 					// Preview calls draw before Module init
-					uint8_t displayRow = module->Ca.getRowX(rowOffset);;
+					uint8_t displayRow = module->Ca.getRow(rowOffset);;
 
 					for (int col = 0; col < matrixCols; col++) {
 						uint16_t state = 0;
