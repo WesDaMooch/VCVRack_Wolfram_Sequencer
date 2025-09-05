@@ -13,9 +13,10 @@
 
 
 namespace Colours {
-	const NVGcolor offState = nvgRGB(30, 30, 30);
+	const NVGcolor lcdBackground = nvgRGB(50, 0, 0);
 	//const NVGcolor primaryAccent = nvgRGB(251, 134, 38);
 	const NVGcolor primaryAccent = nvgRGB(251, 0, 0);
+	const NVGcolor offState = nvgRGB(30, 30, 30);
 	const NVGcolor secondaryAccent = nvgRGB(255, 0, 255);
 }
 
@@ -127,25 +128,28 @@ struct WolframModule : Module {
 	void process(const ProcessArgs& args) override {
 
 		if (((args.frame + this->id) % CONTROL_INTERVAL) == 0) {
-			// need a smart way to set dirty flag when params change or things are triggered
-			Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
-			Ca.setChance(params[CHANCE_PARAM].getValue());
-
-			Ca.setRule(rotaryEncoder(params[SELECT_PARAM].getValue()));
-			if (displaySelectState && selectStateTimer.process(args.sampleTime) > 0.75f) {
-				displaySelectState = false;
-				dirty = true;
-			}
-
-			if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
-				Ca.inject();
-				dirty = true;
-			}
-
-			// Apply offset
-			Ca.setOffset(params[OFFSET_PARAM].getValue());
-			//dirty = true;
+			// Do param control stuff here
 		}
+
+		// need a smart way to set dirty flag when params change or things are triggered
+		Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
+		Ca.setChance(params[CHANCE_PARAM].getValue());
+
+		Ca.setRule(rotaryEncoder(params[SELECT_PARAM].getValue()));
+		if (displaySelectState && selectStateTimer.process(args.sampleTime) > 0.75f) {
+			displaySelectState = false;
+			dirty = true;
+		}
+
+		if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
+			Ca.inject();
+			dirty = true;
+		}
+
+		// Apply offset
+		Ca.setOffset(params[OFFSET_PARAM].getValue());
+		//dirty = true;
+
 	
 		float trigInput = inputs[TRIG_INPUT].getVoltage();					// Squared for bipolar signals
 		if (trigTrigger.process(trigInput * trigInput, 0.2f, 4.f)) {
@@ -192,6 +196,52 @@ struct MatrixDisplayBuffer : FramebufferWidget {
 			module->dirty = false;
 		}
 		FramebufferWidget::step();
+	}
+};
+
+struct MatrixDisplay2 : Widget {
+	WolframModule* module;
+
+	std::shared_ptr<Font> font;
+	std::string fontPath;
+
+	MatrixDisplay2(WolframModule* m) {
+		module = m;
+		box.pos = mm2px(Vec(30.1 - matrixSize * 0.5, 26.14 - matrixSize * 0.5));
+		box.size = mm2px(Vec(matrixSize, matrixSize));
+
+		// Load font
+		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mt_wolf.otf"));
+		font = APP->window->loadFont(fontPath);
+	}
+
+	// Sort out mm2px stuff, need a rule
+	float matrixSize = 32.0f;	//31.7
+	int matrixCols = 8;
+	int matrixRows = 8;
+	float segementSize = mm2px(matrixSize / matrixCols);
+	float fontSize = segementSize * 2.0f;
+	float fontRow = mm2px(matrixSize / (matrixCols * 0.5));
+
+	void draw(NVGcontext* vg) override {
+
+		// Background
+		nvgBeginPath(vg);
+		nvgRect(vg, 0, 0, mm2px(matrixSize), mm2px(matrixSize));
+		nvgFillColor(vg, Colours::lcdBackground);
+		nvgFill(vg);
+		nvgClosePath(vg);
+
+		if (!font) return;
+
+		nvgFontSize(vg, fontSize);
+		nvgFontFaceId(vg, font->handle);
+		nvgFillColor(vg, Colours::primaryAccent);
+		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+		nvgText(vg, 0, 0, "WOLF", nullptr);
+		nvgText(vg, 0, fontRow, "069", nullptr);
+		nvgText(vg, 0, fontRow * 2, "RULE", nullptr);
+		nvgText(vg, 0, fontRow * 3, "MODE", nullptr);
 	}
 };
 
@@ -425,8 +475,14 @@ struct WolframModuleWidget : ModuleWidget {
 
 		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(15.24, 25.81)), module, WolframModule::BLINK_LIGHT));
 
+		//MatrixDisplayBuffer* matrixDisplayFb = new MatrixDisplayBuffer(module);
+		//MatrixDisplay* matrixDisplay = new MatrixDisplay(module);
+		//matrixDisplayFb->addChild(matrixDisplay);
+		//addChild(matrixDisplayFb);
+
+
 		MatrixDisplayBuffer* matrixDisplayFb = new MatrixDisplayBuffer(module);
-		MatrixDisplay* matrixDisplay = new MatrixDisplay(module);
+		MatrixDisplay2* matrixDisplay = new MatrixDisplay2(module);
 		matrixDisplayFb->addChild(matrixDisplay);
 		addChild(matrixDisplayFb);
 	}
