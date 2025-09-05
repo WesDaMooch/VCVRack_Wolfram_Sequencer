@@ -9,20 +9,21 @@
 
 #include "plugin.hpp"
 #include "WolframCA.hpp"
-#include <vector>
+#include <vector> // Dont need?
 
 
 namespace Colours {
 	const NVGcolor lcdBackground = nvgRGB(50, 0, 0);
 	//const NVGcolor primaryAccent = nvgRGB(251, 134, 38);
 	const NVGcolor primaryAccent = nvgRGB(251, 0, 0);
-	const NVGcolor offState = nvgRGB(30, 30, 30);
+	const NVGcolor primaryAccentOff = nvgRGB(50, 0, 0);
 	const NVGcolor secondaryAccent = nvgRGB(255, 0, 255);
 }
 
 struct WolframModule : Module {
 	enum ParamId {
 		SELECT_PARAM,
+		MENU_PARAM,
 		LENGTH_PARAM,
 		CHANCE_PARAM,
 		OFFSET_PARAM,
@@ -43,6 +44,7 @@ struct WolframModule : Module {
 		OUTPUTS_LEN
 	};
 	enum LightId {
+		MENU_LIGHT,
 		BLINK_LIGHT,
 		LIGHTS_LEN
 	};
@@ -50,6 +52,8 @@ struct WolframModule : Module {
 	constexpr static int CONTROL_INTERVAL = 64;
 
 	CellularAutomata Ca;
+
+
 
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger injectTrigger;
@@ -60,7 +64,9 @@ struct WolframModule : Module {
 	float rotaryEncoderIndent = 1.0f / 60.0f;	
 	float prevRotaryEncoderValue = 0.f;
 
+	dsp::BooleanTrigger menuBoolean;
 	bool menuState = false;
+
 	bool displaySelectState = false;
 	dsp::Timer selectStateTimer;
 
@@ -70,15 +76,14 @@ struct WolframModule : Module {
 	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
-		//configParam(RULE_PARAM, 0.f, 255.f, 30.f, "Rule");
-		//paramQuantities[RULE_PARAM]->snapEnabled = true;		
+		configButton(MENU_PARAM, "Menu");
+
 		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");				// Rotary encoder
-		//paramQuantities[SELECT_PARAM]->snapEnabled = true;
 		configParam(LENGTH_PARAM, 2.f, 64.f, 8.f, "Length"); // Fix
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
-		configParam(OFFSET_PARAM, -4.f, 4.f, 0.f, "Offset", " Col"); // Make work -180 to +180?
+		configParam(OFFSET_PARAM, -4.f, 4.f, 0.f, "Offset");
 		paramQuantities[OFFSET_PARAM]->snapEnabled = true;
 		configParam(X_SCALE_PARAM, 0.f, 10.f, 5.f, "X CV Scale", "V");
 		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
@@ -95,7 +100,7 @@ struct WolframModule : Module {
 	}
 
 
-	// Rotary encoder handling
+	// Rotary encoder handling - see how Phrase16 does it
 
 	void onEncoderStep() {
 		Ca.reset();
@@ -127,11 +132,16 @@ struct WolframModule : Module {
 
 	void process(const ProcessArgs& args) override {
 
-		if (((args.frame + this->id) % CONTROL_INTERVAL) == 0) {
+		//if (((args.frame + this->id) % CONTROL_INTERVAL) == 0) {
 			// Do param control stuff here
-		}
+		//}
 
 		// need a smart way to set dirty flag when params change or things are triggered
+		if (menuBoolean.process(params[MENU_PARAM].getValue())) {
+			menuState ^= true;
+			dirty = true;
+		}
+
 		Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
 		Ca.setChance(params[CHANCE_PARAM].getValue());
 
@@ -161,7 +171,7 @@ struct WolframModule : Module {
 			}
 		}
 
-		// Works nicely, not sure if its the correct use of the pulse generator
+		// Works nicely, not sure if its the correct use of the pulse generator, its more a gate now
 		bool xPulseTrigger = (Ca.getRow() >> 7) & 1;
 		if (xPulseTrigger) {
 			xPulseGenerator.trigger(1e-3f);
@@ -172,7 +182,7 @@ struct WolframModule : Module {
 			yPulseGenerator.trigger(1e-3f);
 		}
 
-		float xCV = (Ca.getRow() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow
+		float xCV = (Ca.getRow() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow, this could be handled in Seq?
 		outputs[X_CV_OUTPUT].setVoltage(xCV);
 		bool xPulseOutput = xPulseGenerator.process(args.sampleTime);
 		outputs[X_PULSE_OUTPUT].setVoltage(xPulseOutput ? 10.f : 0.f);
@@ -181,10 +191,11 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCV);
 		bool yPulseOutput = yPulseGenerator.process(args.sampleTime);
 		outputs[Y_PULSE_OUTPUT].setVoltage(yPulseOutput ? 10.f : 0.f);
+
+		lights[MENU_LIGHT].setBrightnessSmooth(menuState, args.sampleTime);
 	}
 };
 
-// Make a nice why to display module in preview window
 struct MatrixDisplayBuffer : FramebufferWidget {
 	WolframModule* module;
 	MatrixDisplayBuffer(WolframModule* m) {
@@ -207,8 +218,8 @@ struct MatrixDisplay2 : Widget {
 
 	MatrixDisplay2(WolframModule* m) {
 		module = m;
-		box.pos = mm2px(Vec(30.1 - matrixSize * 0.5, 26.14 - matrixSize * 0.5));
-		box.size = mm2px(Vec(matrixSize, matrixSize));
+		box.pos = Vec(mm2px(30.1) - matrixSize * 0.5, mm2px(26.14) - matrixSize * 0.5);
+		box.size = Vec(matrixSize, matrixSize);
 
 		// Load font
 		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mt_wolf.otf"));
@@ -216,32 +227,66 @@ struct MatrixDisplay2 : Widget {
 	}
 
 	// Sort out mm2px stuff, need a rule
-	float matrixSize = 32.0f;	//31.7
+	float matrixSize = mm2px(32.0f);	//31.7
 	int matrixCols = 8;
 	int matrixRows = 8;
-	float segementSize = mm2px(matrixSize / matrixCols);
-	float fontSize = segementSize * 2.0f;
-	float fontRow = mm2px(matrixSize / (matrixCols * 0.5));
+	float cellPos = matrixSize / matrixCols;
+	float cellSize = cellPos * 0.5f;
+
+	float fontSize = (matrixSize / matrixCols) * 2.0f;
 
 	void draw(NVGcontext* vg) override {
 
 		// Background
 		nvgBeginPath(vg);
-		nvgRect(vg, 0, 0, mm2px(matrixSize), mm2px(matrixSize));
+		nvgRect(vg, 0, 0, matrixSize, matrixSize);
 		nvgFillColor(vg, Colours::lcdBackground);
 		nvgFill(vg);
 		nvgClosePath(vg);
 
+		if (!module) return;
 		if (!font) return;
 
 		nvgFontSize(vg, fontSize);
 		nvgFontFaceId(vg, font->handle);
-		nvgFillColor(vg, Colours::primaryAccent);
 		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
-		nvgText(vg, 0, 0, "WOLF", nullptr);
-		nvgText(vg, 0, fontRow, "069", nullptr);
-		nvgText(vg, 0, fontRow * 2, "RULE", nullptr);
-		nvgText(vg, 0, fontRow * 3, "MODE", nullptr);
+
+		if (module->menuState) {
+			nvgFillColor(vg, Colours::primaryAccent);
+			nvgText(vg, 0, 0, "PARK", nullptr);
+			nvgText(vg, 0, fontSize, "GATE", nullptr);
+			nvgText(vg, 0, fontSize * 2, "   ", nullptr);
+			nvgText(vg, 0, fontSize * 3, "HAUS", nullptr);
+		}
+		else {
+			int startRow = 0;
+			if (module->displaySelectState) {
+				startRow = matrixRows - 4;
+
+				nvgFillColor(vg, Colours::primaryAccent);
+				nvgText(vg, 0, 0, "RULE", nullptr);
+				char ruleStr[5];
+				snprintf(ruleStr, sizeof(ruleStr), "%4.3d", module->rule);
+				nvgText(vg, 0, fontSize, ruleStr, nullptr);
+			}
+
+			for (int row = startRow; row < matrixRows; row++) {
+				int rowOffset = (row - 7) * -1;
+
+				uint8_t displayRow = module->Ca.getRow(rowOffset);
+
+				for (int col = 0; col < matrixCols; col++) {
+					bool cellState = false;
+					if ((displayRow >> (7 - col)) & 1) {
+						cellState = true;
+					}
+					nvgBeginPath(vg);
+					nvgCircle(vg, (cellPos * col) + cellSize, (cellPos * row) + cellSize, cellSize);
+					nvgFillColor(vg, cellState ? Colours::primaryAccent : Colours::primaryAccentOff);
+					nvgFill(vg);
+				}
+			}
+		}
 	}
 };
 
@@ -427,7 +472,7 @@ struct MatrixDisplay : Widget {
 			nvgClosePath(vg);
 
 			bool on = (cellState >> segmentNum) & 1;
-			nvgFillColor(vg, on ? Colours::primaryAccent : Colours::offState);
+			nvgFillColor(vg, on ? Colours::primaryAccent : Colours::primaryAccentOff);
 			nvgFill(vg);
 		}
 	}
@@ -458,20 +503,23 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		// Params
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8, 18.5)), module, WolframModule::SELECT_PARAM));
-		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24, 60)), module, WolframModule::LENGTH_PARAM));
-		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72, 60)), module, WolframModule::CHANCE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48, 80)), module, WolframModule::OFFSET_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16, 80)), module, WolframModule::X_SCALE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8, 80)), module, WolframModule::Y_SCALE_PARAM));
+		// Buttons
+		addParam(createLightParamCentered<VCVLightButton<MediumSimpleLight<WhiteLight>>>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM, WolframModule::MENU_LIGHT));
+		// Dials
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.0f)), module, WolframModule::LENGTH_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.0f)), module, WolframModule::CHANCE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.0f)), module, WolframModule::OFFSET_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16f, 80.0f)), module, WolframModule::X_SCALE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.0f)), module, WolframModule::Y_SCALE_PARAM));
 		// Inputs
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4, 111.5)), module, WolframModule::TRIG_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56, 111.5)), module, WolframModule::INJECT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4f, 111.5f)), module, WolframModule::TRIG_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56f, 111.5f)), module, WolframModule::INJECT_INPUT));
 		// Outputs
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62, 96.5)), module, WolframModule::X_CV_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62, 111.5)), module, WolframModule::X_PULSE_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34, 96.5)), module, WolframModule::Y_CV_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34, 111.5)), module, WolframModule::Y_PULSE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 96.5f)), module, WolframModule::X_CV_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 111.5f)), module, WolframModule::X_PULSE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 96.5f)), module, WolframModule::Y_CV_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 111.5f)), module, WolframModule::Y_PULSE_OUTPUT));
 
 		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(15.24, 25.81)), module, WolframModule::BLINK_LIGHT));
 

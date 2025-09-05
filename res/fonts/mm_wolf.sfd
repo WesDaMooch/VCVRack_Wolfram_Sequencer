@@ -20,7 +20,7 @@ OS2Version: 0
 OS2_WeightWidthSlopeOnly: 0
 OS2_UseTypoMetrics: 0
 CreationTime: 1757076072
-ModificationTime: 1757077183
+ModificationTime: 1757080083
 PfmFamily: 17
 TTFWeight: 400
 TTFWidth: 5
@@ -51,7 +51,7 @@ FitToEm: 0
 WinInfo: 0 38 11
 BeginPrivate: 0
 EndPrivate
-BeginChars: 60 37
+BeginChars: 60 38
 
 StartChar: .notdef
 Encoding: 0 0 0
@@ -1056,6 +1056,15 @@ SplineSet
  579 550 l 1
  50 550 l 1
 EndSplineSet
+Validated: 1
+EndChar
+
+StartChar: space
+Encoding: 1 32 37
+Width: 1000
+Flags: W
+LayerCount: 2
+Fore
 Validated: 1
 EndChar
 EndChars
