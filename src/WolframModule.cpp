@@ -24,6 +24,7 @@ struct WolframModule : Module {
 	enum ParamId {
 		SELECT_PARAM,
 		MENU_PARAM,
+		MODE_PARAM,
 		LENGTH_PARAM,
 		CHANCE_PARAM,
 		OFFSET_PARAM,
@@ -33,7 +34,7 @@ struct WolframModule : Module {
 	};
 	enum InputId {
 		TRIG_INPUT,
-		INJECT_INPUT, 
+		INJECT_INPUT,
 		INPUTS_LEN
 	};
 	enum OutputId {
@@ -44,7 +45,6 @@ struct WolframModule : Module {
 		OUTPUTS_LEN
 	};
 	enum LightId {
-		MENU_LIGHT,
 		BLINK_LIGHT,
 		LIGHTS_LEN
 	};
@@ -53,31 +53,37 @@ struct WolframModule : Module {
 
 	CellularAutomata Ca;
 
-
-
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger injectTrigger;
-	dsp::PulseGenerator xPulseGenerator; 
+	dsp::PulseGenerator xPulseGenerator;
 	dsp::PulseGenerator yPulseGenerator;
 
-	uint8_t rule = 30;
-	float rotaryEncoderIndent = 1.0f / 60.0f;	
+	float rotaryEncoderIndent = 1.0f / 60.0f;
 	float prevRotaryEncoderValue = 0.f;
 
 	dsp::BooleanTrigger menuBoolean;
 	bool menuState = false;
+	int menuPage = 0;
+	static constexpr int MAX_MENU_PAGES = 3;
+	std::array < std::function<void(NVGcontext*, float)>, MAX_MENU_PAGES> menuPages;
 
-	bool displaySelectState = false;
-	dsp::Timer selectStateTimer;
+	dsp::BooleanTrigger modeBoolean;
+	int modeState = 0;
+
+	bool displayRule = false;
+	dsp::Timer ruleDisplayTimer;
+
+	float prevOffset = 0;
 
 	// Redraw matrix display 
 	bool dirty = true;
 
 	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-
+		// Button
 		configButton(MENU_PARAM, "Menu");
-
+		configButton(MODE_PARAM, "Mode");
+		// Dial
 		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");				// Rotary encoder
 		configParam(LENGTH_PARAM, 2.f, 64.f, 8.f, "Length"); // Fix
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
@@ -89,78 +95,128 @@ struct WolframModule : Module {
 		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
 		configParam(Y_SCALE_PARAM, 0.f, 10.f, 5.f, "Y CV Scale", "V");
 		paramQuantities[Y_SCALE_PARAM]->displayPrecision = 3;
-
+		// Input
 		configInput(TRIG_INPUT, "Trigger input");
 		configInput(INJECT_INPUT, "Inject input");
-
+		// Output
 		configOutput(X_CV_OUTPUT, "X CV output");
 		configOutput(X_PULSE_OUTPUT, "X pulse output");
 		configOutput(Y_CV_OUTPUT, "Y CV");
 		configOutput(Y_PULSE_OUTPUT, "Y pulse output");
+
+		menuPages = {
+			// Depending on Algo, display text could be Ca menuItem1,2,3 etc return "NAME"
+			
+			[this](NVGcontext* vg, float row) {
+				nvgText(vg, 0, row, "SEED", nullptr);
+				char seedStr[5];
+				snprintf(seedStr, sizeof(seedStr), "%4.3d", this->Ca.getSeed());
+				nvgText(vg, 0, row * 2, seedStr, nullptr);
+			},
+			[](NVGcontext* vg, float row) {
+				nvgText(vg, 0, row, "MODE", nullptr);
+				nvgText(vg, 0, row*2, "CLIP", nullptr);
+				//WRAP/RAND/CLIP
+			},
+			[this](NVGcontext* vg, float row) {
+				nvgText(vg, 0, row, "ALGO", nullptr);
+				nvgText(vg, 0, row * 2, "WOLF", nullptr);
+			}
+		};
+
 	}
 
 
 	// Rotary encoder handling - see how Phrase16 does it
-
-	void onEncoderStep() {
-		Ca.reset();
-		// Update display
-		displaySelectState = true;
-		selectStateTimer.reset();
-		dirty = true;
-		
-	}
-
-	float rotaryEncoder(float rotaryEncoderValue) {
+	int rotaryEncoder(float rotaryEncoderValue) {
 		float difference = rotaryEncoderValue - prevRotaryEncoderValue;
+		int delta = 0;
 		while (difference >= rotaryEncoderIndent) {
-			rule = (rule + 1) % 256;
+			delta++;
 			prevRotaryEncoderValue += rotaryEncoderIndent;
 			difference = rotaryEncoderValue - prevRotaryEncoderValue;
-			onEncoderStep();
 		}
 		while (difference <= -rotaryEncoderIndent) {
-			rule = (rule + 255) % 256; 
+			delta--;
 			prevRotaryEncoderValue -= rotaryEncoderIndent;
 			difference = rotaryEncoderValue - prevRotaryEncoderValue;
-			onEncoderStep();	
 		}
-
-		return rule;
+		return delta;
 	}
 
 
 	void process(const ProcessArgs& args) override {
 
-		//if (((args.frame + this->id) % CONTROL_INTERVAL) == 0) {
+		//	*****	INPUT	*****
+		if (((args.frame + this->id) % CONTROL_INTERVAL) == 0) {
 			// Do param control stuff here
-		//}
+			// need a smart way to set dirty flag when params change or things are triggered
+			// not calling dirty when I dont need to, like when menu is open
+			Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
+			Ca.setChance(params[CHANCE_PARAM].getValue());
 
-		// need a smart way to set dirty flag when params change or things are triggered
-		if (menuBoolean.process(params[MENU_PARAM].getValue())) {
-			menuState ^= true;
-			dirty = true;
+			if (menuBoolean.process(params[MENU_PARAM].getValue())) {
+				menuState ^= true;
+				menuPage = 0;
+				dirty = true;
+			}
+
+			if (modeBoolean.process(params[MODE_PARAM].getValue())) {
+				if (menuState) {
+					menuPage++;
+					if (menuPage >= MAX_MENU_PAGES) { menuPage = 0; }
+					dirty = true;
+				}
+				else {
+					//
+					modeState++;
+				}
+			}
+
+			int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
+			if (selectDelta != 0) {
+				//Could we do menuStruc, menuUpdate[menuPage] ... do a defined thing
+				if (menuState) {
+					switch (menuPage) {
+					case 0:
+						Ca.changeSeed(selectDelta);
+						break;
+					case 1:
+						break;
+					//...
+					}
+
+				}
+				else {
+					Ca.changeRule(selectDelta);
+					displayRule = true;
+					ruleDisplayTimer.reset();
+				}
+				dirty = true;
+			}
+
+			if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
+				Ca.inject();
+				dirty = true;
+			}
+
+			// Apply offset
+			//Ca.setOffset(params[OFFSET_PARAM].getValue());
+			float offset = params[OFFSET_PARAM].getValue();
+			if (offset != prevOffset) {
+				Ca.setOffset(offset);
+				dirty = true;
+			}
+			prevOffset = offset;	
 		}
 
-		Ca.setSequenceLength(params[LENGTH_PARAM].getValue());
-		Ca.setChance(params[CHANCE_PARAM].getValue());
-
-		Ca.setRule(rotaryEncoder(params[SELECT_PARAM].getValue()));
-		if (displaySelectState && selectStateTimer.process(args.sampleTime) > 0.75f) {
-			displaySelectState = false;
+		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
+			displayRule = false;
 			dirty = true;
 		}
-
-		if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
-			Ca.inject();
-			dirty = true;
-		}
-
-		// Apply offset
-		Ca.setOffset(params[OFFSET_PARAM].getValue());
-		//dirty = true;
-
 	
+		//	*****	STEP	*****
+
 		float trigInput = inputs[TRIG_INPUT].getVoltage();					// Squared for bipolar signals
 		if (trigTrigger.process(trigInput * trigInput, 0.2f, 4.f)) {
 			Ca.step();
@@ -170,6 +226,8 @@ struct WolframModule : Module {
 				dirty = true;
 			}
 		}
+
+		//	*****	OUTPUT	*****
 
 		// Works nicely, not sure if its the correct use of the pulse generator, its more a gate now
 		bool xPulseTrigger = (Ca.getRow() >> 7) & 1;
@@ -191,8 +249,6 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCV);
 		bool yPulseOutput = yPulseGenerator.process(args.sampleTime);
 		outputs[Y_PULSE_OUTPUT].setVoltage(yPulseOutput ? 10.f : 0.f);
-
-		lights[MENU_LIGHT].setBrightnessSmooth(menuState, args.sampleTime);
 	}
 };
 
@@ -216,6 +272,14 @@ struct MatrixDisplay2 : Widget {
 	std::shared_ptr<Font> font;
 	std::string fontPath;
 
+	// Sort out mm2px stuff, need a rule
+	float matrixSize = mm2px(32.0f);	//31.7
+	int matrixCols = 8;
+	int matrixRows = 8;
+	float cellPos = matrixSize / matrixCols;
+	float cellSize = cellPos * 0.5f;
+	float fontSize = (matrixSize / matrixCols) * 2.0f;
+
 	MatrixDisplay2(WolframModule* m) {
 		module = m;
 		box.pos = Vec(mm2px(30.1) - matrixSize * 0.5, mm2px(26.14) - matrixSize * 0.5);
@@ -226,17 +290,7 @@ struct MatrixDisplay2 : Widget {
 		font = APP->window->loadFont(fontPath);
 	}
 
-	// Sort out mm2px stuff, need a rule
-	float matrixSize = mm2px(32.0f);	//31.7
-	int matrixCols = 8;
-	int matrixRows = 8;
-	float cellPos = matrixSize / matrixCols;
-	float cellSize = cellPos * 0.5f;
-
-	float fontSize = (matrixSize / matrixCols) * 2.0f;
-
 	void draw(NVGcontext* vg) override {
-
 		// Background
 		nvgBeginPath(vg);
 		nvgRect(vg, 0, 0, matrixSize, matrixSize);
@@ -253,20 +307,17 @@ struct MatrixDisplay2 : Widget {
 
 		if (module->menuState) {
 			nvgFillColor(vg, Colours::primaryAccent);
-			nvgText(vg, 0, 0, "PARK", nullptr);
-			nvgText(vg, 0, fontSize, "GATE", nullptr);
-			nvgText(vg, 0, fontSize * 2, "   ", nullptr);
-			nvgText(vg, 0, fontSize * 3, "HAUS", nullptr);
+			module->menuPages[module->menuPage](vg, fontSize);
 		}
 		else {
 			int startRow = 0;
-			if (module->displaySelectState) {
+			if (module->displayRule) {
 				startRow = matrixRows - 4;
 
 				nvgFillColor(vg, Colours::primaryAccent);
 				nvgText(vg, 0, 0, "RULE", nullptr);
 				char ruleStr[5];
-				snprintf(ruleStr, sizeof(ruleStr), "%4.3d", module->rule);
+				snprintf(ruleStr, sizeof(ruleStr), "%4.3d", module->Ca.getRule());
 				nvgText(vg, 0, fontSize, ruleStr, nullptr);
 			}
 
@@ -374,11 +425,11 @@ struct MatrixDisplay : Widget {
 					//drawText(vg, row, segementSize, { 9+18, spaceChar, 9+21, spaceChar, 9+12, spaceChar, 9+5, spaceChar });
 					if (row == 0) { drawBlankRow(vg, row, segementSize); }
 				}
-				else if (module->displaySelectState && row < 4) {
+				else if (module->displayRule && row < 4) {
 					// Display rule number
 					if (row == 0) { drawBlankRow(vg, row, segementSize); }
 					else if (row == 1) {
-						uint8_t displayRule = module->rule;
+						uint8_t displayRule = module->Ca.getRule();
 						std::array<int, 8> ruleDigits{ 36, 36, 36, 36, 36, 36, 36, 36 };
 						if (displayRule >= 100) {
 							ruleDigits[2] = (displayRule / 100) % 10;	// Hundreds
@@ -504,7 +555,11 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		// Params
 		// Buttons
-		addParam(createLightParamCentered<VCVLightButton<MediumSimpleLight<WhiteLight>>>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM, WolframModule::MENU_LIGHT));
+		//addParam(createLightParamCentered<VCVLightButton<MediumSimpleLight<WhiteLight>>>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM, WolframModule::MENU_LIGHT));
+		//addParam(createLightParamCentered<VCVLightButton<MediumSimpleLight<WhiteLight>>>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MODE_PARAM, WolframModule::MENU_LIGHT));
+
+		addParam(createParamCentered<CKD6>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM));
+		addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
 		// Dials
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.0f)), module, WolframModule::LENGTH_PARAM));
@@ -527,7 +582,6 @@ struct WolframModuleWidget : ModuleWidget {
 		//MatrixDisplay* matrixDisplay = new MatrixDisplay(module);
 		//matrixDisplayFb->addChild(matrixDisplay);
 		//addChild(matrixDisplayFb);
-
 
 		MatrixDisplayBuffer* matrixDisplayFb = new MatrixDisplayBuffer(module);
 		MatrixDisplay2* matrixDisplay = new MatrixDisplay2(module);

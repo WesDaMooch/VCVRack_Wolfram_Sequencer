@@ -4,6 +4,9 @@
 #include <array>
 //#include <rack.hpp>
 
+
+//WHY IS THIS A CLASS NOT STRUCT
+
 class CellularAutomata
 {
 public:
@@ -58,9 +61,13 @@ public:
 		//internalCircularBuffer[internalWriteHead] = seed;
 	}
 
-	void setRule(uint8_t passedRule) {
-		rule = passedRule;
-		//reset();
+	void changeRule(int change) {
+		rule = static_cast<uint8_t>((rule + change + 256) % 256);
+		reset();
+	}
+
+	void changeSeed(int change) {
+		seed = static_cast<uint8_t>((seed + change + 256) % 256);
 	}
 
 	void setSequenceLength(float passedSequenceLength) {
@@ -97,6 +104,15 @@ public:
 		}
 		return col;
 	}
+
+	uint8_t getRule() {
+		return rule;
+	}
+
+	uint8_t getSeed() {
+		return seed;
+	}
+
 
 private:
 
