@@ -38,6 +38,8 @@ struct WolframModule : Module {
 	};
 	enum InputId {
 		RESET_INPUT,
+		CHANCE_INPUT,
+		OFFSET_INPUT,
 		TRIG_INPUT,
 		INJECT_INPUT,
 		INPUTS_LEN
@@ -81,6 +83,7 @@ struct WolframModule : Module {
 	int offset = 0;
 	float prevOffset = offset;
 	bool resetFlag = false;
+	bool ruleResetFlag = false;
 	int modeState = 0;
 
 	bool menuState = false;
@@ -115,6 +118,8 @@ struct WolframModule : Module {
 		configParam(Y_SCALE_PARAM, 0.f, 10.f, 5.f, "Y CV Scale", "V");
 		paramQuantities[Y_SCALE_PARAM]->displayPrecision = 3;
 		configInput(RESET_INPUT, "Reset input");
+		configInput(CHANCE_INPUT, "Chance CV input");
+		configInput(OFFSET_INPUT, "Offset CV input");
 		configInput(TRIG_INPUT, "Trigger input");
 		configInput(INJECT_INPUT, "Inject input");
 		configOutput(X_CV_OUTPUT, "X CV output");
@@ -212,7 +217,7 @@ struct WolframModule : Module {
 				else {
 					// Rule is resetiing 
 					rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
-					resetFlag = true;
+					ruleResetFlag = true;
 					displayRule = true;
 					ruleDisplayTimer.reset();
 				}
@@ -220,6 +225,7 @@ struct WolframModule : Module {
 			}
 
 			if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
+				// Pos V adds, neg V removes?
 				int pos = 3;
 				int displayPos = (pos + offset + 8) & 7;
 				internalCircularBuffer[internalReadHead] |= (1 << pos);
@@ -236,7 +242,7 @@ struct WolframModule : Module {
 			}
 
 			// Apply offset
-			float offset = params[OFFSET_PARAM].getValue(); //int?
+			offset = params[OFFSET_PARAM].getValue(); //int?
 			if (!menuState && offset != prevOffset) {
 				dirty = true;
 			}
@@ -255,29 +261,16 @@ struct WolframModule : Module {
 
 			bool generateFlag = random::get<float>() < chance;
 
-			// if ((resetFlag && generateFlag) or (ruleResetFlag && generateFlag)) {
-			//		internalCircularBuffer[internalWriteHead] = seed;
-			//		resetFlag = false;
-			// }
-			// else if (resetFlag) {
-			//		internalWriteHead = 0;
-			//		resetFlag = false;
-			// }
-
-			if (resetFlag) {
-				if (generateFlag) {
+			bool resetCondition = resetFlag || ruleResetFlag;
+			if (generateFlag) {
+				if (resetCondition) {
 					internalCircularBuffer[internalWriteHead] = seed;
+					resetFlag = false;
+					ruleResetFlag = false;
 				}
-				else
-				{
-					internalWriteHead = 0;
-					//outputReadHead = 0;
-				}
-				resetFlag = false;
-			}
-			else {
-				if (generateFlag) {
+				else {
 					// Generate row
+					// Add modes
 					for (int i = 0; i < 8; i++) {
 
 						int left_index = i - 1;
@@ -301,6 +294,10 @@ struct WolframModule : Module {
 						}
 					}
 				}
+			}
+			else if (resetFlag) {
+				internalWriteHead = 0;
+				resetFlag = false;
 			}
 
 			// Copy internal buffer to output buffer
@@ -474,7 +471,7 @@ struct WolframModuleWidget : ModuleWidget {
 		addParam(createParamCentered<CKD6>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM));
 		addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
 		// Dials
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.0f)), module, WolframModule::LENGTH_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.0f)), module, WolframModule::CHANCE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.0f)), module, WolframModule::OFFSET_PARAM));
@@ -482,6 +479,8 @@ struct WolframModuleWidget : ModuleWidget {
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.0f)), module, WolframModule::Y_SCALE_PARAM));
 		// Inputs
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.4f, 18.5f)), module, WolframModule::RESET_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4f, 96.5f)), module, WolframModule::CHANCE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56f, 96.5f)), module, WolframModule::OFFSET_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4f, 111.5f)), module, WolframModule::TRIG_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56f, 111.5f)), module, WolframModule::INJECT_INPUT));
 		// Outputs
