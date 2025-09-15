@@ -5,23 +5,37 @@
 // NanoVG: https://github.com/memononen/nanovg
 
 
-// Use rack pulseGenerator for pulse outs...
+// Have an audio out mode? (-5V tp 5v)?
+
+// Therefore, modules with a CLOCK and RESET input, or similar variants, should ignore CLOCK triggers up to 1 ms 
+// after receiving a RESET trigger.You can use dsp::Timer for keeping track of time.
 
 #include "plugin.hpp"
 #include <array>
 //#include <vector>
 
 namespace Colours {
-	const NVGcolor lcdBackground = nvgRGB(50, 0, 0);
-	//const NVGcolor primaryAccent = nvgRGB(251, 134, 38);
-	const NVGcolor primaryAccent = nvgRGB(251, 0, 0);
-	const NVGcolor primaryAccentOff = nvgRGB(50, 0, 0);
+	//const NVGcolor lcdBackground = nvgRGB(50, 0, 0);
+	//const NVGcolor primaryAccent = nvgRGB(251, 0, 0);
+	//const NVGcolor primaryAccentOff = nvgRGB(50, 0, 0);
+	
+	const NVGcolor lcdBackground = nvgRGB(67, 38, 38);		// Befaco 
+	const NVGcolor primaryAccent = nvgRGB(195, 67, 67);		// Befaco 
+	const NVGcolor primaryAccentOff = nvgRGB(67, 38, 38);
+
+	//const NVGcolor lcdBackground = nvgRGB(56, 56, 56);			// Phrase16 
+	//const NVGcolor primaryAccent = nvgRGB(175, 210, 44);		// Phrase16 
+	//const NVGcolor primaryAccentOff = nvgRGB(56, 56, 56);
+	//const NVGcolor lcdBackground = nvgRGB(67, 70, 55);
+	//const NVGcolor primaryAccentOff = nvgRGB(67, 70, 55);
+
 	const NVGcolor secondaryAccent = nvgRGB(255, 0, 255);
 }
 
 // Put this out here?
+// are these the right types
 constexpr static int PARAM_CONTROL_INTERVAL = 64;
-static constexpr int MAX_MENU_PAGES = 3;
+constexpr static int MAX_MENU_PAGES = 5;
 constexpr static size_t MAX_ROWS = 64;
 
 struct WolframModule : Module {
@@ -66,6 +80,7 @@ struct WolframModule : Module {
 	dsp::BooleanTrigger menuBoolean;
 	dsp::BooleanTrigger modeBoolean;
 	dsp::Timer ruleDisplayTimer;
+	dsp::Timer menuDisplayTimer;
 
 	std::array<uint8_t, MAX_ROWS> internalCircularBuffer = {};
 	std::array<uint8_t, 8> outputCircularBuffer = {};
@@ -76,38 +91,41 @@ struct WolframModule : Module {
 	int outputWriteHead = internalWriteHead;
 
 	int sequenceLength = 8;
+	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 
 	uint8_t rule = 30;
 	uint8_t seed = 8;
 	float chance = 1;
 	int offset = 0;
-	float prevOffset = offset;
+	int prevOffset = offset;
 	bool resetFlag = false;
 	bool ruleResetFlag = false;
-	int modeState = 0;
+	int mode = 0;
+	int numModes = 3;
 
 	bool menuState = false;
 	int menuPage = 0;
 
-	float rotaryEncoderIndent = 1.0f / 60.0f;
+	float rotaryEncoderIndent = 1.f / 50.f;
 	float prevRotaryEncoderValue = 0.f;
 
 	bool displayRule = false;
 	bool dirty = true;
 
+	// inline? how do they work
+
 
 	WolframModule() {
 		internalCircularBuffer.fill(0);
 		outputCircularBuffer.fill(0);
-		// Init seed
 		internalCircularBuffer[internalReadHead] = seed;
 		outputCircularBuffer[outputReadHead] = seed;
 
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
-		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");				// Rotary encoder
-		configParam(LENGTH_PARAM, 2.f, 64.f, 8.f, "Length"); // Fix
+		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
+		configParam(LENGTH_PARAM, 0.f, 9.f, 0.f, "Length", " Selection");
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
@@ -117,15 +135,15 @@ struct WolframModule : Module {
 		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
 		configParam(Y_SCALE_PARAM, 0.f, 10.f, 5.f, "Y CV Scale", "V");
 		paramQuantities[Y_SCALE_PARAM]->displayPrecision = 3;
-		configInput(RESET_INPUT, "Reset input");
-		configInput(CHANCE_INPUT, "Chance CV input");
-		configInput(OFFSET_INPUT, "Offset CV input");
-		configInput(TRIG_INPUT, "Trigger input");
-		configInput(INJECT_INPUT, "Inject input");
-		configOutput(X_CV_OUTPUT, "X CV output");
-		configOutput(X_PULSE_OUTPUT, "X pulse output");
+		configInput(RESET_INPUT, "Reset");
+		configInput(CHANCE_INPUT, "Chance CV");
+		configInput(OFFSET_INPUT, "Offset CV");
+		configInput(TRIG_INPUT, "Trigger");
+		configInput(INJECT_INPUT, "Inject");
+		configOutput(X_CV_OUTPUT, "X CV");
+		configOutput(X_PULSE_OUTPUT, "X Gate");
 		configOutput(Y_CV_OUTPUT, "Y CV");
-		configOutput(Y_PULSE_OUTPUT, "Y pulse output");
+		configOutput(Y_PULSE_OUTPUT, "Y Gate");
 	}
 
 	uint8_t applyOffset(uint8_t row) {
@@ -154,7 +172,6 @@ struct WolframModule : Module {
 		return col;
 	}
 
-	// Rotary encoder handling - see how Phrase16 does it
 	int rotaryEncoder(float rotaryEncoderValue) {
 		float difference = rotaryEncoderValue - prevRotaryEncoderValue;
 		int delta = 0;
@@ -173,18 +190,17 @@ struct WolframModule : Module {
 
 
 	void process(const ProcessArgs& args) override {
-		//	*****	INPUT	*****
+		//	*****	PARAM	*****
 		if (((args.frame + this->id) % PARAM_CONTROL_INTERVAL) == 0) {
 			// Do param control stuff here
 			// need a smart way to set dirty flag when params change or things are triggered
 			// not calling dirty when I dont need to, like when menu is open
 
-			sequenceLength = params[LENGTH_PARAM].getValue(); //make sure its an int
-			chance = params[CHANCE_PARAM].getValue();
+			sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
 			if (menuBoolean.process(params[MENU_PARAM].getValue())) {
 				menuState ^= true;
-				menuPage = 0;
+				menuDisplayTimer.reset();
 				dirty = true;
 			}
 
@@ -192,11 +208,11 @@ struct WolframModule : Module {
 				if (menuState) {
 					menuPage++;
 					if (menuPage >= MAX_MENU_PAGES) { menuPage = 0; }
+					menuDisplayTimer.reset();
 					dirty = true;
 				}
 				else {
-					//
-					modeState++;
+					mode = (mode + 1) % numModes;
 				}
 			}
 
@@ -209,13 +225,13 @@ struct WolframModule : Module {
 						seed = static_cast<uint8_t>((seed + selectDelta + 256) % 256);
 						break;
 					case 1:
+						mode = (mode + 1) % numModes; // This line comes up twice...
 						break;
 					//...
 					}
-
+					menuDisplayTimer.reset();
 				}
 				else {
-					// Rule is resetiing 
 					rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
 					ruleResetFlag = true;
 					displayRule = true;
@@ -223,41 +239,49 @@ struct WolframModule : Module {
 				}
 				dirty = true;
 			}
-
-			if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
-				// Pos V adds, neg V removes?
-				int pos = 3;
-				int displayPos = (pos + offset + 8) & 7;
-				internalCircularBuffer[internalReadHead] |= (1 << pos);
-				// I want inject to be indepent from offset
-				// work out what the offset is for it with offset applied
-				outputCircularBuffer[outputReadHead] |= (1 << displayPos);
-				if (!menuState) {
-					dirty = true;
-				}
-			}
-
-			if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
-				resetFlag = true;
-			}
-
-			// Apply offset
-			offset = params[OFFSET_PARAM].getValue(); //int?
-			if (!menuState && offset != prevOffset) {
-				dirty = true;
-			}
-			prevOffset = offset;	
 		}
 
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
 			displayRule = false;
 			dirty = true;
 		}
-	
-		//	*****	STEP	*****
 
-		float trigInput = inputs[TRIG_INPUT].getVoltage();					// Squared for bipolar signals
-		if (trigTrigger.process(trigInput * trigInput, 0.2f, 4.f)) {
+		if (menuState && menuDisplayTimer.process(args.sampleTime) > 5.0f) {
+			menuState = false;
+			dirty = true;
+		}
+
+		//	*****	INPUT	*****
+
+		if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
+			resetFlag = true;
+		}
+
+		float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
+		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f);
+
+		float offsetCv = clamp(inputs[OFFSET_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
+		offset = std::round(clamp(params[OFFSET_PARAM].getValue() + offsetCv, -4.f, 4.f));
+		
+		if (!menuState && offset != prevOffset) {
+			dirty = true;
+		}
+		prevOffset = offset;
+
+		if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
+			// Pos V adds, neg V removes?
+			int pos = 3;
+			int displayPos = (pos + offset + 8) & 7;
+			internalCircularBuffer[internalReadHead] |= (1 << pos);
+			outputCircularBuffer[outputReadHead] |= (1 << displayPos);
+			if (!menuState) {
+				dirty = true;
+			}
+		}
+	
+		float trig = inputs[TRIG_INPUT].getVoltage();					
+		if (trigTrigger.process(trig * trig, 0.2f, 4.f)) {			// Squared for bipolar signals
+			//	*****	STEP	*****
 
 			bool generateFlag = random::get<float>() < chance;
 
@@ -270,20 +294,35 @@ struct WolframModule : Module {
 				}
 				else {
 					// Generate row
-					// Add modes
 					for (int i = 0; i < 8; i++) {
 
-						int left_index = i - 1;
-						int right_index = i + 1;
+						int left = i - 1;
+						int right = i + 1;
+						int leftIndex = left;
+						int rightIndex = right;
 
-						if (left_index < 0) { left_index = 7; }
-						if (right_index > 7) { right_index = 0; }
+						// Wrap
+						if (left < 0) { leftIndex = 7; }
+						if (right > 7) { rightIndex = 0; }
 
-						int left_cell = (internalCircularBuffer[internalReadHead] >> left_index) & 1;
+						int leftCell = (internalCircularBuffer[internalReadHead] >> leftIndex) & 1;
 						int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
-						int right_cell = (internalCircularBuffer[internalReadHead] >> right_index) & 1;
+						int rightCell = (internalCircularBuffer[internalReadHead] >> rightIndex) & 1;
 
-						int tag = 7 - ((left_cell << 2) | (cell << 1) | right_cell);
+						switch (mode) {
+						case 1:
+							// Clip
+							if (left < 0) { leftCell = 0; }
+							if (right > 7) { rightCell = 0; }
+							break;
+						case 2:
+							// Rand
+							if (left < 0) { leftCell = random::get<bool>(); }
+							if (right > 7) { rightCell = random::get<bool>(); }
+							break;
+						}
+
+						int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
 
 						int ruleBit = (rule >> (7 - tag)) & 1;
 						if (ruleBit > 0) {
@@ -332,7 +371,7 @@ struct WolframModule : Module {
 			yPulseGenerator.trigger(1e-3f);
 		}
 
-		float xCV = (getRow() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow, this could be handled in Seq?
+		float xCV = (getRow() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow, this could be handled in Seq? could change scale for audio out
 		outputs[X_CV_OUTPUT].setVoltage(xCV);
 		bool xPulseOutput = xPulseGenerator.process(args.sampleTime);
 		outputs[X_PULSE_OUTPUT].setVoltage(xPulseOutput ? 10.f : 0.f);
@@ -341,6 +380,9 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCV);
 		bool yPulseOutput = yPulseGenerator.process(args.sampleTime);
 		outputs[Y_PULSE_OUTPUT].setVoltage(yPulseOutput ? 10.f : 0.f);
+
+		// Debug output
+		//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
 	}
 };
 
@@ -373,6 +415,7 @@ struct MatrixDisplay : Widget {
 	float fontSize = (matrixSize / matrixCols) * 2.0f;
 
 	// might need to be a vector oneday
+	// seems not efficient
 	std::array < std::function<void(NVGcontext*, float)>, MAX_MENU_PAGES> menuPages;
 
 	MatrixDisplay(WolframModule* m) {
@@ -381,27 +424,55 @@ struct MatrixDisplay : Widget {
 		box.size = Vec(matrixSize, matrixSize);
 
 		// Load font
-		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mt_wolf.otf"));
+		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf2.otf"));
 		font = APP->window->loadFont(fontPath);
 
 		menuPages = {
 			// Depending on Algo, display text could be Ca menuItem1,2,3 etc return "NAME"
 
 			[this](NVGcontext* vg, float row) {
+				nvgText(vg, 0, 0, "MENU", nullptr);
 				nvgText(vg, 0, row, "SEED", nullptr);
 				char seedStr[5];
-				snprintf(seedStr, sizeof(seedStr), "%4.3d", module->seed);
+				snprintf(seedStr, sizeof(seedStr), "%4.3d", module->seed); // this ok?
 				nvgText(vg, 0, row * 2, seedStr, nullptr);
+				//nvgText(vg, 0, 0, "<*+>", nullptr);
 			},
 			[this](NVGcontext* vg, float row) {
+				nvgText(vg, 0, 0, "MENU", nullptr);
 				nvgText(vg, 0, row, "MODE", nullptr);
-				nvgText(vg, 0, row * 2, "WRAP", nullptr);
-				// WRAP / RAND / CLIP
+				// This will change... different agors have different modes
+				switch (module->mode) {
+				case 0:
+					nvgText(vg, 0, row * 2, "WRAP", nullptr);
+					break;
+				case 1:
+					nvgText(vg, 0, row * 2, "CLIP", nullptr);
+					break;
+				case 2:
+					nvgText(vg, 0, row * 2, "RAND", nullptr);
+					break;
+				default:
+					nvgText(vg, 0, row * 2, "EROR", nullptr);
+					break;
+				}
 			},
 			[this](NVGcontext* vg, float row) {
+				nvgText(vg, 0, 0, "MENU", nullptr);
 				nvgText(vg, 0, row, "ALGO", nullptr);
-				nvgText(vg, 0, row * 2, "WOLF", nullptr);
+				nvgText(vg, 0, row * 2, "LIFE", nullptr);
 				// WOLF / ANT / LIFE
+			},
+			[this](NVGcontext* vg, float row) {
+				nvgText(vg, 0, 0, "MENU", nullptr);
+				nvgText(vg, 0, row, "LOOK", nullptr);
+				nvgText(vg, 0, row * 2, " RED", nullptr);
+				// RED / BLUE / GREN / B&W
+			},
+			[this](NVGcontext* vg, float row) {
+				nvgText(vg, 0, 0, "MENU", nullptr);
+				nvgText(vg, 0, row, "FEEL", nullptr);
+				nvgText(vg, 0, row * 2, "BALL", nullptr);
 			}
 		};
 	}
