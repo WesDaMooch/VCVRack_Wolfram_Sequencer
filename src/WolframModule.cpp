@@ -4,9 +4,6 @@
 // Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
 
-
-// Have an audio out mode? (-5V tp 5v)?
-
 // Therefore, modules with a CLOCK and RESET input, or similar variants, should ignore CLOCK triggers up to 1 ms 
 // after receiving a RESET trigger.You can use dsp::Timer for keeping track of time.
 
@@ -31,6 +28,11 @@ namespace Colours {
 
 	const NVGcolor secondaryAccent = nvgRGB(255, 0, 255);
 }
+
+// Could have different structs or class for each algo with a void setParameters()
+// See Befaco NoisePlethora
+
+
 
 // Put this out here?
 // are these the right types
@@ -90,9 +92,9 @@ struct WolframModule : Module {
 	int outputReadHead = internalReadHead;
 	int outputWriteHead = internalWriteHead;
 
+	float outputScaler = 1.f / 255.f;
 	int sequenceLength = 8;
 	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
-
 	uint8_t rule = 30;
 	uint8_t seed = 8;
 	float chance = 1;
@@ -106,7 +108,7 @@ struct WolframModule : Module {
 	bool menuState = false;
 	int menuPage = 0;
 
-	float rotaryEncoderIndent = 1.f / 50.f;
+	float rotaryEncoderIndent = 1.f / 40.f;
 	float prevRotaryEncoderValue = 0.f;
 
 	bool displayRule = false;
@@ -125,7 +127,7 @@ struct WolframModule : Module {
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
 		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
-		configParam(LENGTH_PARAM, 0.f, 9.f, 0.f, "Length", " Selection");
+		configParam(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length", " Sel");
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
@@ -272,6 +274,15 @@ struct WolframModule : Module {
 			// Pos V adds, neg V removes?
 			int pos = 3;
 			int displayPos = (pos + offset + 8) & 7;
+			if (inputs[INJECT_INPUT].getVoltage() < 0.f) {
+				// Kill random cell
+			}
+			else
+			{
+				// Add
+				// internalCircularBuffer[internalReadHead] |= (1 << pos);
+				// outputCircularBuffer[outputReadHead] |= (1 << displayPos);
+			}
 			internalCircularBuffer[internalReadHead] |= (1 << pos);
 			outputCircularBuffer[outputReadHead] |= (1 << displayPos);
 			if (!menuState) {
@@ -371,12 +382,14 @@ struct WolframModule : Module {
 			yPulseGenerator.trigger(1e-3f);
 		}
 
-		float xCV = (getRow() / 255.f) * params[X_SCALE_PARAM].getValue(); // div is slow, this could be handled in Seq? could change scale for audio out
+		// Have an audio out mode? (-5V tp 5v)?
+
+		float xCV = (getRow() * outputScaler) * params[X_SCALE_PARAM].getValue(); 
 		outputs[X_CV_OUTPUT].setVoltage(xCV);
 		bool xPulseOutput = xPulseGenerator.process(args.sampleTime);
 		outputs[X_PULSE_OUTPUT].setVoltage(xPulseOutput ? 10.f : 0.f);
 
-		float yCV = (getColumn() / 255.f) * params[Y_SCALE_PARAM].getValue(); 
+		float yCV = (getColumn() * outputScaler) * params[Y_SCALE_PARAM].getValue();
 		outputs[Y_CV_OUTPUT].setVoltage(yCV);
 		bool yPulseOutput = yPulseGenerator.process(args.sampleTime);
 		outputs[Y_PULSE_OUTPUT].setVoltage(yPulseOutput ? 10.f : 0.f);
@@ -542,7 +555,7 @@ struct WolframModuleWidget : ModuleWidget {
 		addParam(createParamCentered<CKD6>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM));
 		addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
 		// Dials
-		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.0f)), module, WolframModule::LENGTH_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.0f)), module, WolframModule::CHANCE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.0f)), module, WolframModule::OFFSET_PARAM));
