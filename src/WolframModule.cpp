@@ -4,40 +4,28 @@
 // Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
 
+// Act on this:
 // Therefore, modules with a CLOCK and RESET input, or similar variants, should ignore CLOCK triggers up to 1 ms 
 // after receiving a RESET trigger.You can use dsp::Timer for keeping track of time.
-
-#include "plugin.hpp"
-#include <array>
-//#include <vector>
-
-namespace Colours {
-	//const NVGcolor lcdBackground = nvgRGB(50, 0, 0);
-	//const NVGcolor primaryAccent = nvgRGB(251, 0, 0);
-	//const NVGcolor primaryAccentOff = nvgRGB(50, 0, 0);
-	
-	const NVGcolor lcdBackground = nvgRGB(67, 38, 38);		// Befaco 
-	const NVGcolor primaryAccent = nvgRGB(195, 67, 67);		// Befaco 
-	const NVGcolor primaryAccentOff = nvgRGB(67, 38, 38);
-
-	//const NVGcolor lcdBackground = nvgRGB(56, 56, 56);			// Phrase16 
-	//const NVGcolor primaryAccent = nvgRGB(175, 210, 44);		// Phrase16 
-	//const NVGcolor primaryAccentOff = nvgRGB(56, 56, 56);
-	//const NVGcolor lcdBackground = nvgRGB(67, 70, 55);
-	//const NVGcolor primaryAccentOff = nvgRGB(67, 70, 55);
-
-	const NVGcolor secondaryAccent = nvgRGB(255, 0, 255);
-}
+// So max module speed 1000Hz? 
 
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
+#include "plugin.hpp"
+#include <array>
 
+namespace Colours {	
+	NVGcolor lcdBackground = nvgRGB(67, 38, 38);		// Befaco 
+	NVGcolor primaryAccent = nvgRGB(195, 67, 67);		// Befaco 
+	NVGcolor primaryAccentOff = nvgRGB(67, 38, 38);
+	NVGcolor secondaryAccent = nvgRGB(76, 40, 40);
+}
 
 // Put this out here?
 // are these the right types
 constexpr static int PARAM_CONTROL_INTERVAL = 64;
-constexpr static int MAX_MENU_PAGES = 5;
+constexpr static int MAX_MENU_PAGES = 6;			// msut be a constant
 constexpr static size_t MAX_ROWS = 64;
 
 struct WolframModule : Module {
@@ -68,16 +56,19 @@ struct WolframModule : Module {
 		OUTPUTS_LEN
 	};
 	enum LightId {
-		BLINK_LIGHT, //
+		MODE_LIGHT,
+		X_CV_LIGHT,
+		X_GATE_LIGHT,
+		Y_CV_LIGHT,
+		Y_GATE_LIGHT,
+		TRIG_LIGHT,
+		INJECT_LIGHT,
 		LIGHTS_LEN
 	};
-
-	//CellularAutomata Ca; //
 
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger injectTrigger;
 	dsp::SchmittTrigger resetTrigger;
-	dsp::PulseGenerator xPulseGenerator;
 	dsp::PulseGenerator yPulseGenerator;
 	dsp::BooleanTrigger menuBoolean;
 	dsp::BooleanTrigger modeBoolean;
@@ -104,6 +95,8 @@ struct WolframModule : Module {
 	bool ruleResetFlag = false;
 	int mode = 0;
 	int numModes = 3;
+	int look = 0;
+	int numLooks = 5;
 
 	bool menuState = false;
 	int menuPage = 0;
@@ -146,6 +139,13 @@ struct WolframModule : Module {
 		configOutput(X_PULSE_OUTPUT, "X Gate");
 		configOutput(Y_CV_OUTPUT, "Y CV");
 		configOutput(Y_PULSE_OUTPUT, "Y Gate");
+		configLight(MODE_LIGHT, "Mode");
+		configLight(X_CV_LIGHT, "X CV");
+		configLight(X_GATE_LIGHT, "X Gate");
+		configLight(Y_CV_LIGHT, "Y CV");
+		configLight(Y_GATE_LIGHT, "Y Gate");
+		configLight(TRIG_LIGHT, "Trigger");
+		configLight(INJECT_LIGHT, "Inject");
 	}
 
 	uint8_t applyOffset(uint8_t row) {
@@ -227,9 +227,11 @@ struct WolframModule : Module {
 						seed = static_cast<uint8_t>((seed + selectDelta + 256) % 256);
 						break;
 					case 1:
-						mode = (mode + 1) % numModes; // This line comes up twice...
+						mode = (mode + selectDelta + numModes) % numModes;
 						break;
-					//...
+					case 5:
+						look = (look + selectDelta + numLooks) % numLooks;
+						break;
 					}
 					menuDisplayTimer.reset();
 				}
@@ -270,10 +272,12 @@ struct WolframModule : Module {
 		}
 		prevOffset = offset;
 
-		if (injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f)) {
+		float inject = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
+		if (inject) {
 			// Pos V adds, neg V removes?
 			int pos = 3;
 			int displayPos = (pos + offset + 8) & 7;
+			/*
 			if (inputs[INJECT_INPUT].getVoltage() < 0.f) {
 				// Kill random cell
 			}
@@ -283,15 +287,17 @@ struct WolframModule : Module {
 				// internalCircularBuffer[internalReadHead] |= (1 << pos);
 				// outputCircularBuffer[outputReadHead] |= (1 << displayPos);
 			}
+			*/
 			internalCircularBuffer[internalReadHead] |= (1 << pos);
 			outputCircularBuffer[outputReadHead] |= (1 << displayPos);
 			if (!menuState) {
 				dirty = true;
 			}
 		}
-	
-		float trig = inputs[TRIG_INPUT].getVoltage();					
-		if (trigTrigger.process(trig * trig, 0.2f, 4.f)) {			// Squared for bipolar signals
+		
+		// For audio rate would need to trigger when low to high and high to low, for cv only low to high
+		bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+		if (trig) {			
 			//	*****	STEP	*****
 
 			bool generateFlag = random::get<float>() < chance;
@@ -305,6 +311,7 @@ struct WolframModule : Module {
 				}
 				else {
 					// Generate row
+					// Cellular automata 
 					for (int i = 0; i < 8; i++) {
 
 						int left = i - 1;
@@ -335,7 +342,7 @@ struct WolframModule : Module {
 
 						int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
 
-						int ruleBit = (rule >> (7 - tag)) & 1;
+						int ruleBit = (rule >> (7 - tag)) & 1;  // bool?
 						if (ruleBit > 0) {
 							internalCircularBuffer[internalWriteHead] |= (1 << i);
 						}
@@ -369,33 +376,30 @@ struct WolframModule : Module {
 
 		//	*****	OUTPUT	*****
 
-		// Works nicely, not sure if its the correct use of the pulse generator, its more a gate now
-		//bool xPulseTrigger = (Ca.getRow() >> 7) & 1;
-		bool xPulseTrigger = (getRow() >> 7) & 1;
-		if (xPulseTrigger) {
-			xPulseGenerator.trigger(1e-3f);
-		}
-
-
-		bool yPulseTrigger = getColumn() & 1; // & 1?
-		if (yPulseTrigger) {
-			yPulseGenerator.trigger(1e-3f);
-		}
-
 		// Have an audio out mode? (-5V tp 5v)?
+		// Is this the correct use of pulseGenerator, dont think it is
+		uint8_t x = getRow();
+		float xCv = (x * outputScaler) * params[X_SCALE_PARAM].getValue(); 
+		outputs[X_CV_OUTPUT].setVoltage(xCv);
+		bool xGate = (x >> 7) & 1;
+		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
 
-		float xCV = (getRow() * outputScaler) * params[X_SCALE_PARAM].getValue(); 
-		outputs[X_CV_OUTPUT].setVoltage(xCV);
-		bool xPulseOutput = xPulseGenerator.process(args.sampleTime);
-		outputs[X_PULSE_OUTPUT].setVoltage(xPulseOutput ? 10.f : 0.f);
-
-		float yCV = (getColumn() * outputScaler) * params[Y_SCALE_PARAM].getValue();
-		outputs[Y_CV_OUTPUT].setVoltage(yCV);
-		bool yPulseOutput = yPulseGenerator.process(args.sampleTime);
-		outputs[Y_PULSE_OUTPUT].setVoltage(yPulseOutput ? 10.f : 0.f);
+		uint8_t y = getColumn();
+		float yCv = (y * outputScaler) * params[Y_SCALE_PARAM].getValue();
+		outputs[Y_CV_OUTPUT].setVoltage(yCv);
+		bool yGate = y & 1;
+		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// Debug output
 		//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
+
+		lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(mode) / (numModes - 1), args.sampleTime); // bad div
+		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
+		lights[X_GATE_LIGHT].setBrightness(xGate);
+		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
+		lights[Y_GATE_LIGHT].setBrightness(yGate);
+		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
+		lights[INJECT_LIGHT].setBrightnessSmooth(inject, args.sampleTime);
 	}
 };
 
@@ -420,16 +424,15 @@ struct MatrixDisplay : Widget {
 	std::string fontPath;
 
 	// Sort out mm2px stuff, need a rule
-	float matrixSize = mm2px(32.0f);	//31.7
+	float matrixSize = mm2px(32.f);	//31.7
 	int matrixCols = 8;
 	int matrixRows = 8;
 	float cellPos = matrixSize / matrixCols;
 	float cellSize = cellPos * 0.5f;
-	float fontSize = (matrixSize / matrixCols) * 2.0f;
+	float fontSize = (matrixSize / matrixCols) * 2.f;
 
-	// might need to be a vector oneday
-	// seems not efficient
-	std::array < std::function<void(NVGcontext*, float)>, MAX_MENU_PAGES> menuPages;
+	// seems not efficient, nah seems ok
+	std::array < std::function<void(NVGcontext*)>, MAX_MENU_PAGES> menuPages;
 
 	MatrixDisplay(WolframModule* m) {
 		module = m;
@@ -437,55 +440,96 @@ struct MatrixDisplay : Widget {
 		box.size = Vec(matrixSize, matrixSize);
 
 		// Load font
-		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf2.otf"));
+		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf3.otf"));
 		font = APP->window->loadFont(fontPath);
 
 		menuPages = {
-			// Depending on Algo, display text could be Ca menuItem1,2,3 etc return "NAME"
-
-			[this](NVGcontext* vg, float row) {
-				nvgText(vg, 0, 0, "MENU", nullptr);
-				nvgText(vg, 0, row, "SEED", nullptr);
-				char seedStr[5];
-				snprintf(seedStr, sizeof(seedStr), "%4.3d", module->seed); // this ok?
-				nvgText(vg, 0, row * 2, seedStr, nullptr);
-				//nvgText(vg, 0, 0, "<*+>", nullptr);
+			// Feel
+			// BALL / SQUR / .
+			[this](NVGcontext* vg) {
+				nvgText(vg, 0, fontSize, "SEED", nullptr);
+				for (int col = 0; col < matrixCols; col++) {
+					bool seedCell = false;
+					if ((module->seed >> (7 - col)) & 1) {
+						seedCell = true;
+					}
+					nvgBeginPath(vg);
+					nvgCircle(vg, (cellPos * col) + cellSize, fontSize * 2.5, cellSize);
+					nvgFillColor(vg, seedCell ? Colours::primaryAccent : Colours::primaryAccentOff);
+					nvgFill(vg);
+					nvgFillColor(vg, Colours::primaryAccent);		// Reset Colour
+				}
 			},
-			[this](NVGcontext* vg, float row) {
-				nvgText(vg, 0, 0, "MENU", nullptr);
-				nvgText(vg, 0, row, "MODE", nullptr);
+			[this](NVGcontext* vg) {
+				nvgText(vg, 0, fontSize, "MODE", nullptr);
 				// This will change... different agors have different modes
 				switch (module->mode) {
 				case 0:
-					nvgText(vg, 0, row * 2, "WRAP", nullptr);
+					nvgText(vg, 0, fontSize * 2, "WRAP", nullptr);
 					break;
 				case 1:
-					nvgText(vg, 0, row * 2, "CLIP", nullptr);
+					nvgText(vg, 0, fontSize * 2, "CLIP", nullptr);
 					break;
 				case 2:
-					nvgText(vg, 0, row * 2, "RAND", nullptr);
+					nvgText(vg, 0, fontSize * 2, "RAND", nullptr);
 					break;
 				default:
-					nvgText(vg, 0, row * 2, "EROR", nullptr);
+					nvgText(vg, 0, fontSize * 2, "EROR", nullptr);
 					break;
 				}
 			},
-			[this](NVGcontext* vg, float row) {
-				nvgText(vg, 0, 0, "MENU", nullptr);
-				nvgText(vg, 0, row, "ALGO", nullptr);
-				nvgText(vg, 0, row * 2, "LIFE", nullptr);
+			[this](NVGcontext* vg) {
+				nvgText(vg, 0, fontSize, "ALGO", nullptr);
+				nvgText(vg, 0, fontSize * 2, "WOLF", nullptr);
 				// WOLF / ANT / LIFE
 			},
-			[this](NVGcontext* vg, float row) {
-				nvgText(vg, 0, 0, "MENU", nullptr);
-				nvgText(vg, 0, row, "LOOK", nullptr);
-				nvgText(vg, 0, row * 2, " RED", nullptr);
-				// RED / BLUE / GREN / B&W
+			[this](NVGcontext* vg) {
+				nvgText(vg, 0, fontSize, "FSET", nullptr);
+				nvgText(vg, 0, fontSize * 2, "SYNC", nullptr);
+				// FREE / SYNC
 			},
-			[this](NVGcontext* vg, float row) {
-				nvgText(vg, 0, 0, "MENU", nullptr);
-				nvgText(vg, 0, row, "FEEL", nullptr);
-				nvgText(vg, 0, row * 2, "BALL", nullptr);
+			[this](NVGcontext* vg) {
+				nvgText(vg, 0, fontSize, " OUT", nullptr);
+				nvgText(vg, 0, fontSize * 2, "  CV", nullptr);
+				// CV / AUD
+			},
+			[this](NVGcontext* vg) {
+				nvgText(vg, 0, fontSize, "LOOK", nullptr);
+				switch (module->look) {
+				case 1:
+					// OLED
+					nvgText(vg, 0, fontSize * 2, "OLED", nullptr);
+					Colours::lcdBackground = nvgRGB(20, 20, 20);
+					Colours::primaryAccent = nvgRGB(0, 0, 255);
+					Colours::primaryAccentOff = Colours::lcdBackground;
+					break;
+				case 2:
+					nvgText(vg, 0, fontSize * 2, "RACK", nullptr);
+					Colours::lcdBackground = nvgRGB(18, 18, 18);
+					Colours::primaryAccent = SCHEME_YELLOW;
+					Colours::primaryAccentOff = Colours::lcdBackground;
+					break;
+				case 3:
+					nvgText(vg, 0, fontSize * 2, "ACID", nullptr);
+					Colours::lcdBackground = nvgRGB(6, 56, 56);
+					Colours::primaryAccent = nvgRGB(175, 210, 44);
+					Colours::primaryAccentOff = Colours::lcdBackground;
+					break;
+				case 4:
+					nvgText(vg, 0, fontSize * 2, "MONO", nullptr);
+					Colours::lcdBackground = nvgRGB(20, 20, 20);
+					Colours::primaryAccent = nvgRGB(255, 255, 255);
+					Colours::primaryAccentOff = Colours::lcdBackground;
+					break;
+				default:
+					// Befaco 
+					nvgText(vg, 0, fontSize * 2, "BFAC", nullptr);
+					Colours::lcdBackground = nvgRGB(67, 38, 38);
+					Colours::primaryAccent = nvgRGB(195, 67, 67);
+					Colours::primaryAccentOff = Colours::lcdBackground;
+					break;
+				}
+				module->dirty = true;	// feels bad doing this?
 			}
 		};
 	}
@@ -507,7 +551,9 @@ struct MatrixDisplay : Widget {
 
 		if (module->menuState) {
 			nvgFillColor(vg, Colours::primaryAccent);
-			menuPages[module->menuPage](vg, fontSize);
+			nvgText(vg, 0, 0, "menu", nullptr);
+			menuPages[module->menuPage](vg);
+			nvgText(vg, 0, fontSize * 3, "<*+>", nullptr);
 		}
 		else {
 			int startRow = 0;
@@ -556,11 +602,11 @@ struct WolframModuleWidget : ModuleWidget {
 		addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
 		// Dials
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
-		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.0f)), module, WolframModule::LENGTH_PARAM));
-		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.0f)), module, WolframModule::CHANCE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.0f)), module, WolframModule::OFFSET_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16f, 80.0f)), module, WolframModule::X_SCALE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.0f)), module, WolframModule::Y_SCALE_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.f)), module, WolframModule::LENGTH_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.f)), module, WolframModule::CHANCE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.f)), module, WolframModule::OFFSET_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16f, 80.f)), module, WolframModule::X_SCALE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.f)), module, WolframModule::Y_SCALE_PARAM));
 		// Inputs
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.4f, 18.5f)), module, WolframModule::RESET_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4f, 96.5f)), module, WolframModule::CHANCE_INPUT));
@@ -574,6 +620,13 @@ struct WolframModuleWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 111.5f)), module, WolframModule::Y_PULSE_OUTPUT));
 		// LEDs
 		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(15.24, 25.81)), module, WolframModule::BLINK_LIGHT));
+		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
+		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 96.5f)), module, WolframModule::X_CV_LIGHT));
+		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 111.5f)), module, WolframModule::X_GATE_LIGHT));
+		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.45f, 96.5f)), module, WolframModule::Y_CV_LIGHT));
+		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.45f, 111.5f)), module, WolframModule::Y_GATE_LIGHT));
+		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 104.f)), module, WolframModule::TRIG_LIGHT));
+		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.45, 104.f)), module, WolframModule::INJECT_LIGHT));
 
 		MatrixDisplayBuffer* matrixDisplayFb = new MatrixDisplayBuffer(module);
 		MatrixDisplay* matrixDisplay = new MatrixDisplay(module);
