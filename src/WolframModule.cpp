@@ -15,7 +15,9 @@
 #include "plugin.hpp"
 #include <array>
 
+// doesnt need to be a namespace...
 namespace Colours {	
+	// Defaults
 	NVGcolor lcdBackground = nvgRGB(67, 38, 38);		// Befaco 
 	NVGcolor primaryAccent = nvgRGB(195, 67, 67);		// Befaco 
 	NVGcolor primaryAccentOff = nvgRGB(67, 38, 38);
@@ -88,6 +90,8 @@ struct WolframModule : Module {
 	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	uint8_t rule = 30;
 	uint8_t seed = 8;
+	int seedSelect = seed;
+	bool randSeed = false;
 	float chance = 1;
 	int offset = 0;
 	int prevOffset = offset;
@@ -222,20 +226,35 @@ struct WolframModule : Module {
 			if (selectDelta != 0) {
 				if (menuState) {
 					switch (menuPage) {
-					case 0:
-						// Add random seed mode
-						seed = static_cast<uint8_t>((seed + selectDelta + 256) % 256);
-						break;
-					case 1:
-						mode = (mode + selectDelta + numModes) % numModes;
-						break;
-					case 5:
-						look = (look + selectDelta + numLooks) % numLooks;
-						break;
+						case 0: {
+							// Seed select
+							seedSelect = seedSelect + selectDelta;
+							if (seedSelect > 256) { seedSelect -= 257; }
+							else if (seedSelect < 0) { seedSelect += 257; }
+							if (seedSelect == 256) {
+								randSeed = true;
+							}
+							else {
+								seed = static_cast<uint8_t>(seedSelect);
+								randSeed = false;
+							}
+							break;
+						}
+						case 1: {
+							// Mode select
+							mode = (mode + selectDelta + numModes) % numModes;
+							break;
+						}
+						case 5: {
+							// Look select
+							look = (look + selectDelta + numLooks) % numLooks;
+							break;
+						}
 					}
 					menuDisplayTimer.reset();
 				}
 				else {
+					// Rule select
 					rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
 					ruleResetFlag = true;
 					displayRule = true;
@@ -305,7 +324,12 @@ struct WolframModule : Module {
 			bool resetCondition = resetFlag || ruleResetFlag;
 			if (generateFlag) {
 				if (resetCondition) {
-					internalCircularBuffer[internalWriteHead] = seed;
+					if (randSeed) {
+						internalCircularBuffer[internalWriteHead] = random::get<uint8_t>();
+					}
+					else {
+						internalCircularBuffer[internalWriteHead] = seed;
+					}
 					resetFlag = false;
 					ruleResetFlag = false;
 				}
@@ -448,16 +472,21 @@ struct MatrixDisplay : Widget {
 			// BALL / SQUR / .
 			[this](NVGcontext* vg) {
 				nvgText(vg, 0, fontSize, "SEED", nullptr);
-				for (int col = 0; col < matrixCols; col++) {
-					bool seedCell = false;
-					if ((module->seed >> (7 - col)) & 1) {
-						seedCell = true;
+				if (module->randSeed) {
+					nvgText(vg, 0, fontSize * 2, "RAND", nullptr);
+				}
+				else {
+					for (int col = 0; col < matrixCols; col++) {
+						bool seedCell = false;
+						if ((module->seed >> (7 - col)) & 1) {
+							seedCell = true;
+						}
+						nvgBeginPath(vg);
+						nvgCircle(vg, (cellPos * col) + cellSize, fontSize * 2.5, cellSize);
+						nvgFillColor(vg, seedCell ? Colours::primaryAccent : Colours::primaryAccentOff);
+						nvgFill(vg);
+						nvgFillColor(vg, Colours::primaryAccent);		// Reset Colour
 					}
-					nvgBeginPath(vg);
-					nvgCircle(vg, (cellPos * col) + cellSize, fontSize * 2.5, cellSize);
-					nvgFillColor(vg, seedCell ? Colours::primaryAccent : Colours::primaryAccentOff);
-					nvgFill(vg);
-					nvgFillColor(vg, Colours::primaryAccent);		// Reset Colour
 				}
 			},
 			[this](NVGcontext* vg) {
