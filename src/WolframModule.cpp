@@ -27,8 +27,35 @@ namespace Colours {
 // Put this out here?
 // are these the right types
 constexpr static int PARAM_CONTROL_INTERVAL = 64;
-constexpr static int MAX_MENU_PAGES = 6;			// msut be a constant
 constexpr static size_t MAX_ROWS = 64;
+
+
+enum Mode {
+	WRAP,
+	CLIP,
+	RAND,
+	MODE_LEN
+};
+
+enum FuncMenu {
+	SEED,
+	MODE,
+	SYNC, 
+	ALGORITHM,
+	OUTPUT,
+	LOOK,
+	MENU_LEN
+};
+
+enum Look {
+	BEFACO,
+	OLED,
+	RACK,
+	ACID,
+	MONO,
+	LOOK_LEN
+};
+
 
 struct WolframModule : Module {
 	enum ParamId {
@@ -68,6 +95,10 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
+	Mode moduleMode = Mode::WRAP;
+	Look moduleLook = Look::BEFACO;
+	FuncMenu moduleMenu = FuncMenu::SEED;
+	
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger injectTrigger;
 	dsp::SchmittTrigger resetTrigger;
@@ -75,7 +106,6 @@ struct WolframModule : Module {
 	dsp::BooleanTrigger menuBoolean;
 	dsp::BooleanTrigger modeBoolean;
 	dsp::Timer ruleDisplayTimer;
-	dsp::Timer menuDisplayTimer;
 
 	std::array<uint8_t, MAX_ROWS> internalCircularBuffer = {};
 	std::array<uint8_t, 8> outputCircularBuffer = {};
@@ -85,7 +115,6 @@ struct WolframModule : Module {
 	int outputReadHead = internalReadHead;
 	int outputWriteHead = internalWriteHead;
 
-	float outputScaler = 1.f / 255.f;
 	int sequenceLength = 8;
 	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	uint8_t rule = 30;
@@ -96,22 +125,19 @@ struct WolframModule : Module {
 	int offset = 0;
 	int prevOffset = offset;
 	bool resetFlag = false;
-	bool ruleResetFlag = false;
-	int mode = 0;
-	int numModes = 3;
-	int look = 0;
-	int numLooks = 5;
+	bool ruleResetFlag = false;	
 
+	uint8_t pendingInject = 0;
+	bool syncState = true;
 	bool menuState = false;
-	int menuPage = 0;
 
 	float rotaryEncoderIndent = 1.f / 40.f;
 	float prevRotaryEncoderValue = 0.f;
 
+	float outputScaler = 1.f / 255.f;
+
 	bool displayRule = false;
 	bool dirty = true;
-
-	// inline? how do they work
 
 
 	WolframModule() {
@@ -165,6 +191,7 @@ struct WolframModule : Module {
 	}
 
 	uint8_t getRow(int index = 0) {
+		index = clamp(index, 0, 8);
 		size_t rowIndex = (outputReadHead - index + 8) & 7;
 		return applyOffset(outputCircularBuffer[rowIndex]);
 	}
@@ -176,6 +203,63 @@ struct WolframModule : Module {
 			col |= ((row & 0x01) << (7 - i));
 		}
 		return col;
+	}
+
+	void setReset(bool reset, bool sync) {
+		// wtf is going on
+		if (!reset) return;
+
+		if (sync) {
+			resetFlag = true;
+		}
+		else {
+			if (random::get<float>() < chance) {
+				if (randSeed) {
+					uint8_t bit = random::get<uint8_t>();
+					internalCircularBuffer[internalWriteHead] = bit;
+
+				}
+				else {
+					internalCircularBuffer[internalWriteHead] = seed;
+					outputCircularBuffer[outputReadHead] = seed;
+				}
+			}
+			else {
+				internalWriteHead = 0;
+			}
+			resetFlag = false;
+		}
+	}
+
+	void setOffset(float offsetParamInput, float offsetCvInput, bool trig, bool sync) {
+		float offsetCv = clamp(offsetCvInput, -10.f, 10.f) * 0.8f;
+		int newOffset = std::round(clamp(offsetParamInput + offsetCv, -4.f, 4.f));
+		if (!sync || (sync && trig)) {
+			offset = newOffset;
+		}
+		// redraw with newOffset?
+		if (!menuState && offset != prevOffset) { 
+			dirty = true;
+		}
+		prevOffset = offset;
+	}
+
+	void setInject(bool inject, bool sync) {
+		// Pos V adds, neg V removes?
+		if (!inject) return;
+
+		const int pos = 3;
+		const int displayPos = (pos + offset + 8) & 7;
+		uint8_t bit = static_cast<uint8_t>(1 << pos);	// not const?
+		if (sync) {
+			pendingInject = bit;
+		}
+		else {
+			internalCircularBuffer[internalReadHead] |= bit;
+			outputCircularBuffer[outputReadHead] |= static_cast<uint8_t>(1 << displayPos);
+			pendingInject = 0;
+			if (!menuState) dirty = true;
+		}
 	}
 
 	int rotaryEncoder(float rotaryEncoderValue) {
@@ -194,8 +278,11 @@ struct WolframModule : Module {
 		return delta;
 	}
 
-
 	void process(const ProcessArgs& args) override {
+		// For audio rate would need to trigger when low to high and high to low, for cv only low to high
+		bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+
+
 		//	*****	PARAM	*****
 		if (((args.frame + this->id) % PARAM_CONTROL_INTERVAL) == 0) {
 			// Do param control stuff here
@@ -205,29 +292,33 @@ struct WolframModule : Module {
 			sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
 			if (menuBoolean.process(params[MENU_PARAM].getValue())) {
-				menuState ^= true;
-				menuDisplayTimer.reset();
+				menuState = !menuState;
 				dirty = true;
 			}
 
 			if (modeBoolean.process(params[MODE_PARAM].getValue())) {
 				if (menuState) {
-					menuPage++;
-					if (menuPage >= MAX_MENU_PAGES) { menuPage = 0; }
-					menuDisplayTimer.reset();
+					int numMenus = static_cast<int>(FuncMenu::MENU_LEN);
+					int menuIndex = static_cast<int>(moduleMenu);
+					menuIndex++;
+					if (menuIndex >= numMenus) { menuIndex = 0; }
+					moduleMenu = static_cast<FuncMenu>(menuIndex);
 					dirty = true;
 				}
 				else {
-					mode = (mode + 1) % numModes;
+					int numModes = static_cast<int>(Mode::MODE_LEN);
+					int modeIndex = static_cast<int>(moduleMode);
+					modeIndex++;
+					if (modeIndex >= numModes) { modeIndex = 0; }
+					moduleMode = static_cast<Mode>(modeIndex);
 				}
 			}
 
 			int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
 			if (selectDelta != 0) {
 				if (menuState) {
-					switch (menuPage) {
-						case 0: {
-							// Seed select
+					switch (moduleMenu) {
+						case SEED: {
 							seedSelect = seedSelect + selectDelta;
 							if (seedSelect > 256) { seedSelect -= 257; }
 							else if (seedSelect < 0) { seedSelect += 257; }
@@ -240,18 +331,29 @@ struct WolframModule : Module {
 							}
 							break;
 						}
-						case 1: {
-							// Mode select
-							mode = (mode + selectDelta + numModes) % numModes;
+						case MODE: {
+							int numModes = static_cast<int>(Mode::MODE_LEN);
+							int modeIndex = static_cast<int>(moduleMode);
+							modeIndex = (modeIndex + selectDelta + numModes) % numModes;
+							moduleMode = static_cast<Mode>(modeIndex);
 							break;
 						}
-						case 5: {
-							// Look select
-							look = (look + selectDelta + numLooks) % numLooks;
+						case SYNC: {
+							syncState = !syncState;
 							break;
 						}
+						case OUTPUT: {
+							break;
+						}
+						case LOOK: {
+							int numLooks = static_cast<int>(Look::LOOK_LEN);
+							int lookIndex = static_cast<int>(moduleLook);
+							lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
+							moduleLook = static_cast<Look>(lookIndex);
+							break;
+						}
+						default: { break; }
 					}
-					menuDisplayTimer.reset();
 				}
 				else {
 					// Rule select
@@ -269,60 +371,27 @@ struct WolframModule : Module {
 			dirty = true;
 		}
 
-		if (menuState && menuDisplayTimer.process(args.sampleTime) > 5.0f) {
-			menuState = false;
-			dirty = true;
-		}
-
 		//	*****	INPUT	*****
 
-		if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
-			resetFlag = true;
-		}
+
+		// How to make reset happen 
+		setReset(resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f), syncState);
+		//if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
+		//	resetFlag = true;
+		//}
 
 		float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
 		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f);
 
-		float offsetCv = clamp(inputs[OFFSET_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
-		offset = std::round(clamp(params[OFFSET_PARAM].getValue() + offsetCv, -4.f, 4.f));
+		setOffset(params[OFFSET_PARAM].getValue(), inputs[OFFSET_INPUT].getVoltage(), trig, syncState);
+		bool injectState = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
+		setInject(injectState, syncState);
 		
-		if (!menuState && offset != prevOffset) {
-			dirty = true;
-		}
-		prevOffset = offset;
-
-		float inject = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
-		if (inject) {
-			// Pos V adds, neg V removes?
-			int pos = 3;
-			int displayPos = (pos + offset + 8) & 7;
-			/*
-			if (inputs[INJECT_INPUT].getVoltage() < 0.f) {
-				// Kill random cell
-			}
-			else
-			{
-				// Add
-				// internalCircularBuffer[internalReadHead] |= (1 << pos);
-				// outputCircularBuffer[outputReadHead] |= (1 << displayPos);
-			}
-			*/
-			internalCircularBuffer[internalReadHead] |= (1 << pos);
-			outputCircularBuffer[outputReadHead] |= (1 << displayPos);
-			if (!menuState) {
-				dirty = true;
-			}
-		}
-		
-		// For audio rate would need to trigger when low to high and high to low, for cv only low to high
-		bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
 		if (trig) {			
 			//	*****	STEP	*****
 
-			bool generateFlag = random::get<float>() < chance;
-
 			bool resetCondition = resetFlag || ruleResetFlag;
-			if (generateFlag) {
+			if (random::get<float>() < chance) {
 				if (resetCondition) {
 					if (randSeed) {
 						internalCircularBuffer[internalWriteHead] = random::get<uint8_t>();
@@ -351,23 +420,23 @@ struct WolframModule : Module {
 						int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
 						int rightCell = (internalCircularBuffer[internalReadHead] >> rightIndex) & 1;
 
-						switch (mode) {
-						case 1:
-							// Clip
+						switch (moduleMode) {
+						case CLIP:
 							if (left < 0) { leftCell = 0; }
 							if (right > 7) { rightCell = 0; }
 							break;
-						case 2:
-							// Rand
+						case RAND:
 							if (left < 0) { leftCell = random::get<bool>(); }
 							if (right > 7) { rightCell = random::get<bool>(); }
+							break;
+						default:
 							break;
 						}
 
 						int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
 
-						int ruleBit = (rule >> (7 - tag)) & 1;  // bool?
-						if (ruleBit > 0) {
+						bool ruleBit = (rule >> (7 - tag)) & 1;
+						if (ruleBit) {
 							internalCircularBuffer[internalWriteHead] |= (1 << i);
 						}
 						else {
@@ -377,8 +446,14 @@ struct WolframModule : Module {
 				}
 			}
 			else if (resetFlag) {
+				// Sync
 				internalWriteHead = 0;
 				resetFlag = false;
+			}
+
+			if (pendingInject) {
+				internalCircularBuffer[internalWriteHead] |= pendingInject;
+				pendingInject = 0;
 			}
 
 			// Copy internal buffer to output buffer
@@ -393,15 +468,12 @@ struct WolframModule : Module {
 			internalWriteHead = (internalWriteHead + 1) % sequenceLength;
 
 			// Redraw matrix display
-			if (!menuState) {
-				dirty = true;
-			}
+			if (!menuState) dirty = true;
 		}
 
 		//	*****	OUTPUT	*****
 
-		// Have an audio out mode? (-5V tp 5v)?
-		// Is this the correct use of pulseGenerator, dont think it is
+		// Have an audio out mode? (-5V tp 5v)?s
 		uint8_t x = getRow();
 		float xCv = (x * outputScaler) * params[X_SCALE_PARAM].getValue(); 
 		outputs[X_CV_OUTPUT].setVoltage(xCv);
@@ -417,13 +489,13 @@ struct WolframModule : Module {
 		// Debug output
 		//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
 
-		lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(mode) / (numModes - 1), args.sampleTime); // bad div
+		lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(moduleMode) / (Mode::MODE_LEN - 1), args.sampleTime); // bad div
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_GATE_LIGHT].setBrightness(xGate);
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
 		lights[Y_GATE_LIGHT].setBrightness(yGate);
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
-		lights[INJECT_LIGHT].setBrightnessSmooth(inject, args.sampleTime);
+		lights[INJECT_LIGHT].setBrightnessSmooth(injectState, args.sampleTime);
 	}
 };
 
@@ -441,12 +513,12 @@ struct MatrixDisplayBuffer : FramebufferWidget {
 	}
 };
 
+
 struct MatrixDisplay : Widget {
 	WolframModule* module;
 
 	std::shared_ptr<Font> font;
 	std::string fontPath;
-
 	// Sort out mm2px stuff, need a rule
 	float matrixSize = mm2px(32.f);	//31.7
 	int matrixCols = 8;
@@ -455,22 +527,20 @@ struct MatrixDisplay : Widget {
 	float cellSize = cellPos * 0.5f;
 	float fontSize = (matrixSize / matrixCols) * 2.f;
 
-	// seems not efficient, nah seems ok
-	std::array < std::function<void(NVGcontext*)>, MAX_MENU_PAGES> menuPages;
-
 	MatrixDisplay(WolframModule* m) {
-		module = m;
+		module = m;	// does this get used
 		box.pos = Vec(mm2px(30.1) - matrixSize * 0.5, mm2px(26.14) - matrixSize * 0.5);
 		box.size = Vec(matrixSize, matrixSize);
-
-		// Load font
-		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf3.otf"));
+		
+		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf4.otf"));
 		font = APP->window->loadFont(fontPath);
+	}
 
-		menuPages = {
-			// Feel
-			// BALL / SQUR / .
-			[this](NVGcontext* vg) {
+	void drawMenu(NVGcontext* vg, FuncMenu Menu) {
+		nvgFillColor(vg, Colours::primaryAccent);
+		nvgText(vg, 0, 0, "menu", nullptr);
+		switch (Menu) {
+			case SEED: {
 				nvgText(vg, 0, fontSize, "SEED", nullptr);
 				if (module->randSeed) {
 					nvgText(vg, 0, fontSize * 2, "RAND", nullptr);
@@ -485,68 +555,79 @@ struct MatrixDisplay : Widget {
 						nvgCircle(vg, (cellPos * col) + cellSize, fontSize * 2.5, cellSize);
 						nvgFillColor(vg, seedCell ? Colours::primaryAccent : Colours::primaryAccentOff);
 						nvgFill(vg);
-						nvgFillColor(vg, Colours::primaryAccent);		// Reset Colour
 					}
 				}
-			},
-			[this](NVGcontext* vg) {
+				nvgFillColor(vg, Colours::primaryAccent);	// Reset Colour
+				break;
+			}
+			case MODE: {
 				nvgText(vg, 0, fontSize, "MODE", nullptr);
-				// This will change... different agors have different modes
-				switch (module->mode) {
-				case 0:
+				switch (module->moduleMode) {
+				case WRAP:
 					nvgText(vg, 0, fontSize * 2, "WRAP", nullptr);
 					break;
-				case 1:
+				case CLIP:
 					nvgText(vg, 0, fontSize * 2, "CLIP", nullptr);
 					break;
-				case 2:
+				case RAND:
 					nvgText(vg, 0, fontSize * 2, "RAND", nullptr);
 					break;
 				default:
-					nvgText(vg, 0, fontSize * 2, "EROR", nullptr);
 					break;
 				}
-			},
-			[this](NVGcontext* vg) {
+				break;
+			}
+			case SYNC: {
+				// FREE CLK
+				nvgText(vg, 0, fontSize, "SYNC", nullptr);
+				if (module->syncState) {
+					nvgText(vg, 0, fontSize * 2, "LOCK", nullptr);
+				}
+				else {
+					nvgText(vg, 0, fontSize * 2, "FREE", nullptr);
+				}
+				break;
+			}
+			case ALGORITHM: {
+				// WOLF ANT LIFE
 				nvgText(vg, 0, fontSize, "ALGO", nullptr);
 				nvgText(vg, 0, fontSize * 2, "WOLF", nullptr);
-				// WOLF / ANT / LIFE
-			},
-			[this](NVGcontext* vg) {
-				nvgText(vg, 0, fontSize, "FSET", nullptr);
-				nvgText(vg, 0, fontSize * 2, "SYNC", nullptr);
-				// FREE / SYNC
-			},
-			[this](NVGcontext* vg) {
-				nvgText(vg, 0, fontSize, " OUT", nullptr);
-				nvgText(vg, 0, fontSize * 2, "  CV", nullptr);
-				// CV / AUD
-			},
-			[this](NVGcontext* vg) {
+				break;
+			}
+			case OUTPUT: {
+				// CV AUD
+				nvgText(vg, 0, fontSize, "OUT", nullptr);
+				nvgText(vg, 0, fontSize * 2, "CV", nullptr);
+				break;
+			}
+			case LOOK: {
 				nvgText(vg, 0, fontSize, "LOOK", nullptr);
-				switch (module->look) {
-				case 1:
+				switch (module->moduleLook) {
+				case OLED:
 					// OLED
 					nvgText(vg, 0, fontSize * 2, "OLED", nullptr);
-					Colours::lcdBackground = nvgRGB(20, 20, 20);
-					Colours::primaryAccent = nvgRGB(0, 0, 255);
+					Colours::lcdBackground = nvgRGB(33, 62, 115);
+					Colours::primaryAccent = nvgRGB(183, 236, 255);
 					Colours::primaryAccentOff = Colours::lcdBackground;
 					break;
-				case 2:
+				case RACK:
+					// Rack
 					nvgText(vg, 0, fontSize * 2, "RACK", nullptr);
 					Colours::lcdBackground = nvgRGB(18, 18, 18);
 					Colours::primaryAccent = SCHEME_YELLOW;
 					Colours::primaryAccentOff = Colours::lcdBackground;
 					break;
-				case 3:
+				case ACID:
+					// Acid
 					nvgText(vg, 0, fontSize * 2, "ACID", nullptr);
 					Colours::lcdBackground = nvgRGB(6, 56, 56);
-					Colours::primaryAccent = nvgRGB(175, 210, 44);
+					Colours::primaryAccent = nvgRGB(175, 210, 44);	// Fix
 					Colours::primaryAccentOff = Colours::lcdBackground;
 					break;
-				case 4:
+				case MONO:
+					// Mono
 					nvgText(vg, 0, fontSize * 2, "MONO", nullptr);
-					Colours::lcdBackground = nvgRGB(20, 20, 20);
+					Colours::lcdBackground = nvgRGB(18, 18, 18);	// Fix
 					Colours::primaryAccent = nvgRGB(255, 255, 255);
 					Colours::primaryAccentOff = Colours::lcdBackground;
 					break;
@@ -558,9 +639,12 @@ struct MatrixDisplay : Widget {
 					Colours::primaryAccentOff = Colours::lcdBackground;
 					break;
 				}
-				module->dirty = true;	// feels bad doing this?
+				module->dirty = true;	// feels bad doing this
+				break;
 			}
-		};
+			default: { break; }
+		}
+		nvgText(vg, 0, fontSize * 3, "<*+>", nullptr);
 	}
 
 	void draw(NVGcontext* vg) override {
@@ -571,6 +655,8 @@ struct MatrixDisplay : Widget {
 		nvgFill(vg);
 		nvgClosePath(vg);
 
+		// Border
+
 		if (!module) return;
 		if (!font) return;
 
@@ -579,10 +665,7 @@ struct MatrixDisplay : Widget {
 		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
 		if (module->menuState) {
-			nvgFillColor(vg, Colours::primaryAccent);
-			nvgText(vg, 0, 0, "menu", nullptr);
-			menuPages[module->menuPage](vg);
-			nvgText(vg, 0, fontSize * 3, "<*+>", nullptr);
+			drawMenu(vg, module->moduleMenu);
 		}
 		else {
 			int startRow = 0;
@@ -616,6 +699,16 @@ struct MatrixDisplay : Widget {
 	}
 };
 
+struct CustomShapeLight : ModuleLightWidget {
+	void drawLight(const DrawArgs& args) override {
+		// Example: draw a rectangle instead of a circle
+		nvgBeginPath(args.vg);
+		nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
+		nvgRect(args.vg, 0, 0, 40, 40);
+		nvgFillColor(args.vg, nvgRGB(255, 0, 0));
+		nvgFill(args.vg);
+	}
+};
 
 struct WolframModuleWidget : ModuleWidget {
 	WolframModuleWidget(WolframModule* module) {
