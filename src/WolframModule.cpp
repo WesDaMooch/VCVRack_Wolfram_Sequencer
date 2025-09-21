@@ -27,7 +27,7 @@ namespace Colours {
 // Put this out here?
 // are these the right types
 constexpr static int PARAM_CONTROL_INTERVAL = 64;
-constexpr static size_t MAX_ROWS = 64;
+constexpr static size_t MAX_SEQUENCE_LENGTH = 64;
 
 
 enum Mode {
@@ -98,47 +98,48 @@ struct WolframModule : Module {
 	Mode moduleMode = Mode::WRAP;
 	Look moduleLook = Look::BEFACO;
 	FuncMenu moduleMenu = FuncMenu::SEED;
-	
+
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger injectTrigger;
 	dsp::SchmittTrigger resetTrigger;
 	dsp::PulseGenerator yPulseGenerator;
-	dsp::BooleanTrigger menuBoolean;
-	dsp::BooleanTrigger modeBoolean;
+	dsp::BooleanTrigger menuTrigger;
+	dsp::BooleanTrigger modeTrigger;
 	dsp::Timer ruleDisplayTimer;
 
-	std::array<uint8_t, MAX_ROWS> internalCircularBuffer = {};
+	std::array<uint8_t, MAX_SEQUENCE_LENGTH> internalCircularBuffer = {};
 	std::array<uint8_t, 8> outputCircularBuffer = {};
 
 	int internalReadHead = 0;
 	int internalWriteHead = 1;
 	int outputReadHead = internalReadHead;
-	int outputWriteHead = internalWriteHead;
 
 	int sequenceLength = 8;
 	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	uint8_t rule = 30;
-	uint8_t seed = 8;
+	uint8_t seed = 8; // 8
 	int seedSelect = seed;
 	bool randSeed = false;
 	float chance = 1;
 	int offset = 0;
-	int prevOffset = offset;
-	bool resetFlag = false;
-	bool ruleResetFlag = false;	
-
-	uint8_t pendingInject = 0;
-	bool syncState = true;
-	bool menuState = false;
+	bool sync = false;
+	bool menu = false;
+	bool gen = false;
+	bool genPending = false;
+	bool resetPending = false;
+	bool ruleResetPending = false;
+	bool displayRule = false;
+	bool injectPending = false;
+	int offsetPending = 0;
 
 	float rotaryEncoderIndent = 1.f / 40.f;
 	float prevRotaryEncoderValue = 0.f;
-
 	float outputScaler = 1.f / 255.f;
-
-	bool displayRule = false;
+	
+	// Display
+	bool displayUpdate = true;
+	int displayUpdateInterval = 0;
 	bool dirty = true;
-
 
 	WolframModule() {
 		internalCircularBuffer.fill(0);
@@ -190,9 +191,9 @@ struct WolframModule : Module {
 		return row;
 	}
 
-	uint8_t getRow(int index = 0) {
-		index = clamp(index, 0, 8);
-		size_t rowIndex = (outputReadHead - index + 8) & 7;
+	uint8_t getRow(int i = 0) {
+		i = clamp(i, 0, 8);
+		size_t rowIndex = (outputReadHead - i + 8) & 7;
 		return applyOffset(outputCircularBuffer[rowIndex]);
 	}
 
@@ -203,63 +204,6 @@ struct WolframModule : Module {
 			col |= ((row & 0x01) << (7 - i));
 		}
 		return col;
-	}
-
-	void setReset(bool reset, bool sync) {
-		// wtf is going on
-		if (!reset) return;
-
-		if (sync) {
-			resetFlag = true;
-		}
-		else {
-			if (random::get<float>() < chance) {
-				if (randSeed) {
-					uint8_t bit = random::get<uint8_t>();
-					internalCircularBuffer[internalWriteHead] = bit;
-
-				}
-				else {
-					internalCircularBuffer[internalWriteHead] = seed;
-					outputCircularBuffer[outputReadHead] = seed;
-				}
-			}
-			else {
-				internalWriteHead = 0;
-			}
-			resetFlag = false;
-		}
-	}
-
-	void setOffset(float offsetParamInput, float offsetCvInput, bool trig, bool sync) {
-		float offsetCv = clamp(offsetCvInput, -10.f, 10.f) * 0.8f;
-		int newOffset = std::round(clamp(offsetParamInput + offsetCv, -4.f, 4.f));
-		if (!sync || (sync && trig)) {
-			offset = newOffset;
-		}
-		// redraw with newOffset?
-		if (!menuState && offset != prevOffset) { 
-			dirty = true;
-		}
-		prevOffset = offset;
-	}
-
-	void setInject(bool inject, bool sync) {
-		// Pos V adds, neg V removes?
-		if (!inject) return;
-
-		const int pos = 3;
-		const int displayPos = (pos + offset + 8) & 7;
-		uint8_t bit = static_cast<uint8_t>(1 << pos);	// not const?
-		if (sync) {
-			pendingInject = bit;
-		}
-		else {
-			internalCircularBuffer[internalReadHead] |= bit;
-			outputCircularBuffer[outputReadHead] |= static_cast<uint8_t>(1 << displayPos);
-			pendingInject = 0;
-			if (!menuState) dirty = true;
-		}
 	}
 
 	int rotaryEncoder(float rotaryEncoderValue) {
@@ -278,204 +222,255 @@ struct WolframModule : Module {
 		return delta;
 	}
 
-	void process(const ProcessArgs& args) override {
-		// For audio rate would need to trigger when low to high and high to low, for cv only low to high
-		bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+	void generateRow() {
+		// Cellular automata 
+		for (int i = 0; i < 8; i++) {
 
+			int left = i - 1;
+			int right = i + 1;
+			int leftIndex = left;
+			int rightIndex = right;
 
-		//	*****	PARAM	*****
-		if (((args.frame + this->id) % PARAM_CONTROL_INTERVAL) == 0) {
-			// Do param control stuff here
-			// need a smart way to set dirty flag when params change or things are triggered
-			// not calling dirty when I dont need to, like when menu is open
+			// Wrap
+			if (left < 0) { leftIndex = 7; }
+			if (right > 7) { rightIndex = 0; }
 
-			sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
+			int leftCell = (internalCircularBuffer[internalReadHead] >> leftIndex) & 1;
+			int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
+			int rightCell = (internalCircularBuffer[internalReadHead] >> rightIndex) & 1;
 
-			if (menuBoolean.process(params[MENU_PARAM].getValue())) {
-				menuState = !menuState;
-				dirty = true;
+			switch (moduleMode) {
+			case CLIP:
+				if (left < 0) { leftCell = 0; }
+				if (right > 7) { rightCell = 0; }
+				break;
+			case RAND:
+				if (left < 0) { leftCell = random::get<bool>(); }
+				if (right > 7) { rightCell = random::get<bool>(); }
+				break;
+			default:
+				break;
 			}
 
-			if (modeBoolean.process(params[MODE_PARAM].getValue())) {
-				if (menuState) {
-					int numMenus = static_cast<int>(FuncMenu::MENU_LEN);
-					int menuIndex = static_cast<int>(moduleMenu);
-					menuIndex++;
-					if (menuIndex >= numMenus) { menuIndex = 0; }
-					moduleMenu = static_cast<FuncMenu>(menuIndex);
-					dirty = true;
-				}
-				else {
-					int numModes = static_cast<int>(Mode::MODE_LEN);
-					int modeIndex = static_cast<int>(moduleMode);
-					modeIndex++;
-					if (modeIndex >= numModes) { modeIndex = 0; }
-					moduleMode = static_cast<Mode>(modeIndex);
-				}
-			}
+			int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
 
-			int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
-			if (selectDelta != 0) {
-				if (menuState) {
-					switch (moduleMenu) {
-						case SEED: {
-							seedSelect = seedSelect + selectDelta;
-							if (seedSelect > 256) { seedSelect -= 257; }
-							else if (seedSelect < 0) { seedSelect += 257; }
-							if (seedSelect == 256) {
-								randSeed = true;
-							}
-							else {
-								seed = static_cast<uint8_t>(seedSelect);
-								randSeed = false;
-							}
-							break;
-						}
-						case MODE: {
-							int numModes = static_cast<int>(Mode::MODE_LEN);
-							int modeIndex = static_cast<int>(moduleMode);
-							modeIndex = (modeIndex + selectDelta + numModes) % numModes;
-							moduleMode = static_cast<Mode>(modeIndex);
-							break;
-						}
-						case SYNC: {
-							syncState = !syncState;
-							break;
-						}
-						case OUTPUT: {
-							break;
-						}
-						case LOOK: {
-							int numLooks = static_cast<int>(Look::LOOK_LEN);
-							int lookIndex = static_cast<int>(moduleLook);
-							lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
-							moduleLook = static_cast<Look>(lookIndex);
-							break;
-						}
-						default: { break; }
-					}
-				}
-				else {
-					// Rule select
-					rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
-					ruleResetFlag = true;
-					displayRule = true;
-					ruleDisplayTimer.reset();
-				}
-				dirty = true;
+			bool ruleBit = (rule >> (7 - tag)) & 1;
+			if (ruleBit) {
+				internalCircularBuffer[internalWriteHead] |= (1 << i);
+			}
+			else {
+				internalCircularBuffer[internalWriteHead] &= ~(1 << i);
 			}
 		}
+	}
+
+	void process(const ProcessArgs& args) override {
+
+		// Buttons and Encoder
+
+		if (menuTrigger.process(params[MENU_PARAM].getValue())) {
+			menu = !menu;
+			displayUpdate = true;
+		}
+
+		if (modeTrigger.process(params[MODE_PARAM].getValue())) {
+			if (menu) {
+				int numMenus = static_cast<int>(FuncMenu::MENU_LEN);
+				int menuIndex = static_cast<int>(moduleMenu);
+				menuIndex++;
+				if (menuIndex >= numMenus) { menuIndex = 0; }
+				moduleMenu = static_cast<FuncMenu>(menuIndex);
+				displayUpdate = true;
+			}
+			else {
+				int numModes = static_cast<int>(Mode::MODE_LEN);
+				int modeIndex = static_cast<int>(moduleMode);
+				modeIndex++;
+				if (modeIndex >= numModes) { modeIndex = 0; }
+				moduleMode = static_cast<Mode>(modeIndex);
+			}
+		}
+
+		int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
+		if (selectDelta != 0) {
+			if (menu) {
+				// Menu selection
+				switch (moduleMenu) {
+				case SEED: {
+					seedSelect = seedSelect + selectDelta;
+					if (seedSelect > 256) { seedSelect -= 257; }
+					else if (seedSelect < 0) { seedSelect += 257; }
+					if (seedSelect == 256) {
+						randSeed = true;
+					}
+					else {
+						seed = static_cast<uint8_t>(seedSelect);
+						randSeed = false;
+					}
+					break;
+				}
+				case MODE: {
+					int numModes = static_cast<int>(Mode::MODE_LEN);
+					int modeIndex = static_cast<int>(moduleMode);
+					modeIndex = (modeIndex + selectDelta + numModes) % numModes;
+					moduleMode = static_cast<Mode>(modeIndex);
+					break;
+				}
+				case SYNC: {
+					sync = !sync;
+					break;
+				}
+				case OUTPUT: {
+					break;
+				}
+				case LOOK: {
+					int numLooks = static_cast<int>(Look::LOOK_LEN);
+					int lookIndex = static_cast<int>(moduleLook);
+					lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
+					moduleLook = static_cast<Look>(lookIndex);
+					break;
+				}
+				default: { break; }
+				}
+			}
+			else {
+				// Rule selection
+				rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
+				ruleResetPending = true;
+				displayRule = true;
+				ruleDisplayTimer.reset();
+			}
+			displayUpdate = true;
+		}
+
 
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
 			displayRule = false;
-			dirty = true;
+			if (!menu) displayUpdate = true;
 		}
 
-		//	*****	INPUT	*****
-
-
-		// How to make reset happen 
-		setReset(resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f), syncState);
-		//if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
-		//	resetFlag = true;
-		//}
+		// Dials & Inputs
+		
+		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
 		float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
 		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f);
 
-		setOffset(params[OFFSET_PARAM].getValue(), inputs[OFFSET_INPUT].getVoltage(), trig, syncState);
-		bool injectState = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
-		setInject(injectState, syncState);
-		
-		if (trig) {			
-			//	*****	STEP	*****
+		float offsetCv = clamp(inputs[OFFSET_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
+		int newOffset = std::round(clamp(params[OFFSET_PARAM].getValue() + offsetCv, -4.f, 4.f)); // cast to int?
+		if (sync) {
+			offsetPending = newOffset;
+		}
+		else {
+			if (!menu && (offset != newOffset)) { displayUpdate = true; }
+			offset = newOffset;
+		}
 
-			bool resetCondition = resetFlag || ruleResetFlag;
-			if (random::get<float>() < chance) {
-				if (resetCondition) {
+		bool inject = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
+
+		if (inject) {
+			if (sync) {
+				injectPending = true;
+			}
+			else {
+				const int pos = 3;
+				uint8_t bit = static_cast<uint8_t>(pos + offset + 8) & 7;
+				internalCircularBuffer[internalReadHead] |= (1 << bit);
+				injectPending = false;
+				if (!menu) displayUpdate = true;
+			}
+		}
+
+		if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
+			if (sync) {
+				resetPending = true;
+			}
+			else {
+				// reset & sync off - affect read head
+				gen = random::get<float>() < chance;
+				if (gen) {
+					if (randSeed) {
+						internalCircularBuffer[internalReadHead] = random::get<uint8_t>();
+					}
+					else {
+						internalCircularBuffer[internalReadHead] = seed;
+					}
+				}
+				else {
+					internalReadHead = 0;
+					internalWriteHead = 1;
+				}
+				genPending = true;
+				resetPending = false;
+				if (!menu) displayUpdate = true;
+			}
+		}
+
+		// Step
+		
+		// For audio rate would need to trigger when low to high and high to low, for cv only low to high
+		bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+		// do the dont trigger when reseting thing SEQ3
+
+		if (trig) {
+			if (!genPending) {
+				// Find gen if not found when reset triggered and sync false
+				gen = random::get<float>() < chance;
+			}
+
+			if (sync) {
+				offset = offsetPending;
+			}
+
+			if (injectPending) {
+				const int pos = 3;
+				uint8_t bit = static_cast<uint8_t>(pos + offset + 8) & 7;
+				internalCircularBuffer[internalWriteHead] |= (1 << bit);
+			}
+		
+			if (resetPending || ruleResetPending) {
+				// reset & sync - affect write head
+				if (gen || ruleResetPending) {
 					if (randSeed) {
 						internalCircularBuffer[internalWriteHead] = random::get<uint8_t>();
 					}
 					else {
 						internalCircularBuffer[internalWriteHead] = seed;
 					}
-					resetFlag = false;
-					ruleResetFlag = false;
 				}
 				else {
-					// Generate row
-					// Cellular automata 
-					for (int i = 0; i < 8; i++) {
-
-						int left = i - 1;
-						int right = i + 1;
-						int leftIndex = left;
-						int rightIndex = right;
-
-						// Wrap
-						if (left < 0) { leftIndex = 7; }
-						if (right > 7) { rightIndex = 0; }
-
-						int leftCell = (internalCircularBuffer[internalReadHead] >> leftIndex) & 1;
-						int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
-						int rightCell = (internalCircularBuffer[internalReadHead] >> rightIndex) & 1;
-
-						switch (moduleMode) {
-						case CLIP:
-							if (left < 0) { leftCell = 0; }
-							if (right > 7) { rightCell = 0; }
-							break;
-						case RAND:
-							if (left < 0) { leftCell = random::get<bool>(); }
-							if (right > 7) { rightCell = random::get<bool>(); }
-							break;
-						default:
-							break;
-						}
-
-						int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
-
-						bool ruleBit = (rule >> (7 - tag)) & 1;
-						if (ruleBit) {
-							internalCircularBuffer[internalWriteHead] |= (1 << i);
-						}
-						else {
-							internalCircularBuffer[internalWriteHead] &= ~(1 << i);
-						}
-					}
+					internalWriteHead = 0;
 				}
 			}
-			else if (resetFlag) {
-				// Sync
-				internalWriteHead = 0;
-				resetFlag = false;
+
+			if (gen && !resetPending && !ruleResetPending && !injectPending) {
+				generateRow();
 			}
-
-			if (pendingInject) {
-				internalCircularBuffer[internalWriteHead] |= pendingInject;
-				pendingInject = 0;
-			}
-
-			// Copy internal buffer to output buffer
-			outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];
-
-			// Advance output read and write heads
-			outputReadHead = outputWriteHead;
-			outputWriteHead = (outputWriteHead + 1) & 7;
 
 			// Advance internal read and write heads
 			internalReadHead = internalWriteHead;
 			internalWriteHead = (internalWriteHead + 1) % sequenceLength;
 
-			// Redraw matrix display
-			if (!menuState) dirty = true;
-		}
+			// Advance output read head
+			outputReadHead = (outputReadHead + 1) & 7;
 
-		//	*****	OUTPUT	*****
+			gen = false;
+			genPending = false;
+			resetPending = false;
+			ruleResetPending = false;
+			injectPending = false;
+
+			// Redraw matrix display
+			if (!menu) displayUpdate = true;
+		}
+		// Update output buffer
+		outputCircularBuffer[outputReadHead] = internalCircularBuffer[internalReadHead];
+
+		//	Output
 
 		// Have an audio out mode? (-5V tp 5v)?s
 		uint8_t x = getRow();
-		float xCv = (x * outputScaler) * params[X_SCALE_PARAM].getValue(); 
+		float xCv = (x * outputScaler) * params[X_SCALE_PARAM].getValue();
 		outputs[X_CV_OUTPUT].setVoltage(xCv);
 		bool xGate = (x >> 7) & 1;
 		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
@@ -495,7 +490,18 @@ struct WolframModule : Module {
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
 		lights[Y_GATE_LIGHT].setBrightness(yGate);
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
-		lights[INJECT_LIGHT].setBrightnessSmooth(injectState, args.sampleTime);
+		lights[INJECT_LIGHT].setBrightnessSmooth(inject, args.sampleTime);
+
+		// Update display, limit to 30fps
+		if (displayUpdate && (((args.frame + this->id) % displayUpdateInterval) == 0)) {
+			displayUpdate = false;
+			dirty = true;
+		}
+	}
+
+	void onSampleRateChange() override {
+		float sampleRate = APP->engine->getSampleRate();
+		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
 	}
 };
 
@@ -520,9 +526,12 @@ struct MatrixDisplay : Widget {
 	std::shared_ptr<Font> font;
 	std::string fontPath;
 	// Sort out mm2px stuff, need a rule
-	float matrixSize = mm2px(32.f);	//31.7
 	int matrixCols = 8;
 	int matrixRows = 8;
+
+
+	float matrixSize = mm2px(32.f);
+
 	float cellPos = matrixSize / matrixCols;
 	float cellSize = cellPos * 0.5f;
 	float fontSize = (matrixSize / matrixCols) * 2.f;
@@ -580,7 +589,7 @@ struct MatrixDisplay : Widget {
 			case SYNC: {
 				// FREE CLK
 				nvgText(vg, 0, fontSize, "SYNC", nullptr);
-				if (module->syncState) {
+				if (module->sync) {
 					nvgText(vg, 0, fontSize * 2, "LOCK", nullptr);
 				}
 				else {
@@ -650,12 +659,15 @@ struct MatrixDisplay : Widget {
 	void draw(NVGcontext* vg) override {
 		// Background
 		nvgBeginPath(vg);
-		nvgRect(vg, 0, 0, matrixSize, matrixSize);
+		//nvgRect(vg, 0, 0, matrixSize, matrixSize);
+		nvgRoundedRect(vg, 0.f, 0.f, matrixSize, matrixSize, 2.f);
 		nvgFillColor(vg, Colours::lcdBackground);
 		nvgFill(vg);
-		nvgClosePath(vg);
-
 		// Border
+		nvgStrokeWidth(vg, 1.f);
+		nvgStrokeColor(vg, nvgRGB(0x10, 0x10, 0x10));
+		nvgStroke(vg);
+		nvgClosePath(vg);
 
 		if (!module) return;
 		if (!font) return;
@@ -664,7 +676,7 @@ struct MatrixDisplay : Widget {
 		nvgFontFaceId(vg, font->handle);
 		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
-		if (module->menuState) {
+		if (module->menu) {
 			drawMenu(vg, module->moduleMenu);
 		}
 		else {
@@ -680,7 +692,7 @@ struct MatrixDisplay : Widget {
 			}
 
 			for (int row = startRow; row < matrixRows; row++) {
-				int rowOffset = (row - 7) * -1;
+				int rowOffset = (row - 7) * -1;	// clamp?
 
 				uint8_t displayRow = module->getRow(rowOffset);
 
@@ -741,7 +753,6 @@ struct WolframModuleWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 96.5f)), module, WolframModule::Y_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 111.5f)), module, WolframModule::Y_PULSE_OUTPUT));
 		// LEDs
-		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(15.24, 25.81)), module, WolframModule::BLINK_LIGHT));
 		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
 		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 96.5f)), module, WolframModule::X_CV_LIGHT));
 		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 111.5f)), module, WolframModule::X_GATE_LIGHT));
@@ -758,3 +769,229 @@ struct WolframModuleWidget : ModuleWidget {
 };
 
 Model* modelWolframModule = createModel<WolframModule, WolframModuleWidget>("WolframModule");
+
+
+
+
+
+/*
+void process(const ProcessArgs& args) override {
+	// For audio rate would need to trigger when low to high and high to low, for cv only low to high
+	bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+
+
+	//	*****	PARAM	*****
+	if (((args.frame + this->id) % PARAM_CONTROL_INTERVAL) == 0) {
+		// Do param control stuff here
+		// need a smart way to set dirty flag when params change or things are triggered
+		// not calling dirty when I dont need to, like when menu is open
+
+		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
+
+		if (menuBoolean.process(params[MENU_PARAM].getValue())) {
+			menuState = !menuState;
+			dirty = true;
+		}
+
+		if (modeBoolean.process(params[MODE_PARAM].getValue())) {
+			if (menuState) {
+				int numMenus = static_cast<int>(FuncMenu::MENU_LEN);
+				int menuIndex = static_cast<int>(moduleMenu);
+				menuIndex++;
+				if (menuIndex >= numMenus) { menuIndex = 0; }
+				moduleMenu = static_cast<FuncMenu>(menuIndex);
+				dirty = true;
+			}
+			else {
+				int numModes = static_cast<int>(Mode::MODE_LEN);
+				int modeIndex = static_cast<int>(moduleMode);
+				modeIndex++;
+				if (modeIndex >= numModes) { modeIndex = 0; }
+				moduleMode = static_cast<Mode>(modeIndex);
+			}
+		}
+
+		int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
+		if (selectDelta != 0) {
+			if (menuState) {
+				switch (moduleMenu) {
+				case SEED: {
+					seedSelect = seedSelect + selectDelta;
+					if (seedSelect > 256) { seedSelect -= 257; }
+					else if (seedSelect < 0) { seedSelect += 257; }
+					if (seedSelect == 256) {
+						randSeed = true;
+					}
+					else {
+						seed = static_cast<uint8_t>(seedSelect);
+						randSeed = false;
+					}
+					break;
+				}
+				case MODE: {
+					int numModes = static_cast<int>(Mode::MODE_LEN);
+					int modeIndex = static_cast<int>(moduleMode);
+					modeIndex = (modeIndex + selectDelta + numModes) % numModes;
+					moduleMode = static_cast<Mode>(modeIndex);
+					break;
+				}
+				case SYNC: {
+					syncState = !syncState;
+					break;
+				}
+				case OUTPUT: {
+					break;
+				}
+				case LOOK: {
+					int numLooks = static_cast<int>(Look::LOOK_LEN);
+					int lookIndex = static_cast<int>(moduleLook);
+					lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
+					moduleLook = static_cast<Look>(lookIndex);
+					break;
+				}
+				default: { break; }
+				}
+			}
+			else {
+				// Rule select
+				rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
+				ruleResetFlag = true;
+				displayRule = true;
+				ruleDisplayTimer.reset();
+			}
+			dirty = true;
+		}
+	}
+
+	if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
+		displayRule = false;
+		dirty = true;
+	}
+
+	//	*****	INPUT	*****
+
+
+	// How to make reset happen 
+	setReset(resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f), syncState);
+	//if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
+	//	resetFlag = true;
+	//}
+
+	float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
+	chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f);
+
+	setOffset(params[OFFSET_PARAM].getValue(), inputs[OFFSET_INPUT].getVoltage(), trig, syncState);
+	bool injectState = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
+	setInject(injectState, syncState);
+
+	if (trig) {
+		//	*****	STEP	*****
+
+		bool resetCondition = resetFlag || ruleResetFlag;
+		if (random::get<float>() < chance) {
+			if (resetCondition) {
+				if (randSeed) {
+					internalCircularBuffer[internalWriteHead] = random::get<uint8_t>();
+				}
+				else {
+					internalCircularBuffer[internalWriteHead] = seed;
+				}
+				resetFlag = false;
+				ruleResetFlag = false;
+			}
+			else {
+				// Generate row
+				// Cellular automata 
+				for (int i = 0; i < 8; i++) {
+
+					int left = i - 1;
+					int right = i + 1;
+					int leftIndex = left;
+					int rightIndex = right;
+
+					// Wrap
+					if (left < 0) { leftIndex = 7; }
+					if (right > 7) { rightIndex = 0; }
+
+					int leftCell = (internalCircularBuffer[internalReadHead] >> leftIndex) & 1;
+					int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
+					int rightCell = (internalCircularBuffer[internalReadHead] >> rightIndex) & 1;
+
+					switch (moduleMode) {
+					case CLIP:
+						if (left < 0) { leftCell = 0; }
+						if (right > 7) { rightCell = 0; }
+						break;
+					case RAND:
+						if (left < 0) { leftCell = random::get<bool>(); }
+						if (right > 7) { rightCell = random::get<bool>(); }
+						break;
+					default:
+						break;
+					}
+
+					int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
+
+					bool ruleBit = (rule >> (7 - tag)) & 1;
+					if (ruleBit) {
+						internalCircularBuffer[internalWriteHead] |= (1 << i);
+					}
+					else {
+						internalCircularBuffer[internalWriteHead] &= ~(1 << i);
+					}
+				}
+			}
+		}
+		else if (resetFlag) {
+			// Sync
+			internalWriteHead = 0;
+			resetFlag = false;
+		}
+
+		if (pendingInject) {
+			internalCircularBuffer[internalWriteHead] |= pendingInject;
+			pendingInject = 0;
+		}
+
+		// Copy internal buffer to output buffer
+		outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];
+
+		// Advance output read and write heads
+		outputReadHead = outputWriteHead;
+		outputWriteHead = (outputWriteHead + 1) & 7;
+
+		// Advance internal read and write heads
+		internalReadHead = internalWriteHead;
+		internalWriteHead = (internalWriteHead + 1) % sequenceLength;
+
+		// Redraw matrix display
+		if (!menuState) dirty = true;
+	}
+
+	//	*****	OUTPUT	*****
+
+	// Have an audio out mode? (-5V tp 5v)?s
+	uint8_t x = getRow();
+	float xCv = (x * outputScaler) * params[X_SCALE_PARAM].getValue();
+	outputs[X_CV_OUTPUT].setVoltage(xCv);
+	bool xGate = (x >> 7) & 1;
+	outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
+
+	uint8_t y = getColumn();
+	float yCv = (y * outputScaler) * params[Y_SCALE_PARAM].getValue();
+	outputs[Y_CV_OUTPUT].setVoltage(yCv);
+	bool yGate = y & 1;
+	outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
+
+	// Debug output
+	//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
+
+	lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(moduleMode) / (Mode::MODE_LEN - 1), args.sampleTime); // bad div
+	lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
+	lights[X_GATE_LIGHT].setBrightness(xGate);
+	lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
+	lights[Y_GATE_LIGHT].setBrightness(yGate);
+	lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
+	lights[INJECT_LIGHT].setBrightnessSmooth(injectState, args.sampleTime);
+}
+*/
