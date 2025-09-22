@@ -7,34 +7,25 @@
 // Act on this:
 // Therefore, modules with a CLOCK and RESET input, or similar variants, should ignore CLOCK triggers up to 1 ms 
 // after receiving a RESET trigger.You can use dsp::Timer for keeping track of time.
-// So max module speed 1000Hz? 
+// Or do what SEQ3 does?
 
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
 
 // To Do
-// - Move Colours to MatrixDisplay Widget
 // - Have x y row mode and average mode (this would be good for 2D world)
+// - Have an audio out mode? (-5V to 5v)
+// - Game - space defence, control platform with offset, 'floor' rises when letting a bit through
 
 
 #include "plugin.hpp"
 #include <array>
 
-// doesnt need to be a namespace...
-namespace Colours {	
-	// Defaults
-	NVGcolor lcdBackground = nvgRGB(67, 38, 38);		// Befaco 
-	NVGcolor primaryAccent = nvgRGB(195, 67, 67);		// Befaco 
-	NVGcolor primaryAccentOff = nvgRGB(67, 38, 38);
-	NVGcolor secondaryAccent = nvgRGB(76, 40, 40);
-}
-
 // Put this out here?
 // are these the right types
 constexpr static int PARAM_CONTROL_INTERVAL = 64;
 constexpr static size_t MAX_SEQUENCE_LENGTH = 64;
-
 
 enum Mode {
 	WRAP,
@@ -100,7 +91,7 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
-	Mode moduleMode = Mode::WRAP;
+	Mode moduleMode = Mode::WRAP;	// const?
 	Look moduleLook = Look::BEFACO;
 	FuncMenu moduleMenu = FuncMenu::SEED;
 
@@ -118,34 +109,38 @@ struct WolframModule : Module {
 
 	int internalReadHead = 0;
 	int internalWriteHead = 1;
-	int outputReadHead = internalReadHead;
+	int outputReadHead = 0;
 
 	int sequenceLength = 8;
-	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
+	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };	// const?
 	uint8_t rule = 30;
 	uint8_t seed = 8;
 	int seedSelect = seed;
 	bool randSeed = false;
 	float chance = 1;
 	int offset = 0;
-	bool sync = false;
-	bool menu = false;
-	bool gen = false;
-	bool genPending = false;
+	int offsetPending = 0;
 	bool resetPending = false;
 	bool ruleResetPending = false;
-	bool displayRule = false;
-	bool injectPending = false;
-	int offsetPending = 0;
+	int injectPendingState = 0;
+	bool gen = false;
+	bool genPending = false;
+	bool sync = false;
+	bool menu = false;
 
-	float rotaryEncoderIndent = 1.f / 40.f;
+	const float rotaryEncoderIndent = 1.f / 40.f;
 	float prevRotaryEncoderValue = 0.f;
 	float outputScaler = 1.f / 255.f;
 	
 	// Display
+	bool displayRule = false;
 	bool displayUpdate = true;
-	int displayUpdateInterval = 0;
+	int displayUpdateInterval = 1000;
 	bool dirty = true;
+
+	inline int fastRoundInt(float value) {
+		return static_cast<int>(value + (value >= 0.f ? 0.5f : -0.5f));
+	}
 
 	WolframModule() {
 		internalCircularBuffer.fill(0);
@@ -212,18 +207,42 @@ struct WolframModule : Module {
 		return col;
 	}
 
-	int rotaryEncoder(float rotaryEncoderValue) {
-		float difference = rotaryEncoderValue - prevRotaryEncoderValue;
+	uint8_t applyInject(uint8_t row, bool remove = false) {
+		// Is this an ok level of efficentcy
+		uint8_t targetMask = row;
+		if (remove) {
+			if (row == 0x00) return row;
+		}
+		else {
+			if (row == 0xFF) return row;
+			targetMask = ~row;	// Flip row
+		}
+
+		int targetCount = __builtin_popcount(targetMask); // Count target bits
+		int target = random::get<uint8_t>() % targetCount;	// Random target index
+
+		// Find corresponding bit position
+		uint8_t bitMask;
+		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
+			if (targetMask & bitMask) target--;
+		}
+
+		row = remove ? (row & ~bitMask) : (row | bitMask);
+		return row;
+	}
+
+	int rotaryEncoder(float value) {
+		float difference = value - prevRotaryEncoderValue;
 		int delta = 0;
 		while (difference >= rotaryEncoderIndent) {
 			delta++;
 			prevRotaryEncoderValue += rotaryEncoderIndent;
-			difference = rotaryEncoderValue - prevRotaryEncoderValue;
+			difference = value - prevRotaryEncoderValue;
 		}
 		while (difference <= -rotaryEncoderIndent) {
 			delta--;
 			prevRotaryEncoderValue -= rotaryEncoderIndent;
-			difference = rotaryEncoderValue - prevRotaryEncoderValue;
+			difference = value - prevRotaryEncoderValue;
 		}
 		return delta;
 	}
@@ -270,33 +289,9 @@ struct WolframModule : Module {
 		}
 	}
 
-
-	uint8_t applyInject(uint8_t row, bool remove=false) {
-		uint8_t targetMask = row;
-		if (remove) {
-			if (row == 0x00) return row;
-		}
-		else {
-			if (row == 0xFF) return row;
-			targetMask = ~row;	// Flip row
-		}
-		
-		int targetCount = __builtin_popcount(targetMask); // Count target bits
-		int target = random::get<uint8_t>() % targetCount;	// Random target index
-
-		// Find corresponding bit position
-		uint8_t bitMask;
-		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
-			if (targetMask & bitMask) target--;
-		}
-
-		row = remove ? (row & ~bitMask) : (row | bitMask);
-		return row;
-	}
-
 	void process(const ProcessArgs& args) override {
 
-		// Buttons and Encoder
+		// BUTTONS & ENCODER
 
 		if (menuTrigger.process(params[MENU_PARAM].getValue())) {
 			menu = !menu;
@@ -327,6 +322,7 @@ struct WolframModule : Module {
 				// Menu selection
 				switch (moduleMenu) {
 				case SEED: {
+					// Seed options are 256 + 1 (RAND) 
 					seedSelect = seedSelect + selectDelta;
 					if (seedSelect > 256) { seedSelect -= 257; }
 					else if (seedSelect < 0) { seedSelect += 257; }
@@ -379,7 +375,7 @@ struct WolframModule : Module {
 			if (!menu) displayUpdate = true;
 		}
 
-		// Dials & Inputs
+		// DIALS & INPUTS
 		
 		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
@@ -387,7 +383,7 @@ struct WolframModule : Module {
 		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f);
 
 		float offsetCv = clamp(inputs[OFFSET_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
-		int newOffset = std::round(clamp(params[OFFSET_PARAM].getValue() + offsetCv, -4.f, 4.f)); // cast to int?
+		int newOffset = std::min(std::max(fastRoundInt(params[OFFSET_PARAM].getValue() + offsetCv), -4), 4);
 		if (sync) {
 			offsetPending = newOffset;
 		}
@@ -398,17 +394,19 @@ struct WolframModule : Module {
 
 		bool posInject = posInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
 		bool negInject = negInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), -2.f, -0.1f);
-		// Figure this out
 		if (posInject || negInject) {
 			if (sync) {
-				injectPending = true;
-				// negInjectPending
-				// or injectPendingState (0, 1, 2)?
+				if (posInject) {
+					injectPendingState = 1;
+				}
+				else {
+					injectPendingState = 2;
+				}
 			}
 			else {
 				internalCircularBuffer[internalReadHead] = applyInject(internalCircularBuffer[internalReadHead], posInject ? false : true);
-		
-				injectPending = false;
+
+				injectPendingState = 0;
 				if (!menu) displayUpdate = true;
 			}
 		}
@@ -418,7 +416,6 @@ struct WolframModule : Module {
 				resetPending = true;
 			}
 			else {
-				// reset & sync off - affect read head
 				gen = random::get<float>() < chance;
 				if (gen) {
 					if (randSeed) {
@@ -438,30 +435,36 @@ struct WolframModule : Module {
 			}
 		}
 
-		// Step
+		// STEP
 		
 		// For audio rate would need to trigger when low to high and high to low, for cv only low to high
 		bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
 		// do the dont trigger when reseting thing SEQ3
-
 		if (trig) {
 			if (!genPending) {
 				// Find gen if not found when reset triggered and sync false
 				gen = random::get<float>() < chance;
 			}
 
+			// Synced offset
 			if (sync) {
 				offset = offsetPending;
 			}
 
-			if (injectPending) {
-				const int pos = 3;
-				uint8_t bit = static_cast<uint8_t>(pos + offset + 8) & 7;
-				internalCircularBuffer[internalWriteHead] |= (1 << bit);
+			// Synced inject
+			switch (injectPendingState) {
+			case 1:
+				internalCircularBuffer[internalWriteHead] = applyInject(internalCircularBuffer[internalWriteHead], false);
+				break;
+			case 2:
+				internalCircularBuffer[internalWriteHead] = applyInject(internalCircularBuffer[internalWriteHead], true);
+				break;
+			default: 
+				break;
 			}
-		
+
+			// Synced reset
 			if (resetPending || ruleResetPending) {
-				// reset & sync - affect write head
 				if (gen || ruleResetPending) {
 					if (randSeed) {
 						internalCircularBuffer[internalWriteHead] = random::get<uint8_t>();
@@ -475,7 +478,7 @@ struct WolframModule : Module {
 				}
 			}
 
-			if (gen && !resetPending && !ruleResetPending && !injectPending) {
+			if (gen && !resetPending && !ruleResetPending && !injectPendingState) {
 				generateRow();
 			}
 
@@ -486,11 +489,12 @@ struct WolframModule : Module {
 			// Advance output read head
 			outputReadHead = (outputReadHead + 1) & 7;
 
+			// Reset gen and sync penders
 			gen = false;
 			genPending = false;
 			resetPending = false;
 			ruleResetPending = false;
-			injectPending = false;
+			injectPendingState = 0;
 
 			// Redraw matrix display
 			if (!menu) displayUpdate = true;
@@ -498,7 +502,7 @@ struct WolframModule : Module {
 		// Update output buffer
 		outputCircularBuffer[outputReadHead] = internalCircularBuffer[internalReadHead];
 
-		//	Output
+		//	OUTPUT
 
 		// Have an audio out mode? (-5V tp 5v)?s
 		uint8_t x = getRow();
@@ -524,7 +528,7 @@ struct WolframModule : Module {
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
 		lights[INJECT_LIGHT].setBrightnessSmooth(posInject, args.sampleTime);
 
-		// Update display, limit to 30fps
+		// UPDATE DISPLAY - 30fps limited
 		if (displayUpdate && (((args.frame + this->id) % displayUpdateInterval) == 0)) {
 			displayUpdate = false;
 			dirty = true;
@@ -568,6 +572,12 @@ struct MatrixDisplay : Widget {
 	float cellSize = cellPos * 0.5f;
 	float fontSize = (matrixSize / matrixCols) * 2.f;
 
+	// Default Befaco colours 
+	NVGcolor lcdBackground = nvgRGB(67, 38, 38);		
+	NVGcolor primaryAccent = nvgRGB(195, 67, 67);		
+	NVGcolor primaryAccentOff = lcdBackground;
+	NVGcolor secondaryAccent = nvgRGB(76, 40, 40);
+
 	MatrixDisplay(WolframModule* m) {
 		module = m;	// does this get used
 		box.pos = Vec(mm2px(30.1) - matrixSize * 0.5, mm2px(26.14) - matrixSize * 0.5);
@@ -578,7 +588,7 @@ struct MatrixDisplay : Widget {
 	}
 
 	void drawMenu(NVGcontext* vg, FuncMenu Menu) {
-		nvgFillColor(vg, Colours::primaryAccent);
+		nvgFillColor(vg, primaryAccent);
 		nvgText(vg, 0, 0, "menu", nullptr);
 		switch (Menu) {
 			case SEED: {
@@ -594,11 +604,11 @@ struct MatrixDisplay : Widget {
 						}
 						nvgBeginPath(vg);
 						nvgCircle(vg, (cellPos * col) + cellSize, fontSize * 2.5, cellSize);
-						nvgFillColor(vg, seedCell ? Colours::primaryAccent : Colours::primaryAccentOff);
+						nvgFillColor(vg, seedCell ? primaryAccent : primaryAccentOff);
 						nvgFill(vg);
 					}
 				}
-				nvgFillColor(vg, Colours::primaryAccent);	// Reset Colour
+				nvgFillColor(vg, primaryAccent);	// Reset Colour
 				break;
 			}
 			case MODE: {
@@ -645,39 +655,35 @@ struct MatrixDisplay : Widget {
 				nvgText(vg, 0, fontSize, "LOOK", nullptr);
 				switch (module->moduleLook) {
 				case OLED:
-					// OLED
 					nvgText(vg, 0, fontSize * 2, "OLED", nullptr);
-					Colours::lcdBackground = nvgRGB(33, 62, 115);
-					Colours::primaryAccent = nvgRGB(183, 236, 255);
-					Colours::primaryAccentOff = Colours::lcdBackground;
+					lcdBackground = nvgRGB(33, 62, 115);
+					primaryAccent = nvgRGB(183, 236, 255);
+					primaryAccentOff = lcdBackground;
 					break;
 				case RACK:
-					// Rack
 					nvgText(vg, 0, fontSize * 2, "RACK", nullptr);
-					Colours::lcdBackground = nvgRGB(18, 18, 18);
-					Colours::primaryAccent = SCHEME_YELLOW;
-					Colours::primaryAccentOff = Colours::lcdBackground;
+					lcdBackground = nvgRGB(18, 18, 18);
+					primaryAccent = SCHEME_YELLOW;
+					primaryAccentOff = lcdBackground;
 					break;
 				case ACID:
-					// Acid
 					nvgText(vg, 0, fontSize * 2, "ACID", nullptr);
-					Colours::lcdBackground = nvgRGB(6, 56, 56);
-					Colours::primaryAccent = nvgRGB(175, 210, 44);	// Fix
-					Colours::primaryAccentOff = Colours::lcdBackground;
+					lcdBackground = nvgRGB(6, 56, 56);
+					primaryAccent = nvgRGB(175, 210, 44);	// Fix
+					primaryAccentOff = lcdBackground;
 					break;
 				case MONO:
-					// Mono
 					nvgText(vg, 0, fontSize * 2, "MONO", nullptr);
-					Colours::lcdBackground = nvgRGB(18, 18, 18);	// Fix
-					Colours::primaryAccent = nvgRGB(255, 255, 255);
-					Colours::primaryAccentOff = Colours::lcdBackground;
+					lcdBackground = nvgRGB(18, 18, 18);	// Fix
+					primaryAccent = nvgRGB(255, 255, 255);
+					primaryAccentOff = lcdBackground;
 					break;
 				default:
 					// Befaco 
 					nvgText(vg, 0, fontSize * 2, "BFAC", nullptr);
-					Colours::lcdBackground = nvgRGB(67, 38, 38);
-					Colours::primaryAccent = nvgRGB(195, 67, 67);
-					Colours::primaryAccentOff = Colours::lcdBackground;
+					lcdBackground = nvgRGB(67, 38, 38);
+					primaryAccent = nvgRGB(195, 67, 67);
+					primaryAccentOff = lcdBackground;
 					break;
 				}
 				module->dirty = true;	// feels bad doing this
@@ -693,7 +699,7 @@ struct MatrixDisplay : Widget {
 		nvgBeginPath(vg);
 		//nvgRect(vg, 0, 0, matrixSize, matrixSize);
 		nvgRoundedRect(vg, 0.f, 0.f, matrixSize, matrixSize, 2.f);
-		nvgFillColor(vg, Colours::lcdBackground);
+		nvgFillColor(vg, lcdBackground);
 		nvgFill(vg);
 		// Border
 		nvgStrokeWidth(vg, 1.f);
@@ -701,7 +707,11 @@ struct MatrixDisplay : Widget {
 		nvgStroke(vg);
 		nvgClosePath(vg);
 
-		if (!module) return;
+		if (!module) {
+			// Draw preview 
+			return;
+		}
+
 		if (!font) return;
 
 		nvgFontSize(vg, fontSize);
@@ -716,7 +726,7 @@ struct MatrixDisplay : Widget {
 			if (module->displayRule) {
 				startRow = matrixRows - 4;
 
-				nvgFillColor(vg, Colours::primaryAccent);
+				nvgFillColor(vg, primaryAccent);
 				nvgText(vg, 0, 0, "RULE", nullptr);
 				char ruleStr[5];
 				snprintf(ruleStr, sizeof(ruleStr), "%4.3d", module->rule);
@@ -735,7 +745,7 @@ struct MatrixDisplay : Widget {
 					}
 					nvgBeginPath(vg);
 					nvgCircle(vg, (cellPos * col) + cellSize, (cellPos * row) + cellSize, cellSize);
-					nvgFillColor(vg, cellState ? Colours::primaryAccent : Colours::primaryAccentOff);
+					nvgFillColor(vg, cellState ? primaryAccent : primaryAccentOff);
 					nvgFill(vg);
 				}
 			}
@@ -801,229 +811,3 @@ struct WolframModuleWidget : ModuleWidget {
 };
 
 Model* modelWolframModule = createModel<WolframModule, WolframModuleWidget>("WolframModule");
-
-
-
-
-
-/*
-void process(const ProcessArgs& args) override {
-	// For audio rate would need to trigger when low to high and high to low, for cv only low to high
-	bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
-
-
-	//	*****	PARAM	*****
-	if (((args.frame + this->id) % PARAM_CONTROL_INTERVAL) == 0) {
-		// Do param control stuff here
-		// need a smart way to set dirty flag when params change or things are triggered
-		// not calling dirty when I dont need to, like when menu is open
-
-		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
-
-		if (menuBoolean.process(params[MENU_PARAM].getValue())) {
-			menuState = !menuState;
-			dirty = true;
-		}
-
-		if (modeBoolean.process(params[MODE_PARAM].getValue())) {
-			if (menuState) {
-				int numMenus = static_cast<int>(FuncMenu::MENU_LEN);
-				int menuIndex = static_cast<int>(moduleMenu);
-				menuIndex++;
-				if (menuIndex >= numMenus) { menuIndex = 0; }
-				moduleMenu = static_cast<FuncMenu>(menuIndex);
-				dirty = true;
-			}
-			else {
-				int numModes = static_cast<int>(Mode::MODE_LEN);
-				int modeIndex = static_cast<int>(moduleMode);
-				modeIndex++;
-				if (modeIndex >= numModes) { modeIndex = 0; }
-				moduleMode = static_cast<Mode>(modeIndex);
-			}
-		}
-
-		int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
-		if (selectDelta != 0) {
-			if (menuState) {
-				switch (moduleMenu) {
-				case SEED: {
-					seedSelect = seedSelect + selectDelta;
-					if (seedSelect > 256) { seedSelect -= 257; }
-					else if (seedSelect < 0) { seedSelect += 257; }
-					if (seedSelect == 256) {
-						randSeed = true;
-					}
-					else {
-						seed = static_cast<uint8_t>(seedSelect);
-						randSeed = false;
-					}
-					break;
-				}
-				case MODE: {
-					int numModes = static_cast<int>(Mode::MODE_LEN);
-					int modeIndex = static_cast<int>(moduleMode);
-					modeIndex = (modeIndex + selectDelta + numModes) % numModes;
-					moduleMode = static_cast<Mode>(modeIndex);
-					break;
-				}
-				case SYNC: {
-					syncState = !syncState;
-					break;
-				}
-				case OUTPUT: {
-					break;
-				}
-				case LOOK: {
-					int numLooks = static_cast<int>(Look::LOOK_LEN);
-					int lookIndex = static_cast<int>(moduleLook);
-					lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
-					moduleLook = static_cast<Look>(lookIndex);
-					break;
-				}
-				default: { break; }
-				}
-			}
-			else {
-				// Rule select
-				rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
-				ruleResetFlag = true;
-				displayRule = true;
-				ruleDisplayTimer.reset();
-			}
-			dirty = true;
-		}
-	}
-
-	if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
-		displayRule = false;
-		dirty = true;
-	}
-
-	//	*****	INPUT	*****
-
-
-	// How to make reset happen 
-	setReset(resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f), syncState);
-	//if (resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f)) {
-	//	resetFlag = true;
-	//}
-
-	float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
-	chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f);
-
-	setOffset(params[OFFSET_PARAM].getValue(), inputs[OFFSET_INPUT].getVoltage(), trig, syncState);
-	bool injectState = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
-	setInject(injectState, syncState);
-
-	if (trig) {
-		//	*****	STEP	*****
-
-		bool resetCondition = resetFlag || ruleResetFlag;
-		if (random::get<float>() < chance) {
-			if (resetCondition) {
-				if (randSeed) {
-					internalCircularBuffer[internalWriteHead] = random::get<uint8_t>();
-				}
-				else {
-					internalCircularBuffer[internalWriteHead] = seed;
-				}
-				resetFlag = false;
-				ruleResetFlag = false;
-			}
-			else {
-				// Generate row
-				// Cellular automata 
-				for (int i = 0; i < 8; i++) {
-
-					int left = i - 1;
-					int right = i + 1;
-					int leftIndex = left;
-					int rightIndex = right;
-
-					// Wrap
-					if (left < 0) { leftIndex = 7; }
-					if (right > 7) { rightIndex = 0; }
-
-					int leftCell = (internalCircularBuffer[internalReadHead] >> leftIndex) & 1;
-					int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
-					int rightCell = (internalCircularBuffer[internalReadHead] >> rightIndex) & 1;
-
-					switch (moduleMode) {
-					case CLIP:
-						if (left < 0) { leftCell = 0; }
-						if (right > 7) { rightCell = 0; }
-						break;
-					case RAND:
-						if (left < 0) { leftCell = random::get<bool>(); }
-						if (right > 7) { rightCell = random::get<bool>(); }
-						break;
-					default:
-						break;
-					}
-
-					int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
-
-					bool ruleBit = (rule >> (7 - tag)) & 1;
-					if (ruleBit) {
-						internalCircularBuffer[internalWriteHead] |= (1 << i);
-					}
-					else {
-						internalCircularBuffer[internalWriteHead] &= ~(1 << i);
-					}
-				}
-			}
-		}
-		else if (resetFlag) {
-			// Sync
-			internalWriteHead = 0;
-			resetFlag = false;
-		}
-
-		if (pendingInject) {
-			internalCircularBuffer[internalWriteHead] |= pendingInject;
-			pendingInject = 0;
-		}
-
-		// Copy internal buffer to output buffer
-		outputCircularBuffer[outputWriteHead] = internalCircularBuffer[internalWriteHead];
-
-		// Advance output read and write heads
-		outputReadHead = outputWriteHead;
-		outputWriteHead = (outputWriteHead + 1) & 7;
-
-		// Advance internal read and write heads
-		internalReadHead = internalWriteHead;
-		internalWriteHead = (internalWriteHead + 1) % sequenceLength;
-
-		// Redraw matrix display
-		if (!menuState) dirty = true;
-	}
-
-	//	*****	OUTPUT	*****
-
-	// Have an audio out mode? (-5V tp 5v)?s
-	uint8_t x = getRow();
-	float xCv = (x * outputScaler) * params[X_SCALE_PARAM].getValue();
-	outputs[X_CV_OUTPUT].setVoltage(xCv);
-	bool xGate = (x >> 7) & 1;
-	outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
-
-	uint8_t y = getColumn();
-	float yCv = (y * outputScaler) * params[Y_SCALE_PARAM].getValue();
-	outputs[Y_CV_OUTPUT].setVoltage(yCv);
-	bool yGate = y & 1;
-	outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
-
-	// Debug output
-	//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
-
-	lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(moduleMode) / (Mode::MODE_LEN - 1), args.sampleTime); // bad div
-	lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
-	lights[X_GATE_LIGHT].setBrightness(xGate);
-	lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
-	lights[Y_GATE_LIGHT].setBrightness(yGate);
-	lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
-	lights[INJECT_LIGHT].setBrightnessSmooth(injectState, args.sampleTime);
-}
-*/
