@@ -12,6 +12,12 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
+
+// To Do
+// - Move Colours to MatrixDisplay Widget
+// - Have x y row mode and average mode (this would be good for 2D world)
+
+
 #include "plugin.hpp"
 #include <array>
 
@@ -56,7 +62,6 @@ enum Look {
 	LOOK_LEN
 };
 
-
 struct WolframModule : Module {
 	enum ParamId {
 		SELECT_PARAM,
@@ -100,7 +105,8 @@ struct WolframModule : Module {
 	FuncMenu moduleMenu = FuncMenu::SEED;
 
 	dsp::SchmittTrigger trigTrigger;
-	dsp::SchmittTrigger injectTrigger;
+	dsp::SchmittTrigger posInjectTrigger;
+	dsp::SchmittTrigger negInjectTrigger;
 	dsp::SchmittTrigger resetTrigger;
 	dsp::PulseGenerator yPulseGenerator;
 	dsp::BooleanTrigger menuTrigger;
@@ -117,7 +123,7 @@ struct WolframModule : Module {
 	int sequenceLength = 8;
 	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	uint8_t rule = 30;
-	uint8_t seed = 8; // 8
+	uint8_t seed = 8;
 	int seedSelect = seed;
 	bool randSeed = false;
 	float chance = 1;
@@ -145,7 +151,7 @@ struct WolframModule : Module {
 		internalCircularBuffer.fill(0);
 		outputCircularBuffer.fill(0);
 		internalCircularBuffer[internalReadHead] = seed;
-		outputCircularBuffer[outputReadHead] = seed;
+		//outputCircularBuffer[outputReadHead] = seed;
 
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
@@ -264,6 +270,30 @@ struct WolframModule : Module {
 		}
 	}
 
+
+	uint8_t applyInject(uint8_t row, bool remove=false) {
+		uint8_t targetMask = row;
+		if (remove) {
+			if (row == 0x00) return row;
+		}
+		else {
+			if (row == 0xFF) return row;
+			targetMask = ~row;	// Flip row
+		}
+		
+		int targetCount = __builtin_popcount(targetMask); // Count target bits
+		int target = random::get<uint8_t>() % targetCount;	// Random target index
+
+		// Find corresponding bit position
+		uint8_t bitMask;
+		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
+			if (targetMask & bitMask) target--;
+		}
+
+		row = remove ? (row & ~bitMask) : (row | bitMask);
+		return row;
+	}
+
 	void process(const ProcessArgs& args) override {
 
 		// Buttons and Encoder
@@ -366,16 +396,18 @@ struct WolframModule : Module {
 			offset = newOffset;
 		}
 
-		bool inject = injectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
-
-		if (inject) {
+		bool posInject = posInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
+		bool negInject = negInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), -2.f, -0.1f);
+		// Figure this out
+		if (posInject || negInject) {
 			if (sync) {
 				injectPending = true;
+				// negInjectPending
+				// or injectPendingState (0, 1, 2)?
 			}
 			else {
-				const int pos = 3;
-				uint8_t bit = static_cast<uint8_t>(pos + offset + 8) & 7;
-				internalCircularBuffer[internalReadHead] |= (1 << bit);
+				internalCircularBuffer[internalReadHead] = applyInject(internalCircularBuffer[internalReadHead], posInject ? false : true);
+		
 				injectPending = false;
 				if (!menu) displayUpdate = true;
 			}
@@ -490,7 +522,7 @@ struct WolframModule : Module {
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
 		lights[Y_GATE_LIGHT].setBrightness(yGate);
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
-		lights[INJECT_LIGHT].setBrightnessSmooth(inject, args.sampleTime);
+		lights[INJECT_LIGHT].setBrightnessSmooth(posInject, args.sampleTime);
 
 		// Update display, limit to 30fps
 		if (displayUpdate && (((args.frame + this->id) % displayUpdateInterval) == 0)) {
