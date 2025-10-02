@@ -1,10 +1,10 @@
 // Make with: export RACK_DIR=/home/wes-l/Rack-SDK
-//
+
 // Docs: https://vcvrack.com/docs-v2/
 // Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
 
-// Act on this:
+// TODO: maybe this
 // Therefore, modules with a CLOCK and RESET input, or similar variants, should ignore CLOCK triggers up to 1 ms 
 // after receiving a RESET trigger.You can use dsp::Timer for keeping track of time.
 // Or do what SEQ3 does?
@@ -13,25 +13,30 @@
 // See Befaco NoisePlethora
 
 
-// To Do
+// TODO: Hold encoder to reset value, see Befaco noise
 // TODO: Have x y row mode and average mode (this would be good for 2D world)
-// TODO: Use scale param as a filter when in vco mode?
 // TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
-
+// TODO: The panel
+// TODO: Custom rect LED
 
 #include "plugin.hpp"
 #include <array>
 
-// Put this out here?
-// are these the right types
-constexpr static int PARAM_CONTROL_INTERVAL = 64;
-constexpr static size_t MAX_SEQUENCE_LENGTH = 64;
 
 enum Mode {
 	WRAP,
 	CLIP,
 	RAND,
 	MODE_LEN
+};
+
+enum Look {
+	BEFACO,
+	OLED,
+	RACK,
+	ACID,
+	MONO,
+	LOOK_LEN
 };
 
 enum DisplayMenu {
@@ -44,14 +49,6 @@ enum DisplayMenu {
 	MENU_LEN
 };
 
-enum Look {
-	BEFACO,
-	OLED,
-	RACK,
-	ACID,
-	MONO,
-	LOOK_LEN
-};
 
 struct WolframModule : Module {
 	enum ParamId {
@@ -91,7 +88,7 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
-	Mode moduleMode = Mode::WRAP;	// const?
+	Mode moduleMode = Mode::WRAP;
 	Look moduleLook = Look::BEFACO;
 	DisplayMenu moduleMenu = DisplayMenu::SEED;
 
@@ -104,6 +101,10 @@ struct WolframModule : Module {
 	dsp::BooleanTrigger modeTrigger;
 	dsp::Timer ruleDisplayTimer;
 
+	// TODO: are these the right types
+	constexpr static int PARAM_CONTROL_INTERVAL = 64;
+	constexpr static size_t MAX_SEQUENCE_LENGTH = 64;
+
 	std::array<uint8_t, MAX_SEQUENCE_LENGTH> internalCircularBuffer = {};
 	std::array<uint8_t, 8> outputCircularBuffer = {};
 
@@ -112,7 +113,7 @@ struct WolframModule : Module {
 	int outputReadHead = 0;
 
 	int sequenceLength = 8;
-	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };	// const?
+	const std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	uint8_t rule = 30;
 	uint8_t seed = 8;
 	int seedSelect = seed;
@@ -132,7 +133,7 @@ struct WolframModule : Module {
 
 	const float rotaryEncoderIndent = 1.f / 40.f;
 	float prevRotaryEncoderValue = 0.f;
-	float outputScaler = 1.f / 255.f;
+	const float eightBitScaler = 1.f / 255.f;
 	
 	// Display
 	bool displayRule = false;
@@ -148,7 +149,6 @@ struct WolframModule : Module {
 		internalCircularBuffer.fill(0);
 		outputCircularBuffer.fill(0);
 		internalCircularBuffer[internalReadHead] = seed;
-		//outputCircularBuffer[outputReadHead] = seed;
 
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
@@ -160,9 +160,9 @@ struct WolframModule : Module {
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
 		configParam(OFFSET_PARAM, -4.f, 4.f, 0.f, "Offset");
 		paramQuantities[OFFSET_PARAM]->snapEnabled = true;
-		configParam(X_SCALE_PARAM, 0.f, 1.f, 0.5f, "X CV Scale", "V", 10.f);
+		configParam(X_SCALE_PARAM, 0.f, 1.f, 0.5f, "X CV Scale", "V", 0.f, 10.f);
 		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
-		configParam(Y_SCALE_PARAM, 0.f, 1.f, 0.5f, "Y CV Scale", "V", 10.f);
+		configParam(Y_SCALE_PARAM, 0.f, 1.f, 0.5f, "Y CV Scale", "V", 0.f, 10.f);
 		paramQuantities[Y_SCALE_PARAM]->displayPrecision = 3;
 		configInput(RESET_INPUT, "Reset");
 		configInput(CHANCE_INPUT, "Chance CV");
@@ -210,7 +210,7 @@ struct WolframModule : Module {
 	}
 
 	uint8_t applyInject(uint8_t row, bool remove = false) {
-		// Is this an ok level of efficentcy
+		// TODO: is this an ok level of efficentcy
 		uint8_t targetMask = row;
 		if (remove) {
 			if (row == 0x00) return row;
@@ -220,7 +220,7 @@ struct WolframModule : Module {
 			targetMask = ~row;	// Flip row
 		}
 
-		int targetCount = __builtin_popcount(targetMask); // Count target bits
+		int targetCount = __builtin_popcount(targetMask);	// Count target bits
 		int target = random::get<uint8_t>() % targetCount;	// Random target index
 
 		// Find corresponding bit position
@@ -294,7 +294,6 @@ struct WolframModule : Module {
 	void process(const ProcessArgs& args) override {
 
 		// BUTTONS & ENCODER
-
 		if (menuTrigger.process(params[MENU_PARAM].getValue())) {
 			menu = !menu;
 			displayUpdate = true;
@@ -382,11 +381,10 @@ struct WolframModule : Module {
 		}
 
 		// DIALS & INPUTS
-		
 		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
 		float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
-		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f); // Used the min max thing here too
+		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f); // TODO: Used the min max thing here too, see offset
 
 		float offsetCv = clamp(inputs[OFFSET_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
 		int newOffset = std::min(std::max(fastRoundInt(params[OFFSET_PARAM].getValue() + offsetCv), -4), 4);
@@ -445,14 +443,16 @@ struct WolframModule : Module {
 		bool trig = false;
 		float trigVotagte = inputs[TRIG_INPUT].getVoltage();
 		if (vcoMode) {
+			// Detect zero crossing
 			trig = (trigVotagte > 0.f && lastTrigVoltage <= 0.f) || (trigVotagte < 0.f && lastTrigVoltage >= 0.f);
 		}
 		else {
+			// Dectect trigger pulse
 			trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
 		}
 		lastTrigVoltage = trigVotagte;
 
-		// do the dont trigger when reseting thing SEQ3
+		// TODO: do the dont trigger when reseting thing SEQ3
 		if (trig) {
 			if (!genPending) {
 				// Find gen if not found when reset triggered and sync false
@@ -517,7 +517,7 @@ struct WolframModule : Module {
 
 		// OUTPUT
 		uint8_t x = getRow();
-		float xCv = x * outputScaler * 10.f;
+		float xCv = x * eightBitScaler * 10.f;
 		if (vcoMode) {
 			xCv -= 5.f;
 		}
@@ -528,7 +528,7 @@ struct WolframModule : Module {
 		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
 
 		uint8_t y = getColumn();
-		float yCv = y * outputScaler * 10.f;
+		float yCv = y * eightBitScaler * 10.f;
 		if (vcoMode) {
 			yCv -= 5.f;
 		}
@@ -600,7 +600,7 @@ struct MatrixDisplay : Widget {
 	NVGcolor secondaryAccent = nvgRGB(76, 40, 40);
 
 	MatrixDisplay(WolframModule* m) {
-		module = m;	// does this get used
+		module = m;	// TODO: does this get used
 		box.pos = Vec(mm2px(30.1) - matrixSize * 0.5, mm2px(26.14) - matrixSize * 0.5);
 		box.size = Vec(matrixSize, matrixSize);
 		
@@ -711,7 +711,7 @@ struct MatrixDisplay : Widget {
 					primaryAccentOff = lcdBackground;
 					break;
 				}
-				module->dirty = true;	// feels bad doing this
+				module->dirty = true;	// TODO: feels bad doing this
 				break;
 			}
 			default: { break; }
@@ -732,8 +732,10 @@ struct MatrixDisplay : Widget {
 		nvgStroke(vg);
 		nvgClosePath(vg);
 
+		// TODO: improve border
+
 		if (!module) {
-			// Draw preview 
+			// TODO: Draw preview 
 			return;
 		}
 
@@ -778,18 +780,92 @@ struct MatrixDisplay : Widget {
 	}
 };
 
-struct CustomShapeLight : ModuleLightWidget {
-	void drawLight(const DrawArgs& args) override {
-		// Example: draw a rectangle instead of a circle
-		nvgBeginPath(args.vg);
-		nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
-		nvgRect(args.vg, 0, 0, 40, 40);
-		nvgFillColor(args.vg, nvgRGB(255, 0, 0));
-		nvgFill(args.vg);
-	}
-};
 
 struct WolframModuleWidget : ModuleWidget {
+
+	// Using Count Modula's custom LED
+	template <typename TBase>
+	struct RectangleLightDiagonal : TBase {
+
+		// -45 degree rotation 
+		float rotation = -M_PI / 4.f; 
+
+		void drawBackground(const DrawArgs& args) override {
+			// Derived from LightWidget::drawBackground()
+
+			nvgSave(args.vg);
+			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
+			nvgRotate(args.vg, rotation);	
+			nvgTranslate(args.vg, -this->box.size.x / 2.f, -this->box.size.y / 2.f);
+
+			nvgBeginPath(args.vg);
+			nvgRect(args.vg, 0, 0, this->box.size.x, this->box.size.y);
+
+			// Background
+			if (this->bgColor.a > 0.0) {
+				nvgFillColor(args.vg, this->bgColor);
+				nvgFill(args.vg);
+			}
+
+			// Border
+			if (this->borderColor.a > 0.0) {
+				nvgStrokeWidth(args.vg, 0.5);
+				nvgStrokeColor(args.vg, this->borderColor);
+				nvgStroke(args.vg);
+			}
+			nvgRestore(args.vg);
+		}
+
+		void drawLight(const DrawArgs& args) override {
+			// Derived from LightWidget::drawLight()
+
+			nvgSave(args.vg);
+			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
+			nvgRotate(args.vg, rotation);
+			nvgTranslate(args.vg, -this->box.size.x / 2.f, -this->box.size.y / 2.f);
+
+			// Foreground
+			if (this->color.a > 0.0) {
+				nvgBeginPath(args.vg);
+				nvgRect(args.vg, 0, 0, this->box.size.x, this->box.size.y);
+
+				nvgFillColor(args.vg, this->color);
+				nvgFill(args.vg);
+			}
+			nvgRestore(args.vg);
+		}
+	};
+
+	template <typename TBase>
+	struct WolframLed : TBase {
+		WolframLed() {
+			this->box.size = mm2px(Vec(5.f, 2.f));
+		}
+
+		void drawHalo(const DrawArgs& args) override {
+			// Don't draw halo if rendering in a framebuffer, e.g. screenshots or Module Browser
+			if (args.fb)
+				return;
+
+			const float halo = settings::haloBrightness;
+			if (halo == 0.f)
+				return;
+
+			if (this->color.a == 0.f)
+				return;
+
+			float br = 30.0; // Blur radius
+			float cr = 5.0; // Corner radius
+
+			nvgBeginPath(args.vg);
+			nvgRect(args.vg, -br, -br, this->box.size.x + 2 * br, this->box.size.y + 2 * br);
+			NVGcolor icol = color::mult(TBase::color, halo);
+			NVGcolor ocol = nvgRGBA(0, 0, 0, 0);
+			nvgFillPaint(args.vg, nvgBoxGradient(args.vg, 0, 0, this->box.size.x, this->box.size.y, cr, br, icol, ocol));
+			nvgFill(args.vg);
+		}
+	};
+
 	WolframModuleWidget(WolframModule* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/WolframModule.svg")));
@@ -820,13 +896,14 @@ struct WolframModuleWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 96.5f)), module, WolframModule::Y_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 111.5f)), module, WolframModule::Y_PULSE_OUTPUT));
 		// LEDs
-		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
-		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 96.5f)), module, WolframModule::X_CV_LIGHT));
-		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 111.5f)), module, WolframModule::X_GATE_LIGHT));
-		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.45f, 96.5f)), module, WolframModule::Y_CV_LIGHT));
-		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.45f, 111.5f)), module, WolframModule::Y_GATE_LIGHT));
-		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(16.51f, 104.f)), module, WolframModule::TRIG_LIGHT));
-		addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.45, 104.f)), module, WolframModule::INJECT_LIGHT));
+		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
+		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
+		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 96.5f)), module, WolframModule::X_CV_LIGHT));
+		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 111.5f)), module, WolframModule::X_GATE_LIGHT));
+		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(44.45f, 96.5f)), module, WolframModule::Y_CV_LIGHT));
+		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(44.45f, 111.5f)), module, WolframModule::Y_GATE_LIGHT));
+		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 104.f)), module, WolframModule::TRIG_LIGHT));
+		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(44.45, 104.f)), module, WolframModule::INJECT_LIGHT));
 
 		MatrixDisplayBuffer* matrixDisplayFb = new MatrixDisplayBuffer(module);
 		MatrixDisplay* matrixDisplay = new MatrixDisplay(module);
