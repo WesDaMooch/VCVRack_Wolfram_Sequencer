@@ -14,9 +14,9 @@
 
 
 // To Do
-// - Have x y row mode and average mode (this would be good for 2D world)
-// - Have an audio out mode? (-5V to 5v)
-// - Game - space defence, control platform with offset, 'floor' rises when letting a bit through
+// TODO: Have x y row mode and average mode (this would be good for 2D world)
+// TODO: Use scale param as a filter when in vco mode?
+// TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
 
 
 #include "plugin.hpp"
@@ -34,12 +34,12 @@ enum Mode {
 	MODE_LEN
 };
 
-enum FuncMenu {
+enum DisplayMenu {
 	SEED,
 	MODE,
-	SYNC, 
+	SYNC,
+	FUNCTION,
 	ALGORITHM,
-	OUTPUT,
 	LOOK,
 	MENU_LEN
 };
@@ -93,7 +93,7 @@ struct WolframModule : Module {
 
 	Mode moduleMode = Mode::WRAP;	// const?
 	Look moduleLook = Look::BEFACO;
-	FuncMenu moduleMenu = FuncMenu::SEED;
+	DisplayMenu moduleMenu = DisplayMenu::SEED;
 
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger posInjectTrigger;
@@ -127,6 +127,8 @@ struct WolframModule : Module {
 	bool genPending = false;
 	bool sync = false;
 	bool menu = false;
+	bool vcoMode = false;
+	float lastTrigVoltage = 0.f;
 
 	const float rotaryEncoderIndent = 1.f / 40.f;
 	float prevRotaryEncoderValue = 0.f;
@@ -158,9 +160,9 @@ struct WolframModule : Module {
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
 		configParam(OFFSET_PARAM, -4.f, 4.f, 0.f, "Offset");
 		paramQuantities[OFFSET_PARAM]->snapEnabled = true;
-		configParam(X_SCALE_PARAM, 0.f, 10.f, 5.f, "X CV Scale", "V");
+		configParam(X_SCALE_PARAM, 0.f, 1.f, 0.5f, "X CV Scale", "V", 10.f);
 		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
-		configParam(Y_SCALE_PARAM, 0.f, 10.f, 5.f, "Y CV Scale", "V");
+		configParam(Y_SCALE_PARAM, 0.f, 1.f, 0.5f, "Y CV Scale", "V", 10.f);
 		paramQuantities[Y_SCALE_PARAM]->displayPrecision = 3;
 		configInput(RESET_INPUT, "Reset");
 		configInput(CHANCE_INPUT, "Chance CV");
@@ -300,11 +302,11 @@ struct WolframModule : Module {
 
 		if (modeTrigger.process(params[MODE_PARAM].getValue())) {
 			if (menu) {
-				int numMenus = static_cast<int>(FuncMenu::MENU_LEN);
+				int numMenus = static_cast<int>(DisplayMenu::MENU_LEN);
 				int menuIndex = static_cast<int>(moduleMenu);
 				menuIndex++;
 				if (menuIndex >= numMenus) { menuIndex = 0; }
-				moduleMenu = static_cast<FuncMenu>(menuIndex);
+				moduleMenu = static_cast<DisplayMenu>(menuIndex);
 				displayUpdate = true;
 			}
 			else {
@@ -346,7 +348,11 @@ struct WolframModule : Module {
 					sync = !sync;
 					break;
 				}
-				case OUTPUT: {
+				case FUNCTION: {
+					vcoMode = !vcoMode;
+					break;
+				}
+				case ALGORITHM: {
 					break;
 				}
 				case LOOK: {
@@ -380,7 +386,7 @@ struct WolframModule : Module {
 		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
 		float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
-		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f);
+		chance = clamp(params[CHANCE_PARAM].getValue() + chanceCv, 0.f, 1.f); // Used the min max thing here too
 
 		float offsetCv = clamp(inputs[OFFSET_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
 		int newOffset = std::min(std::max(fastRoundInt(params[OFFSET_PARAM].getValue() + offsetCv), -4), 4);
@@ -435,10 +441,17 @@ struct WolframModule : Module {
 			}
 		}
 
-		// STEP
-		
-		// For audio rate would need to trigger when low to high and high to low, for cv only low to high
-		bool trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+		// STEP		
+		bool trig = false;
+		float trigVotagte = inputs[TRIG_INPUT].getVoltage();
+		if (vcoMode) {
+			trig = (trigVotagte > 0.f && lastTrigVoltage <= 0.f) || (trigVotagte < 0.f && lastTrigVoltage >= 0.f);
+		}
+		else {
+			trig = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+		}
+		lastTrigVoltage = trigVotagte;
+
 		// do the dont trigger when reseting thing SEQ3
 		if (trig) {
 			if (!genPending) {
@@ -502,17 +515,24 @@ struct WolframModule : Module {
 		// Update output buffer
 		outputCircularBuffer[outputReadHead] = internalCircularBuffer[internalReadHead];
 
-		//	OUTPUT
-
-		// Have an audio out mode? (-5V tp 5v)?s
+		// OUTPUT
 		uint8_t x = getRow();
-		float xCv = (x * outputScaler) * params[X_SCALE_PARAM].getValue();
+		float xCv = x * outputScaler * 10.f;
+		if (vcoMode) {
+			xCv -= 5.f;
+		}
+		xCv *= params[X_SCALE_PARAM].getValue();;
+
 		outputs[X_CV_OUTPUT].setVoltage(xCv);
 		bool xGate = (x >> 7) & 1;
 		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
 
 		uint8_t y = getColumn();
-		float yCv = (y * outputScaler) * params[Y_SCALE_PARAM].getValue();
+		float yCv = y * outputScaler * 10.f;
+		if (vcoMode) {
+			yCv -= 5.f;
+		}
+		yCv *= params[Y_SCALE_PARAM].getValue();;
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 		bool yGate = y & 1;
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
@@ -520,6 +540,7 @@ struct WolframModule : Module {
 		// Debug output
 		//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
 
+		// LIGHTS
 		lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(moduleMode) / (Mode::MODE_LEN - 1), args.sampleTime); // bad div
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_GATE_LIGHT].setBrightness(xGate);
@@ -587,7 +608,7 @@ struct MatrixDisplay : Widget {
 		font = APP->window->loadFont(fontPath);
 	}
 
-	void drawMenu(NVGcontext* vg, FuncMenu Menu) {
+	void drawMenu(NVGcontext* vg, DisplayMenu Menu) {
 		nvgFillColor(vg, primaryAccent);
 		nvgText(vg, 0, 0, "menu", nullptr);
 		switch (Menu) {
@@ -629,7 +650,6 @@ struct MatrixDisplay : Widget {
 				break;
 			}
 			case SYNC: {
-				// FREE CLK
 				nvgText(vg, 0, fontSize, "SYNC", nullptr);
 				if (module->sync) {
 					nvgText(vg, 0, fontSize * 2, "LOCK", nullptr);
@@ -639,16 +659,21 @@ struct MatrixDisplay : Widget {
 				}
 				break;
 			}
+			case FUNCTION: {
+				// CV AUD
+				nvgText(vg, 0, fontSize, "FUNC", nullptr);
+				if (module->vcoMode) {
+					nvgText(vg, 0, fontSize * 2, " VCO", nullptr);
+				}
+				else {
+					nvgText(vg, 0, fontSize * 2, " SEQ", nullptr);
+				}
+				break;
+			}
 			case ALGORITHM: {
 				// WOLF ANT LIFE
 				nvgText(vg, 0, fontSize, "ALGO", nullptr);
 				nvgText(vg, 0, fontSize * 2, "WOLF", nullptr);
-				break;
-			}
-			case OUTPUT: {
-				// CV AUD
-				nvgText(vg, 0, fontSize, "OUT", nullptr);
-				nvgText(vg, 0, fontSize * 2, "CV", nullptr);
 				break;
 			}
 			case LOOK: {
