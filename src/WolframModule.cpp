@@ -13,15 +13,15 @@
 // See Befaco NoisePlethora
 
 
-// TODO: Hold encoder to reset value, see Befaco noise
+// TODO: ruleReset should not put seed when chance fails!
 // TODO: Have x y row mode and average mode (this would be good for 2D world)
 // TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
 // TODO: The panel
-// TODO: Custom rect LED
+// TODO: Save state
+// TODO: onReset and onRandomize
 
 #include "plugin.hpp"
 #include <array>
-
 
 enum Mode {
 	WRAP,
@@ -132,19 +132,19 @@ struct WolframModule : Module {
 	float lastTrigVoltage = 0.f;
 
 	// TODO: make static constexpr?
-	const float rotaryEncoderIndent = 1.f / 40.f;
-	float prevRotaryEncoderValue = 0.f;
+	const float encoderIndent = 1.f / 40.f;
+	float prevEncoderValue = 0.f;
+	bool encoderReset = false;
 
 	// Befaco program dial
-	// static constexpr int dialResolution = 8;
+	static constexpr int dialResolution = 8;
 	// variable to store what the program knob was prior to the start of dragging (used to calculate deltas)
-	//float programKnobReferenceState = 0.f; Same as prevRotaryEncoderValue
+	float programKnobReferenceState = 0.f; 
 
-	bool programButtonHeld = false;
-	bool programButtonDragged = false;
-	dsp::BooleanTrigger programHoldTrigger;
-	dsp::Timer programHoldTimer;
-
+	//bool programButtonHeld = false;
+	//bool programButtonDragged = false;
+	//dsp::BooleanTrigger programHoldTrigger;
+	//dsp::Timer programHoldTimer;
 
 
 	const float eightBitScaler = 1.f / 255.f;
@@ -253,22 +253,6 @@ struct WolframModule : Module {
 		return row;
 	}
 
-	int rotaryEncoder(float value) {
-		float difference = value - prevRotaryEncoderValue;
-		int delta = 0;
-		while (difference >= rotaryEncoderIndent) {
-			delta++;
-			prevRotaryEncoderValue += rotaryEncoderIndent;
-			difference = value - prevRotaryEncoderValue;
-		}
-		while (difference <= -rotaryEncoderIndent) {
-			delta--;
-			prevRotaryEncoderValue -= rotaryEncoderIndent;
-			difference = value - prevRotaryEncoderValue;
-		}
-		return delta;
-	}
-
 	void generateRow() {
 		// Cellular automata 
 		for (int i = 0; i < 8; i++) {
@@ -311,15 +295,159 @@ struct WolframModule : Module {
 		}
 	}
 
-	
-
-	// Base on Befaco Noise
 	void processEncoder(const ProcessArgs& args) {
-		// Drag
-		// Hold
-		// Double click
-		// use rack::widget::Widget::DoubleClickEvent?
+		// Rotary encoder drag
+		// could put in a if(encoderDragged) which is set from custom encoder, stops this running all the time
+		// also dont like the while loops
+		// hmmm
+		//const int delta = (int)(dialResolution * (params[SELECT_PARAM].getValue() - programKnobReferenceState));
 
+		const float encoderValue = params[SELECT_PARAM].getValue();
+		float difference = encoderValue - prevEncoderValue;
+		int delta = 0;
+		while (difference >= encoderIndent) {
+			delta++;
+			prevEncoderValue += encoderIndent;
+			difference = encoderValue - prevEncoderValue;
+		}
+		while (difference <= -encoderIndent) {
+			delta--;
+			prevEncoderValue -= encoderIndent;
+			difference = encoderValue - prevEncoderValue;
+		}
+
+		// Rotary encoder drag and double-click logic
+		if (menu) {
+			switch (moduleMenu) {
+			case SEED: {
+				if (encoderReset) {
+					seed = 8;
+					seedSelect = seed;
+					randSeed = false;
+					encoderReset = false;
+					displayUpdate = true;
+					break;
+				}
+				
+				if (!delta)
+					break;
+
+				// Seed options are 256 + 1 (RAND) 
+				seedSelect += delta;
+				if (seedSelect > 256) { seedSelect -= 257; }
+				else if (seedSelect < 0) { seedSelect += 257; }
+
+				randSeed = (seedSelect == 256);
+
+				if (!randSeed) {
+					seed = static_cast<uint8_t>(seedSelect);
+				}
+
+				displayUpdate = true;
+				break;
+			}
+			case MODE: {
+				if (encoderReset) {
+					moduleMode = Mode::WRAP;
+					encoderReset = false;
+					displayUpdate = true;
+				}
+
+				if (!delta)
+					break;
+
+				const int numModes = static_cast<int>(Mode::MODE_LEN);
+				int modeIndex = static_cast<int>(moduleMode);
+				modeIndex = (modeIndex + delta + numModes) % numModes;
+				moduleMode = static_cast<Mode>(modeIndex);
+
+				displayUpdate = true;
+				break;
+			}
+			case SYNC: {
+				if (encoderReset) {
+					sync = false;
+					encoderReset = false;
+					displayUpdate = true;
+				}
+				
+				if (!delta)
+					break;
+
+				sync = !sync;
+
+				displayUpdate = true;
+				break;
+			}
+			case FUNCTION: {
+				if (encoderReset) {
+					vcoMode = false;
+					encoderReset = false;
+					displayUpdate = true;
+				}
+
+				if (!delta)
+					break;
+
+				vcoMode = !vcoMode;
+
+				displayUpdate = true;
+				break;
+			}
+			case ALGORITHM: {
+				if (encoderReset) {
+
+					encoderReset = false;
+					displayUpdate = true;
+				}
+
+				if (!delta)
+					break;
+
+				displayUpdate = true;
+				break;
+			}
+			case LOOK: {
+				if (encoderReset) {
+					moduleLook = Look::BEFACO;
+					encoderReset = false;
+					displayUpdate = true;
+				}
+
+				if (!delta)
+					break;
+
+				const int numLooks = static_cast<int>(Look::LOOK_LEN);
+				int lookIndex = static_cast<int>(moduleLook);
+				lookIndex = (lookIndex + delta + numLooks) % numLooks;
+				moduleLook = static_cast<Look>(lookIndex);
+
+				displayUpdate = true;
+				break;
+			}
+			default: { break; }
+			}
+		}
+		else {
+			// Rule select
+			if (encoderReset) {
+				rule = 30;
+				encoderReset = false;
+			}
+			else if (delta != 0) {
+				rule = static_cast<uint8_t>(rule + delta);
+			}
+			else {
+				return; 
+			}
+
+			ruleResetPending = true;
+			displayRule = true;
+			ruleDisplayTimer.reset();
+			displayUpdate = true;
+		}
+
+		/*
 		if (programButtonDragged) {
 			// work out the change (in discrete increments) since the program/bank knob started being dragged
 			//const int delta = (int)(dialResolution * (params[PROGRAM_PARAM].getValue() - programKnobReferenceState));
@@ -331,64 +459,6 @@ struct WolframModule : Module {
 			//}
 			
 			// can use my encdoer code here?
-
-			int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
-			if (selectDelta != 0) {
-				if (menu) {
-					// Menu selection
-					switch (moduleMenu) {
-					case SEED: {
-						// Seed options are 256 + 1 (RAND) 
-						seedSelect = seedSelect + selectDelta;
-						if (seedSelect > 256) { seedSelect -= 257; }
-						else if (seedSelect < 0) { seedSelect += 257; }
-						if (seedSelect == 256) {
-							randSeed = true;
-						}
-						else {
-							seed = static_cast<uint8_t>(seedSelect);
-							randSeed = false;
-						}
-						break;
-					}
-					case MODE: {
-						int numModes = static_cast<int>(Mode::MODE_LEN);
-						int modeIndex = static_cast<int>(moduleMode);
-						modeIndex = (modeIndex + selectDelta + numModes) % numModes;
-						moduleMode = static_cast<Mode>(modeIndex);
-						break;
-					}
-					case SYNC: {
-						sync = !sync;
-						break;
-					}
-					case FUNCTION: {
-						vcoMode = !vcoMode;
-						break;
-					}
-					case ALGORITHM: {
-						break;
-					}
-					case LOOK: {
-						int numLooks = static_cast<int>(Look::LOOK_LEN);
-						int lookIndex = static_cast<int>(moduleLook);
-						lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
-						moduleLook = static_cast<Look>(lookIndex);
-						break;
-					}
-					default: { break; }
-					}
-				}
-				else {
-					// Rule selection
-					rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
-					ruleResetPending = true;
-					displayRule = true;
-					ruleDisplayTimer.reset();
-				}
-				displayUpdate = true;
-			}
-
 		}
 
 		// if we have a new "press" on the knob, time it
@@ -427,13 +497,16 @@ struct WolframModule : Module {
 			// sets a reference or something
 			
 		}
+		*/
 	}
 
 
 
 	void process(const ProcessArgs& args) override {
-
 		// BUTTONS & ENCODER
+
+		processEncoder(args);
+
 		if (menuTrigger.process(params[MENU_PARAM].getValue())) {
 			menu = !menu;
 			displayUpdate = true;
@@ -456,67 +529,6 @@ struct WolframModule : Module {
 				moduleMode = static_cast<Mode>(modeIndex);
 			}
 		}
-
-		//processEncoder(args);
-
-		/*
-		int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
-		if (selectDelta != 0) {
-			if (menu) {
-				// Menu selection
-				switch (moduleMenu) {
-				case SEED: {
-					// Seed options are 256 + 1 (RAND) 
-					seedSelect = seedSelect + selectDelta;
-					if (seedSelect > 256) { seedSelect -= 257; }
-					else if (seedSelect < 0) { seedSelect += 257; }
-					if (seedSelect == 256) {
-						randSeed = true;
-					}
-					else {
-						seed = static_cast<uint8_t>(seedSelect);
-						randSeed = false;
-					}
-					break;
-				}
-				case MODE: {
-					int numModes = static_cast<int>(Mode::MODE_LEN);
-					int modeIndex = static_cast<int>(moduleMode);
-					modeIndex = (modeIndex + selectDelta + numModes) % numModes;
-					moduleMode = static_cast<Mode>(modeIndex);
-					break;
-				}
-				case SYNC: {
-					sync = !sync;
-					break;
-				}
-				case FUNCTION: {
-					vcoMode = !vcoMode;
-					break;
-				}
-				case ALGORITHM: {
-					break;
-				}
-				case LOOK: {
-					int numLooks = static_cast<int>(Look::LOOK_LEN);
-					int lookIndex = static_cast<int>(moduleLook);
-					lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
-					moduleLook = static_cast<Look>(lookIndex);
-					break;
-				}
-				default: { break; }
-				}
-			}
-			else {
-				// Rule selection
-				rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
-				ruleResetPending = true;
-				displayRule = true;
-				ruleDisplayTimer.reset();
-			}
-			displayUpdate = true;
-		}
-		*/
 
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
 			displayRule = false;
@@ -659,6 +671,7 @@ struct WolframModule : Module {
 		outputCircularBuffer[outputReadHead] = internalCircularBuffer[internalReadHead];
 
 		// OUTPUT
+
 		uint8_t x = getRow();
 		float xCv = x * eightBitScaler * 10.f;
 		if (vcoMode) {
@@ -684,6 +697,7 @@ struct WolframModule : Module {
 		//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
 
 		// LIGHTS
+
 		lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(moduleMode) / (Mode::MODE_LEN - 1), args.sampleTime); // bad div
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_GATE_LIGHT].setBrightness(xGate);
@@ -692,7 +706,9 @@ struct WolframModule : Module {
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
 		lights[INJECT_LIGHT].setBrightnessSmooth(posInject, args.sampleTime);
 
-		// UPDATE DISPLAY - 30fps limited
+		// UPDATE DISPLAY
+		// 30fps limited
+
 		if (displayUpdate && (((args.frame + this->id) % displayUpdateInterval) == 0)) {
 			displayUpdate = false;
 			dirty = true;
@@ -704,8 +720,7 @@ struct MatrixDisplayBuffer : FramebufferWidget {
 	WolframModule* module;
 	MatrixDisplayBuffer(WolframModule* m) {
 		module = m;
-		// what is this doing?
-		// should use m in this struct?
+		// what is this do ing?
 	}
 	void step() override {
 		if (module && module->dirty) {
@@ -939,6 +954,7 @@ struct MoochEncoder : RoundBlackKnob {
 		// set something in process encoder
 		// like encodeReset
 		//m->rule = 0;
+		m->encoderReset = true;
 	}
 
 };
