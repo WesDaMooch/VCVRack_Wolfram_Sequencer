@@ -131,8 +131,22 @@ struct WolframModule : Module {
 	bool vcoMode = false;
 	float lastTrigVoltage = 0.f;
 
+	// TODO: make static constexpr?
 	const float rotaryEncoderIndent = 1.f / 40.f;
 	float prevRotaryEncoderValue = 0.f;
+
+	// Befaco program dial
+	// static constexpr int dialResolution = 8;
+	// variable to store what the program knob was prior to the start of dragging (used to calculate deltas)
+	//float programKnobReferenceState = 0.f; Same as prevRotaryEncoderValue
+
+	bool programButtonHeld = false;
+	bool programButtonDragged = false;
+	dsp::BooleanTrigger programHoldTrigger;
+	dsp::Timer programHoldTimer;
+
+
+
 	const float eightBitScaler = 1.f / 255.f;
 	
 	// Display
@@ -180,6 +194,12 @@ struct WolframModule : Module {
 		configLight(Y_GATE_LIGHT, "Y Gate");
 		configLight(TRIG_LIGHT, "Trigger");
 		configLight(INJECT_LIGHT, "Inject");
+	}
+
+
+	void onSampleRateChange() override {
+		float sampleRate = APP->engine->getSampleRate();
+		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
 	}
 
 	uint8_t applyOffset(uint8_t row) {
@@ -291,6 +311,126 @@ struct WolframModule : Module {
 		}
 	}
 
+	
+
+	// Base on Befaco Noise
+	void processEncoder(const ProcessArgs& args) {
+		// Drag
+		// Hold
+		// Double click
+		// use rack::widget::Widget::DoubleClickEvent?
+
+		if (programButtonDragged) {
+			// work out the change (in discrete increments) since the program/bank knob started being dragged
+			//const int delta = (int)(dialResolution * (params[PROGRAM_PARAM].getValue() - programKnobReferenceState));
+
+			//if (delta != 0) {
+			//	const int newProgramFromKnob = unsigned_modulo(programSelector.getCurrent().getProgram() + delta, numProgramsForCurrentBank);
+			//	programKnobReferenceState = params[PROGRAM_PARAM].getValue();
+			//	setAlgorithmViaProgram(newProgramFromKnob);
+			//}
+			
+			// can use my encdoer code here?
+
+			int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
+			if (selectDelta != 0) {
+				if (menu) {
+					// Menu selection
+					switch (moduleMenu) {
+					case SEED: {
+						// Seed options are 256 + 1 (RAND) 
+						seedSelect = seedSelect + selectDelta;
+						if (seedSelect > 256) { seedSelect -= 257; }
+						else if (seedSelect < 0) { seedSelect += 257; }
+						if (seedSelect == 256) {
+							randSeed = true;
+						}
+						else {
+							seed = static_cast<uint8_t>(seedSelect);
+							randSeed = false;
+						}
+						break;
+					}
+					case MODE: {
+						int numModes = static_cast<int>(Mode::MODE_LEN);
+						int modeIndex = static_cast<int>(moduleMode);
+						modeIndex = (modeIndex + selectDelta + numModes) % numModes;
+						moduleMode = static_cast<Mode>(modeIndex);
+						break;
+					}
+					case SYNC: {
+						sync = !sync;
+						break;
+					}
+					case FUNCTION: {
+						vcoMode = !vcoMode;
+						break;
+					}
+					case ALGORITHM: {
+						break;
+					}
+					case LOOK: {
+						int numLooks = static_cast<int>(Look::LOOK_LEN);
+						int lookIndex = static_cast<int>(moduleLook);
+						lookIndex = (lookIndex + selectDelta + numLooks) % numLooks;
+						moduleLook = static_cast<Look>(lookIndex);
+						break;
+					}
+					default: { break; }
+					}
+				}
+				else {
+					// Rule selection
+					rule = static_cast<uint8_t>((rule + selectDelta + 256) % 256);
+					ruleResetPending = true;
+					displayRule = true;
+					ruleDisplayTimer.reset();
+				}
+				displayUpdate = true;
+			}
+
+		}
+
+		// if we have a new "press" on the knob, time it
+		if (programHoldTrigger.process(programButtonHeld)) {
+			programHoldTimer.reset();
+		}
+
+		// but cancel if it's actually a knob drag
+		if (programButtonDragged) {
+			programHoldTimer.reset();
+			programButtonHeld = false;
+		}
+		else {
+			if (programButtonHeld) {
+				programHoldTimer.process(args.sampleTime);
+				if (programHoldTimer.time > 0.5f) {
+					programButtonHeld = false;
+					programHoldTimer.reset();
+
+					// Reset rule or something
+
+					//rule = 0;
+				}
+			}
+			// no longer held, but has been held for non-zero time (without being dragged), toggle "active" section (A or B),
+			// this is effectively just a "click"
+			else if (programHoldTimer.time > 0.f) {
+				//programSelector.setMode(!programSelector.getMode());
+				// on click reset to default of whatever is currently selected
+				programHoldTimer.reset();
+			}
+		}
+
+		if (!programButtonDragged) {
+			//programKnobReferenceState = params[PROGRAM_PARAM].getValue();
+			// sets a reference or something
+			
+		}
+	}
+
+
+
 	void process(const ProcessArgs& args) override {
 
 		// BUTTONS & ENCODER
@@ -317,6 +457,9 @@ struct WolframModule : Module {
 			}
 		}
 
+		//processEncoder(args);
+
+		/*
 		int selectDelta = rotaryEncoder(params[SELECT_PARAM].getValue());
 		if (selectDelta != 0) {
 			if (menu) {
@@ -373,7 +516,7 @@ struct WolframModule : Module {
 			}
 			displayUpdate = true;
 		}
-
+		*/
 
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
 			displayRule = false;
@@ -555,17 +698,14 @@ struct WolframModule : Module {
 			dirty = true;
 		}
 	}
-
-	void onSampleRateChange() override {
-		float sampleRate = APP->engine->getSampleRate();
-		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
-	}
 };
 
 struct MatrixDisplayBuffer : FramebufferWidget {
 	WolframModule* module;
 	MatrixDisplayBuffer(WolframModule* m) {
 		module = m;
+		// what is this doing?
+		// should use m in this struct?
 	}
 	void step() override {
 		if (module && module->dirty) {
@@ -578,6 +718,9 @@ struct MatrixDisplayBuffer : FramebufferWidget {
 
 
 struct MatrixDisplay : Widget {
+	// TODO: Should be using something like this?
+	// WolframModule* m = static_cast<WolframModule*>(module);
+	// Check out the base Wiget 
 	WolframModule* module;
 
 	std::shared_ptr<Font> font;
@@ -629,7 +772,7 @@ struct MatrixDisplay : Widget {
 						nvgFill(vg);
 					}
 				}
-				nvgFillColor(vg, primaryAccent);	// Reset Colour
+				nvgFillColor(vg, primaryAccent); // Reset Colour
 				break;
 			}
 			case MODE: {
@@ -694,12 +837,12 @@ struct MatrixDisplay : Widget {
 				case ACID:
 					nvgText(vg, 0, fontSize * 2, "ACID", nullptr);
 					lcdBackground = nvgRGB(6, 56, 56);
-					primaryAccent = nvgRGB(175, 210, 44);	// Fix
+					primaryAccent = nvgRGB(175, 210, 44);	// Create theme
 					primaryAccentOff = lcdBackground;
 					break;
 				case MONO:
 					nvgText(vg, 0, fontSize * 2, "MONO", nullptr);
-					lcdBackground = nvgRGB(18, 18, 18);	// Fix
+					lcdBackground = nvgRGB(18, 18, 18);		// Create theme
 					primaryAccent = nvgRGB(255, 255, 255);
 					primaryAccentOff = lcdBackground;
 					break;
@@ -733,6 +876,7 @@ struct MatrixDisplay : Widget {
 		nvgClosePath(vg);
 
 		// TODO: improve border
+		// TODO: improve cell look
 
 		if (!module) {
 			// TODO: Draw preview 
@@ -780,9 +924,30 @@ struct MatrixDisplay : Widget {
 	}
 };
 
+// Create custom encoder struct
+struct MoochEncoder : RoundBlackKnob {
+	MoochEncoder() {
+		// Load custom svg
+		// setSvg(Svg::load(asset::system("res/ComponentLibrary/RoundBlackKnob.svg")));
+		// bg->setSvg(Svg::load(asset::system("res/ComponentLibrary/RoundBlackKnob_bg.svg")));
+	}
+
+	// Changing stuff in Knob.hpp & ParamWidget.cpp
+
+	void onDoubleClick(const DoubleClickEvent& e) override {
+		WolframModule* m = static_cast<WolframModule*>(module);
+		// set something in process encoder
+		// like encodeReset
+		//m->rule = 0;
+	}
+
+};
+
 
 struct WolframModuleWidget : ModuleWidget {
-
+		
+	// Should led stuff be out of this widget??
+	
 	// Using Count Modula's custom LED
 	template <typename TBase>
 	struct RectangleLightDiagonal : TBase {
@@ -791,8 +956,6 @@ struct WolframModuleWidget : ModuleWidget {
 		float rotation = -M_PI / 4.f; 
 
 		void drawBackground(const DrawArgs& args) override {
-			// Derived from LightWidget::drawBackground()
-
 			nvgSave(args.vg);
 			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
 			nvgRotate(args.vg, rotation);	
@@ -817,8 +980,6 @@ struct WolframModuleWidget : ModuleWidget {
 		}
 
 		void drawLight(const DrawArgs& args) override {
-			// Derived from LightWidget::drawLight()
-
 			nvgSave(args.vg);
 			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
 			nvgRotate(args.vg, rotation);
@@ -836,6 +997,7 @@ struct WolframModuleWidget : ModuleWidget {
 		}
 	};
 
+	// Rename based on the name of the LED on switch electronics
 	template <typename TBase>
 	struct WolframLed : TBase {
 		WolframLed() {
@@ -851,6 +1013,7 @@ struct WolframModuleWidget : ModuleWidget {
 			if (halo == 0.f)
 				return;
 
+			// If light is off, rendering the halo gives no effect.
 			if (this->color.a == 0.f)
 				return;
 
@@ -878,7 +1041,9 @@ struct WolframModuleWidget : ModuleWidget {
 		addParam(createParamCentered<CKD6>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM));
 		addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
 		// Dials
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
+		//addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
+		addParam(createParamCentered<MoochEncoder>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
+
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.f)), module, WolframModule::LENGTH_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.f)), module, WolframModule::CHANCE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.f)), module, WolframModule::OFFSET_PARAM));
