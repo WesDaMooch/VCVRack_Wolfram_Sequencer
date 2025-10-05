@@ -49,7 +49,6 @@ enum DisplayMenu {
 	MENU_LEN
 };
 
-
 struct WolframModule : Module {
 	enum ParamId {
 		SELECT_PARAM,
@@ -167,8 +166,8 @@ struct WolframModule : Module {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
-		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
-		configParam(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length", " Sel");
+		configParam<EncoderParamQuantity>(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
+		configParam<LengthParamQuantity>(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length");
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
@@ -196,12 +195,28 @@ struct WolframModule : Module {
 		configLight(INJECT_LIGHT, "Inject");
 	}
 
+	struct EncoderParamQuantity : ParamQuantity {
+		// Custom behaviour to display rule when hovering over Select encoder.
+		float getDisplayValue() override {
+			auto* m = dynamic_cast<WolframModule*>(module);
+			return m ? m->rule : 30;
+		}
+	};
+
+	struct LengthParamQuantity : ParamQuantity {
+		// Custom behaviour to display sequence length when hovering over Length dial.
+		float getDisplayValue() override {
+			auto* m = dynamic_cast<WolframModule*>(module);
+			return m ? m->sequenceLength : 8;
+		}
+	};
 
 	void onSampleRateChange() override {
 		float sampleRate = APP->engine->getSampleRate();
 		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
 	}
 
+	//
 	uint8_t applyOffset(uint8_t row) {
 		int shift = offset;
 		if (shift < 0) {
@@ -296,7 +311,7 @@ struct WolframModule : Module {
 	}
 
 	void processEncoder(const ProcessArgs& args) {
-		// Rotary encoder drag
+		// Select encoder drag
 		// could put in a if(encoderDragged) which is set from custom encoder, stops this running all the time
 		// also dont like the while loops
 		// hmmm
@@ -316,7 +331,7 @@ struct WolframModule : Module {
 			difference = encoderValue - prevEncoderValue;
 		}
 
-		// Rotary encoder drag and double-click logic
+		// Select encoder drag and double-click selection logic
 		if (menu) {
 			switch (moduleMenu) {
 			case SEED: {
@@ -446,63 +461,10 @@ struct WolframModule : Module {
 			ruleDisplayTimer.reset();
 			displayUpdate = true;
 		}
-
-		/*
-		if (programButtonDragged) {
-			// work out the change (in discrete increments) since the program/bank knob started being dragged
-			//const int delta = (int)(dialResolution * (params[PROGRAM_PARAM].getValue() - programKnobReferenceState));
-
-			//if (delta != 0) {
-			//	const int newProgramFromKnob = unsigned_modulo(programSelector.getCurrent().getProgram() + delta, numProgramsForCurrentBank);
-			//	programKnobReferenceState = params[PROGRAM_PARAM].getValue();
-			//	setAlgorithmViaProgram(newProgramFromKnob);
-			//}
-			
-			// can use my encdoer code here?
-		}
-
-		// if we have a new "press" on the knob, time it
-		if (programHoldTrigger.process(programButtonHeld)) {
-			programHoldTimer.reset();
-		}
-
-		// but cancel if it's actually a knob drag
-		if (programButtonDragged) {
-			programHoldTimer.reset();
-			programButtonHeld = false;
-		}
-		else {
-			if (programButtonHeld) {
-				programHoldTimer.process(args.sampleTime);
-				if (programHoldTimer.time > 0.5f) {
-					programButtonHeld = false;
-					programHoldTimer.reset();
-
-					// Reset rule or something
-
-					//rule = 0;
-				}
-			}
-			// no longer held, but has been held for non-zero time (without being dragged), toggle "active" section (A or B),
-			// this is effectively just a "click"
-			else if (programHoldTimer.time > 0.f) {
-				//programSelector.setMode(!programSelector.getMode());
-				// on click reset to default of whatever is currently selected
-				programHoldTimer.reset();
-			}
-		}
-
-		if (!programButtonDragged) {
-			//programKnobReferenceState = params[PROGRAM_PARAM].getValue();
-			// sets a reference or something
-			
-		}
-		*/
 	}
 
-
-
 	void process(const ProcessArgs& args) override {
+
 		// BUTTONS & ENCODER
 
 		processEncoder(args);
@@ -731,6 +693,8 @@ struct MatrixDisplayBuffer : FramebufferWidget {
 	}
 };
 
+// TODO: Should be a Widget, there is other stuff that might work better 
+// See CVfunk-Modules Ouros, that a cool way to do stuff
 
 struct MatrixDisplay : Widget {
 	// TODO: Should be using something like this?
@@ -939,26 +903,17 @@ struct MatrixDisplay : Widget {
 	}
 };
 
-// Create custom encoder struct
-struct MoochEncoder : RoundBlackKnob {
-	MoochEncoder() {
-		// Load custom svg
-		// setSvg(Svg::load(asset::system("res/ComponentLibrary/RoundBlackKnob.svg")));
-		// bg->setSvg(Svg::load(asset::system("res/ComponentLibrary/RoundBlackKnob_bg.svg")));
-	}
-
-	// Changing stuff in Knob.hpp & ParamWidget.cpp
+struct MoochEncoder : RoundBlackKnob { 
+	// Custom look & behaviour for Select encoder.
+	MoochEncoder() { }
 
 	void onDoubleClick(const DoubleClickEvent& e) override {
-		WolframModule* m = static_cast<WolframModule*>(module);
-		// set something in process encoder
-		// like encodeReset
-		//m->rule = 0;
+		// Reset Select encoder to default of current selection. See processEncoder for details.
+		auto* m = static_cast<WolframModule*>(module);
 		m->encoderReset = true;
 	}
 
 };
-
 
 struct WolframModuleWidget : ModuleWidget {
 		
@@ -1059,25 +1014,23 @@ struct WolframModuleWidget : ModuleWidget {
 		// Dials
 		//addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
 		addParam(createParamCentered<MoochEncoder>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
-
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.f)), module, WolframModule::LENGTH_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.f)), module, WolframModule::CHANCE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.f)), module, WolframModule::OFFSET_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16f, 80.f)), module, WolframModule::X_SCALE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.f)), module, WolframModule::Y_SCALE_PARAM));
 		// Inputs
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(7.4f, 18.5f)), module, WolframModule::RESET_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4f, 96.5f)), module, WolframModule::CHANCE_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56f, 96.5f)), module, WolframModule::OFFSET_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4f, 111.5f)), module, WolframModule::TRIG_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56f, 111.5f)), module, WolframModule::INJECT_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.4f, 18.5f)), module, WolframModule::RESET_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(25.4f, 96.5f)), module, WolframModule::CHANCE_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(35.56f, 96.5f)), module, WolframModule::OFFSET_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(25.4f, 111.5f)), module, WolframModule::TRIG_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(35.56f, 111.5f)), module, WolframModule::INJECT_INPUT));
 		// Outputs
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 96.5f)), module, WolframModule::X_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 111.5f)), module, WolframModule::X_PULSE_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 96.5f)), module, WolframModule::Y_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 111.5f)), module, WolframModule::Y_PULSE_OUTPUT));
 		// LEDs
-		//addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
 		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
 		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 96.5f)), module, WolframModule::X_CV_LIGHT));
 		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 111.5f)), module, WolframModule::X_GATE_LIGHT));
