@@ -12,8 +12,7 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
-
-// TODO: ruleReset should not put seed when chance fails!
+// TODO: gen with ruleReset anf reset, dont want gen to be regenerated ever
 // TODO: Have x y row mode and average mode (this would be good for 2D world)
 // TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
 // TODO: The panel
@@ -125,7 +124,7 @@ struct WolframModule : Module {
 	int injectPendingState = 0;
 	bool gen = false;
 	bool genPending = false;
-	bool sync = false;
+	bool sync = true;
 	bool menu = false;
 	bool vcoMode = false;
 	float lastTrigVoltage = 0.f;
@@ -216,7 +215,6 @@ struct WolframModule : Module {
 		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
 	}
 
-	//
 	uint8_t applyOffset(uint8_t row) {
 		int shift = offset;
 		if (shift < 0) {
@@ -456,7 +454,19 @@ struct WolframModule : Module {
 				return; 
 			}
 
-			ruleResetPending = true;
+			if (sync) {
+				ruleResetPending = true;
+			}
+			else {
+				gen = random::get<float>() < chance;
+				if (gen) {
+					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
+					internalCircularBuffer[internalReadHead] = resetRow;
+				}
+				genPending = true;
+				ruleResetPending = false;
+			}
+
 			displayRule = true;
 			ruleDisplayTimer.reset();
 			displayUpdate = true;
@@ -490,11 +500,6 @@ struct WolframModule : Module {
 				if (modeIndex >= numModes) { modeIndex = 0; }
 				moduleMode = static_cast<Mode>(modeIndex);
 			}
-		}
-
-		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
-			displayRule = false;
-			if (!menu) displayUpdate = true;
 		}
 
 		// DIALS & INPUTS
@@ -539,12 +544,8 @@ struct WolframModule : Module {
 			else {
 				gen = random::get<float>() < chance;
 				if (gen) {
-					if (randSeed) {
-						internalCircularBuffer[internalReadHead] = random::get<uint8_t>();
-					}
-					else {
-						internalCircularBuffer[internalReadHead] = seed;
-					}
+					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
+					internalCircularBuffer[internalReadHead] = resetRow;
 				}
 				else {
 					internalReadHead = 0;
@@ -595,15 +596,11 @@ struct WolframModule : Module {
 
 			// Synced reset
 			if (resetPending || ruleResetPending) {
-				if (gen || ruleResetPending) {
-					if (randSeed) {
-						internalCircularBuffer[internalWriteHead] = random::get<uint8_t>();
-					}
-					else {
-						internalCircularBuffer[internalWriteHead] = seed;
-					}
+				if (gen) {
+					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
+					internalCircularBuffer[internalWriteHead] = resetRow;
 				}
-				else {
+				else if (!ruleResetPending) {
 					internalWriteHead = 0;
 				}
 			}
@@ -669,8 +666,13 @@ struct WolframModule : Module {
 		lights[INJECT_LIGHT].setBrightnessSmooth(posInject, args.sampleTime);
 
 		// UPDATE DISPLAY
-		// 30fps limited
+		
+		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
+			displayRule = false;
+			if (!menu) displayUpdate = true;
+		}
 
+		// 30fps limited
 		if (displayUpdate && (((args.frame + this->id) % displayUpdateInterval) == 0)) {
 			displayUpdate = false;
 			dirty = true;

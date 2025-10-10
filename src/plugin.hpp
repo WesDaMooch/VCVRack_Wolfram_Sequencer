@@ -19,7 +19,7 @@ struct MoochDavies1900hBlackKnob : Davies1900hKnob {
 };
 
 struct MoochDavies1900hBlackEncoder : Davies1900hKnob {
-	MoochDavies1900hBlackKnob() {
+	MoochDavies1900hBlackEncoder() {
 		//setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/Davies1900hBlack.svg")));
 		//bg->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/Davies1900hDarkGrey_bg.svg")));
 	}
