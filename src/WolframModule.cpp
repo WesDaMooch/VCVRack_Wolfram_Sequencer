@@ -12,6 +12,7 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
+// TODO: Push new rows into outputMatrix when sync is off
 // TODO: Fix type in value behaviour of Select encoder and Length dial
 // TODO: Have x y row mode and average mode (this would be good for 2D world)
 // TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
@@ -106,32 +107,16 @@ struct WolframModule : Module {
 
 	// One Dimensional 8 bit sequence with history
 	std::array<uint8_t, MAX_SEQUENCE_LENGTH> internalOneDimensionalCircularBuffer;
-	std::array<uint8_t, 8> outputOneDimensionalCircularBuffer;
 
 	// Two Dimensional 8x8 bit sequence with history
 	std::array<uint64_t, MAX_SEQUENCE_LENGTH> internalTwoDimensionalBuffer;
-	std::array<uint64_t, 8> outputTwoDimensionalBuffer;
-
-	inline void setGridCell(size_t gridIndex, int x, int y, bool value) {
-		const uint64_t mask = 1ULL << (y * 8 + x);
-		if (value)
-			internalTwoDimensionalBuffer[gridIndex] |= mask;
-		else
-			internalTwoDimensionalBuffer[gridIndex] &= ~mask;
-	}
-
-	// output grid - 8x8 matrix
-	uint64_t outputGrid = 8;
-	
-	uint8_t getOutputGridRow(int rowIndex = 0) {
-		rowIndex = clamp(rowIndex, 0, 7);
-		return (outputGrid >> (rowIndex * 8)) & 0xFF;
-	}
 
 	// Sequencer
+	// 8x8 output matrix
+	uint64_t outputMatrix = 0;
+
 	int internalReadHead = 0;
 	int internalWriteHead = 1;
-	int outputReadHead = 0;
 
 	int sequenceLength = 8;
 	const std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
@@ -144,7 +129,7 @@ struct WolframModule : Module {
 	int injectPendingState = 0;
 	bool gen = false;
 	bool genPending = false;
-	bool sync = true;
+	bool sync = false;
 	bool menu = false;
 	bool vcoMode = false;
 	float lastTrigVoltage = 0.f;
@@ -157,7 +142,7 @@ struct WolframModule : Module {
 
 	// Encoder
 	// TODO: make static constexpr?
-	const float encoderIndent = 1.f / 40.f;
+	const float encoderIndent = 1.f / 30.f;
 	float prevEncoderValue = 0.f;
 	bool encoderReset = false;
 	
@@ -174,12 +159,10 @@ struct WolframModule : Module {
 
 	WolframModule() {
 		internalOneDimensionalCircularBuffer.fill(0);
-		outputOneDimensionalCircularBuffer.fill(0);
 		internalOneDimensionalCircularBuffer[internalReadHead] = seedWolf;
-
-		//setGridCell(0, 4, 4, true);
-		//outputTwoDimensionalBuffer[0] = internalTwoDimensionalBuffer[0];
-
+		//pushRowToOutputMatrix(internalOneDimensionalCircularBuffer[internalReadHead]);
+		internalTwoDimensionalBuffer[internalReadHead] = 123456;
+		pushFrameToOutputMatrix(123456);
 
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
@@ -236,42 +219,51 @@ struct WolframModule : Module {
 		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
 	}
 
-	uint8_t applyOffset(uint8_t row) {
+	uint8_t applyOffset(uint8_t rowBits) {
 		int shift = offset;
 		if (shift < 0) {
 			shift = -shift;
-			return (row << shift) | (row >> (8 - shift));
+			return (rowBits << shift) | (rowBits >> (8 - shift));
 		}
 		else if (shift > 0) {
-			return (row >> shift) | (row << (8 - shift));
+			return (rowBits >> shift) | (rowBits << (8 - shift));
 		}
-		return row;
+		return rowBits;
 	}
 
-	uint8_t getRow(int i=0) {
-		i = clamp(i, 0, 7);
-		size_t rowIndex = (outputReadHead - i + 8) & 7;
-		return applyOffset(outputOneDimensionalCircularBuffer[rowIndex]);
+	void pushRowToOutputMatrix(const uint8_t rowBits) {
+		// Push row to output matrix
+		outputMatrix &= ~0xFFULL;						// Clear row
+		outputMatrix |= static_cast<uint64_t>(rowBits); // Set row
 	}
 
-	uint8_t getColumn() {
-		uint8_t col = 0;
-		for (int i = 0; i < 8; i++) {
-			size_t row = getRow(i);
-			col |= ((row & 0x01) << (7 - i));
+	void pushFrameToOutputMatrix(const uint64_t matrixBits) {
+		outputMatrix = matrixBits;
+	}
+
+	uint8_t getOutputGridRow(int rowIndex = 0) {
+		rowIndex = clamp(rowIndex, 0, 7);
+		return applyOffset((outputMatrix >> (rowIndex * 8)) & 0xFF);
+	}
+
+	uint8_t getOutputGridColumn() {
+		uint8_t columnBits = 0;
+		for (int rowIndex = 0; rowIndex < 8; rowIndex++) {
+			uint8_t rowBits = getOutputGridRow(rowIndex);
+			columnBits |= ((rowBits & 0x01) << (7 - rowIndex));
 		}
-		return col;
+		return columnBits;
 	}
 
-	uint8_t applyInject(uint8_t row, bool remove=false) {
+	uint8_t applyInject(uint8_t rowBits, bool remove=false) {
 		// TODO: is this an ok level of efficentcy
-		uint8_t targetMask = row;
+		uint8_t targetMask = rowBits;
 		if (remove) {
-			if (row == 0x00) return row;
+			if (rowBits == 0x00) return rowBits;
 		}
 		else {
-			if (row == 0xFF) return row;
-			targetMask = ~row;	// Flip row
+			if (rowBits == 0xFF) return rowBits;
+			targetMask = ~rowBits;	// Flip row
 		}
 
 		int targetCount = __builtin_popcount(targetMask);	// Count target bits
@@ -283,16 +275,18 @@ struct WolframModule : Module {
 			if (targetMask & bitMask) target--;
 		}
 
-		row = remove ? (row & ~bitMask) : (row | bitMask);
-		return row;
+		rowBits = remove ? (rowBits & ~bitMask) : (rowBits | bitMask);
+		return rowBits;
 	}
 
-	void generateRow() {
-		// Cellular automata 
-		for (int i = 0; i < 8; i++) {
+	void stepWolf() {
+		// One Dimensional Cellular Automata.
+		for (int column = 0; column < 8; column++) {
 
-			int left = i - 1;
-			int right = i + 1;
+			uint8_t readRow = internalOneDimensionalCircularBuffer[internalReadHead];
+
+			int left = column - 1;
+			int right = column + 1;
 			int leftIndex = left;
 			int rightIndex = right;
 
@@ -300,9 +294,9 @@ struct WolframModule : Module {
 			if (left < 0) { leftIndex = 7; }
 			if (right > 7) { rightIndex = 0; }
 
-			int leftCell = (internalOneDimensionalCircularBuffer[internalReadHead] >> leftIndex) & 1;
-			int cell = (internalOneDimensionalCircularBuffer[internalReadHead] >> i) & 1;
-			int rightCell = (internalOneDimensionalCircularBuffer[internalReadHead] >> rightIndex) & 1;
+			int leftCell = (readRow >> leftIndex) & 1;
+			int cell = (readRow >> column) & 1;
+			int rightCell = (readRow >> rightIndex) & 1;
 
 			switch (moduleMode) {
 			case CLIP:
@@ -321,10 +315,62 @@ struct WolframModule : Module {
 
 			bool ruleBit = (rule >> (7 - tag)) & 1;
 			if (ruleBit) {
-				internalOneDimensionalCircularBuffer[internalWriteHead] |= (1 << i);
+				internalOneDimensionalCircularBuffer[internalWriteHead] |= (1 << column);
 			}
 			else {
-				internalOneDimensionalCircularBuffer[internalWriteHead] &= ~(1 << i);
+				internalOneDimensionalCircularBuffer[internalWriteHead] &= ~(1 << column);
+			}
+		}
+	}
+
+	void stepLife() {
+		// Conways Game of Life.
+		uint64_t readFrame = internalTwoDimensionalBuffer[internalReadHead];
+		
+		for (int row = 0; row < 8; row++) {
+			for (int column = 0; column < 8; column++) {
+				bool writeCell = false;
+				int aliveCount = 0;
+				
+				//int bitIndex = y * 8 + x;
+				int bitIndex = row * 8 + column;
+				bool cell = (readFrame >> bitIndex) & 1ULL;
+
+				// Clipped?
+				if (row > 0) {
+					aliveCount += (readFrame >> (bitIndex - 8)) & 1ULL;						// Up
+					if (column > 0) aliveCount += (readFrame >> (bitIndex - 8 - 1)) & 1ULL;	// Up-left
+					if (column < 7) aliveCount += (readFrame >> (bitIndex - 8 + 1)) & 1ULL; // Up-right
+				}
+				if (row < 7) {
+					aliveCount += (readFrame >> (bitIndex + 8)) & 1ULL;						// Down
+					if (column > 0) aliveCount += (readFrame >> (bitIndex + 8 - 1)) & 1ULL; // Down-left
+					if (column < 7) aliveCount += (readFrame >> (bitIndex + 8 + 1)) & 1ULL; // Down-right
+				}
+				if (column > 0) 
+					aliveCount += (readFrame >> (bitIndex - 1)) & 1ULL;						// Left
+				if (column < 7)
+					aliveCount += (readFrame >> (bitIndex + 1)) & 1ULL;						// Right
+				
+				if (cell && aliveCount < 2) {
+					// Any live cell with fewer than two live neighbours dies, as if by underpopulation
+					writeCell = false;
+				}
+				else if (cell && (aliveCount == 2 || aliveCount == 3)) {
+					// Any live cell with two or three live neighbours lives on to the next generation
+					writeCell = true;
+				}
+				else if (cell && aliveCount > 3) {
+					// Any live cell with more than three live neighbours dies, as if by overpopulation
+					writeCell = false;
+				}
+				else if (!cell && aliveCount == 3) {
+					// Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction
+					writeCell = true;
+				}
+
+				internalTwoDimensionalBuffer[internalWriteHead] &= ~(1ULL << bitIndex);
+				internalTwoDimensionalBuffer[internalWriteHead] |= (uint64_t(writeCell) << bitIndex);
 			}
 		}
 	}
@@ -468,13 +514,13 @@ struct WolframModule : Module {
 			else {
 				gen = random::get<float>() < chance;
 				genPending = true;
+				ruleResetPending = false;
 				if (gen) {
 					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
 					internalOneDimensionalCircularBuffer[internalReadHead] = resetRow;
+					pushRowToOutputMatrix(internalOneDimensionalCircularBuffer[internalReadHead]);
 				}
-				ruleResetPending = false;
 			}
-
 			displayRule = true;
 			ruleDisplayTimer.reset();
 			displayUpdate = true;
@@ -539,7 +585,7 @@ struct WolframModule : Module {
 			}
 			else {
 				internalOneDimensionalCircularBuffer[internalReadHead] = applyInject(internalOneDimensionalCircularBuffer[internalReadHead], posInject ? false : true);
-
+				pushRowToOutputMatrix(internalOneDimensionalCircularBuffer[internalReadHead]);
 				injectPendingState = 0;
 				if (!menu) displayUpdate = true;
 			}
@@ -552,6 +598,7 @@ struct WolframModule : Module {
 			else {
 				gen = random::get<float>() < chance;
 				genPending = true;
+				resetPending = false;
 				if (gen) {
 					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
 					internalOneDimensionalCircularBuffer[internalReadHead] = resetRow;
@@ -560,7 +607,7 @@ struct WolframModule : Module {
 					internalReadHead = 0;
 					internalWriteHead = 1;
 				}
-				resetPending = false;
+				pushRowToOutputMatrix(internalOneDimensionalCircularBuffer[internalReadHead]);
 				if (!menu) displayUpdate = true;
 			}
 		}
@@ -614,22 +661,24 @@ struct WolframModule : Module {
 			}
 
 			if (gen && !resetPending && !ruleResetPending && !injectPendingState) {
-				generateRow();
+				// switch(algo)
+				//stepWolf();
+				stepLife();
 			}
 
 			// Advance internal read and write heads
+			// switch(algo)
 			internalReadHead = internalWriteHead;
 			internalWriteHead = (internalWriteHead + 1) % sequenceLength;
 
-			// Advance output read head
-			//outputReadHead = (outputReadHead + 1) & 7;
-
 			// Update output matrix
+			// switch(algo)
 			// Shift matrix up (left)
-			outputGrid <<= 8;
+			//outputMatrix <<= 8;
 			// Insert row at bottom
-			outputGrid |= static_cast<uint64_t>(internalOneDimensionalCircularBuffer[internalReadHead]);
-
+			//pushRowToOutputMatrix(internalOneDimensionalCircularBuffer[internalReadHead]);
+			pushFrameToOutputMatrix(internalTwoDimensionalBuffer[internalReadHead]);
+			
 			// Reset gen and sync penders
 			gen = false;
 			genPending = false;
@@ -640,12 +689,9 @@ struct WolframModule : Module {
 			// Redraw matrix display
 			if (!menu) displayUpdate = true;
 		}
-		// Update output buffer
-		//outputOneDimensionalCircularBuffer[outputReadHead] = internalOneDimensionalCircularBuffer[internalReadHead];
 
 		// OUTPUT
 
-		//uint8_t x = getRow();
 		uint8_t x = getOutputGridRow();
 		float xCv = x * eightBitScaler * 10.f;
 		if (vcoMode) {
@@ -657,7 +703,7 @@ struct WolframModule : Module {
 		bool xGate = (x >> 7) & 1;
 		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
 
-		uint8_t y = getColumn();
+		uint8_t y = getOutputGridColumn();
 		float yCv = y * eightBitScaler * 10.f;
 		if (vcoMode) {
 			yCv -= 5.f;
