@@ -104,18 +104,37 @@ struct WolframModule : Module {
 	constexpr static int PARAM_CONTROL_INTERVAL = 64;
 	constexpr static size_t MAX_SEQUENCE_LENGTH = 64;
 
-	std::array<uint8_t, MAX_SEQUENCE_LENGTH> internalCircularBuffer = {};
-	std::array<uint8_t, 8> outputCircularBuffer = {};
+	// One Dimensional 8 bit sequence with history
+	std::array<uint8_t, MAX_SEQUENCE_LENGTH> internalOneDimensionalCircularBuffer;
+	std::array<uint8_t, 8> outputOneDimensionalCircularBuffer;
 
+	// Two Dimensional 8x8 bit sequence with history
+	std::array<uint64_t, MAX_SEQUENCE_LENGTH> internalTwoDimensionalBuffer;
+	std::array<uint64_t, 8> outputTwoDimensionalBuffer;
+
+	inline void setGridCell(size_t gridIndex, int x, int y, bool value) {
+		const uint64_t mask = 1ULL << (y * 8 + x);
+		if (value)
+			internalTwoDimensionalBuffer[gridIndex] |= mask;
+		else
+			internalTwoDimensionalBuffer[gridIndex] &= ~mask;
+	}
+
+	// output grid - 8x8 matrix
+	uint64_t outputGrid = 8;
+	
+	uint8_t getOutputGridRow(int rowIndex = 0) {
+		rowIndex = clamp(rowIndex, 0, 7);
+		return (outputGrid >> (rowIndex * 8)) & 0xFF;
+	}
+
+	// Sequencer
 	int internalReadHead = 0;
 	int internalWriteHead = 1;
 	int outputReadHead = 0;
 
 	int sequenceLength = 8;
 	const std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
-	uint8_t rule = 30;
-	uint8_t seed = 8;
-	int seedSelect = seed;
 	bool randSeed = false;
 	float chance = 1;
 	int offset = 0;
@@ -129,13 +148,18 @@ struct WolframModule : Module {
 	bool menu = false;
 	bool vcoMode = false;
 	float lastTrigVoltage = 0.f;
+	const float eightBitScaler = 1.f / 255.f;
 
+	// Algorithm specific
+	uint8_t seedWolf = 8;
+	uint8_t rule = 30;
+	int seedSelectWolf = seedWolf;
+
+	// Encoder
 	// TODO: make static constexpr?
 	const float encoderIndent = 1.f / 40.f;
 	float prevEncoderValue = 0.f;
 	bool encoderReset = false;
-
-	const float eightBitScaler = 1.f / 255.f;
 	
 	// Display
 	bool displayRule = false;
@@ -149,9 +173,13 @@ struct WolframModule : Module {
 	}
 
 	WolframModule() {
-		internalCircularBuffer.fill(0);
-		outputCircularBuffer.fill(0);
-		internalCircularBuffer[internalReadHead] = seed;
+		internalOneDimensionalCircularBuffer.fill(0);
+		outputOneDimensionalCircularBuffer.fill(0);
+		internalOneDimensionalCircularBuffer[internalReadHead] = seedWolf;
+
+		//setGridCell(0, 4, 4, true);
+		//outputTwoDimensionalBuffer[0] = internalTwoDimensionalBuffer[0];
+
 
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
@@ -221,9 +249,9 @@ struct WolframModule : Module {
 	}
 
 	uint8_t getRow(int i=0) {
-		i = clamp(i, 0, 8);
+		i = clamp(i, 0, 7);
 		size_t rowIndex = (outputReadHead - i + 8) & 7;
-		return applyOffset(outputCircularBuffer[rowIndex]);
+		return applyOffset(outputOneDimensionalCircularBuffer[rowIndex]);
 	}
 
 	uint8_t getColumn() {
@@ -272,9 +300,9 @@ struct WolframModule : Module {
 			if (left < 0) { leftIndex = 7; }
 			if (right > 7) { rightIndex = 0; }
 
-			int leftCell = (internalCircularBuffer[internalReadHead] >> leftIndex) & 1;
-			int cell = (internalCircularBuffer[internalReadHead] >> i) & 1;
-			int rightCell = (internalCircularBuffer[internalReadHead] >> rightIndex) & 1;
+			int leftCell = (internalOneDimensionalCircularBuffer[internalReadHead] >> leftIndex) & 1;
+			int cell = (internalOneDimensionalCircularBuffer[internalReadHead] >> i) & 1;
+			int rightCell = (internalOneDimensionalCircularBuffer[internalReadHead] >> rightIndex) & 1;
 
 			switch (moduleMode) {
 			case CLIP:
@@ -293,10 +321,10 @@ struct WolframModule : Module {
 
 			bool ruleBit = (rule >> (7 - tag)) & 1;
 			if (ruleBit) {
-				internalCircularBuffer[internalWriteHead] |= (1 << i);
+				internalOneDimensionalCircularBuffer[internalWriteHead] |= (1 << i);
 			}
 			else {
-				internalCircularBuffer[internalWriteHead] &= ~(1 << i);
+				internalOneDimensionalCircularBuffer[internalWriteHead] &= ~(1 << i);
 			}
 		}
 	}
@@ -314,8 +342,8 @@ struct WolframModule : Module {
 			switch (moduleMenu) {
 			case SEED: {
 				if (encoderReset) {
-					seed = 8;
-					seedSelect = seed;
+					seedWolf = 8;
+					seedSelectWolf = seedWolf;
 					randSeed = false;
 					encoderReset = false;
 					displayUpdate = true;
@@ -326,14 +354,14 @@ struct WolframModule : Module {
 					break;
 
 				// Seed options are 256 + 1 (RAND) 
-				seedSelect += delta;
-				if (seedSelect > 256) { seedSelect -= 257; }
-				else if (seedSelect < 0) { seedSelect += 257; }
+				seedSelectWolf += delta;
+				if (seedSelectWolf > 256) { seedSelectWolf -= 257; }
+				else if (seedSelectWolf < 0) { seedSelectWolf += 257; }
 
-				randSeed = (seedSelect == 256);
+				randSeed = (seedSelectWolf == 256);
 
 				if (!randSeed) {
-					seed = static_cast<uint8_t>(seedSelect);
+					seedWolf = static_cast<uint8_t>(seedSelectWolf);
 				}
 
 				displayUpdate = true;
@@ -441,8 +469,8 @@ struct WolframModule : Module {
 				gen = random::get<float>() < chance;
 				genPending = true;
 				if (gen) {
-					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
-					internalCircularBuffer[internalReadHead] = resetRow;
+					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
+					internalOneDimensionalCircularBuffer[internalReadHead] = resetRow;
 				}
 				ruleResetPending = false;
 			}
@@ -510,7 +538,7 @@ struct WolframModule : Module {
 				}
 			}
 			else {
-				internalCircularBuffer[internalReadHead] = applyInject(internalCircularBuffer[internalReadHead], posInject ? false : true);
+				internalOneDimensionalCircularBuffer[internalReadHead] = applyInject(internalOneDimensionalCircularBuffer[internalReadHead], posInject ? false : true);
 
 				injectPendingState = 0;
 				if (!menu) displayUpdate = true;
@@ -525,8 +553,8 @@ struct WolframModule : Module {
 				gen = random::get<float>() < chance;
 				genPending = true;
 				if (gen) {
-					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
-					internalCircularBuffer[internalReadHead] = resetRow;
+					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
+					internalOneDimensionalCircularBuffer[internalReadHead] = resetRow;
 				}
 				else {
 					internalReadHead = 0;
@@ -565,10 +593,10 @@ struct WolframModule : Module {
 			// Synced inject
 			switch (injectPendingState) {
 			case 1:
-				internalCircularBuffer[internalWriteHead] = applyInject(internalCircularBuffer[internalWriteHead], false);
+				internalOneDimensionalCircularBuffer[internalWriteHead] = applyInject(internalOneDimensionalCircularBuffer[internalWriteHead], false);
 				break;
 			case 2:
-				internalCircularBuffer[internalWriteHead] = applyInject(internalCircularBuffer[internalWriteHead], true);
+				internalOneDimensionalCircularBuffer[internalWriteHead] = applyInject(internalOneDimensionalCircularBuffer[internalWriteHead], true);
 				break;
 			default: 
 				break;
@@ -577,8 +605,8 @@ struct WolframModule : Module {
 			// Synced reset
 			if (resetPending || ruleResetPending) {
 				if (gen) {
-					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
-					internalCircularBuffer[internalWriteHead] = resetRow;
+					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
+					internalOneDimensionalCircularBuffer[internalWriteHead] = resetRow;
 				}
 				else if (!ruleResetPending) {
 					internalWriteHead = 0;
@@ -594,7 +622,13 @@ struct WolframModule : Module {
 			internalWriteHead = (internalWriteHead + 1) % sequenceLength;
 
 			// Advance output read head
-			outputReadHead = (outputReadHead + 1) & 7;
+			//outputReadHead = (outputReadHead + 1) & 7;
+
+			// Update output matrix
+			// Shift matrix up (left)
+			outputGrid <<= 8;
+			// Insert row at bottom
+			outputGrid |= static_cast<uint64_t>(internalOneDimensionalCircularBuffer[internalReadHead]);
 
 			// Reset gen and sync penders
 			gen = false;
@@ -607,11 +641,12 @@ struct WolframModule : Module {
 			if (!menu) displayUpdate = true;
 		}
 		// Update output buffer
-		outputCircularBuffer[outputReadHead] = internalCircularBuffer[internalReadHead];
+		//outputOneDimensionalCircularBuffer[outputReadHead] = internalOneDimensionalCircularBuffer[internalReadHead];
 
 		// OUTPUT
 
-		uint8_t x = getRow();
+		//uint8_t x = getRow();
+		uint8_t x = getOutputGridRow();
 		float xCv = x * eightBitScaler * 10.f;
 		if (vcoMode) {
 			xCv -= 5.f;
@@ -724,7 +759,7 @@ struct MatrixDisplay : Widget {
 				else {
 					for (int col = 0; col < matrixCols; col++) {
 						bool seedCell = false;
-						if ((module->seed >> (7 - col)) & 1) {
+						if ((module->seedWolf >> (7 - col)) & 1) {
 							seedCell = true;
 						}
 						nvgBeginPath(vg);
@@ -866,9 +901,35 @@ struct MatrixDisplay : Widget {
 			}
 
 			for (int row = startRow; row < matrixRows; row++) {
+
+				// Invert row
 				int rowOffset = (row - 7) * -1;	// clamp?
 
-				uint8_t displayRow = module->getRow(rowOffset);
+				uint8_t displayRow = module->getOutputGridRow(rowOffset);
+
+				for (int col = 0; col < matrixCols; col++) {
+					// Get cell state from row
+					bool cellState = false;
+					if ((displayRow >> (7 - col)) & 1) {
+						cellState = true;
+					}
+
+					nvgBeginPath(vg);
+					nvgCircle(vg, (cellPos * col) + cellSize, (cellPos * row) + cellSize, cellSize);
+					nvgFillColor(vg, cellState ? primaryAccent : primaryAccentOff);
+					nvgFill(vg);
+				}
+			}
+
+			/*
+			// One d display
+			for (int row = startRow; row < matrixRows; row++) {
+
+				// Invert row
+				int rowOffset = (row - 7) * -1;	// clamp?
+
+				//uint8_t displayRow = module->getRow(rowOffset);
+				//uint8_t displayRow = module->getGridRow(rowOffset, row);
 
 				for (int col = 0; col < matrixCols; col++) {
 					bool cellState = false;
@@ -881,6 +942,7 @@ struct MatrixDisplay : Widget {
 					nvgFill(vg);
 				}
 			}
+			*/
 		}
 	}
 };
