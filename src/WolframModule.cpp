@@ -12,12 +12,13 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
-// TODO: gen with ruleReset anf reset, dont want gen to be regenerated ever
+// TODO: Fix type in value behaviour of Select encoder and Length dial
 // TODO: Have x y row mode and average mode (this would be good for 2D world)
 // TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
 // TODO: The panel
 // TODO: Save state
 // TODO: onReset and onRandomize
+// TODO: 2D sequence engine for game of life
 
 #include "plugin.hpp"
 #include <array>
@@ -134,17 +135,6 @@ struct WolframModule : Module {
 	float prevEncoderValue = 0.f;
 	bool encoderReset = false;
 
-	// Befaco program dial
-	static constexpr int dialResolution = 8;
-	// variable to store what the program knob was prior to the start of dragging (used to calculate deltas)
-	float programKnobReferenceState = 0.f; 
-
-	//bool programButtonHeld = false;
-	//bool programButtonDragged = false;
-	//dsp::BooleanTrigger programHoldTrigger;
-	//dsp::Timer programHoldTimer;
-
-
 	const float eightBitScaler = 1.f / 255.f;
 	
 	// Display
@@ -153,6 +143,7 @@ struct WolframModule : Module {
 	int displayUpdateInterval = 1000;
 	bool dirty = true;
 
+	// is this really nessisary 
 	inline int fastRoundInt(float value) {
 		return static_cast<int>(value + (value >= 0.f ? 0.5f : -0.5f));
 	}
@@ -165,8 +156,10 @@ struct WolframModule : Module {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
-		configParam<EncoderParamQuantity>(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
-		configParam<LengthParamQuantity>(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length");
+		//configParam<EncoderParamQuantity>(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
+		//configParam<LengthParamQuantity>(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length");
+		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
+		configParam(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length");
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
@@ -227,7 +220,7 @@ struct WolframModule : Module {
 		return row;
 	}
 
-	uint8_t getRow(int i = 0) {
+	uint8_t getRow(int i=0) {
 		i = clamp(i, 0, 8);
 		size_t rowIndex = (outputReadHead - i + 8) & 7;
 		return applyOffset(outputCircularBuffer[rowIndex]);
@@ -242,7 +235,7 @@ struct WolframModule : Module {
 		return col;
 	}
 
-	uint8_t applyInject(uint8_t row, bool remove = false) {
+	uint8_t applyInject(uint8_t row, bool remove=false) {
 		// TODO: is this an ok level of efficentcy
 		uint8_t targetMask = row;
 		if (remove) {
@@ -309,25 +302,12 @@ struct WolframModule : Module {
 	}
 
 	void processEncoder(const ProcessArgs& args) {
-		// Select encoder drag
-		// could put in a if(encoderDragged) which is set from custom encoder, stops this running all the time
-		// also dont like the while loops
-		// hmmm
-		//const int delta = (int)(dialResolution * (params[SELECT_PARAM].getValue() - programKnobReferenceState));
-
 		const float encoderValue = params[SELECT_PARAM].getValue();
 		float difference = encoderValue - prevEncoderValue;
-		int delta = 0;
-		while (difference >= encoderIndent) {
-			delta++;
-			prevEncoderValue += encoderIndent;
-			difference = encoderValue - prevEncoderValue;
-		}
-		while (difference <= -encoderIndent) {
-			delta--;
-			prevEncoderValue -= encoderIndent;
-			difference = encoderValue - prevEncoderValue;
-		}
+		int delta = static_cast<int>(std::round(difference / encoderIndent));
+
+		if (delta != 0)
+			prevEncoderValue += delta * encoderIndent;
 
 		// Select encoder drag and double-click selection logic
 		if (menu) {
@@ -342,7 +322,7 @@ struct WolframModule : Module {
 					break;
 				}
 				
-				if (!delta)
+				if (delta == 0)
 					break;
 
 				// Seed options are 256 + 1 (RAND) 
@@ -366,7 +346,7 @@ struct WolframModule : Module {
 					displayUpdate = true;
 				}
 
-				if (!delta)
+				if (delta == 0)
 					break;
 
 				const int numModes = static_cast<int>(Mode::MODE_LEN);
@@ -384,7 +364,7 @@ struct WolframModule : Module {
 					displayUpdate = true;
 				}
 				
-				if (!delta)
+				if (delta == 0)
 					break;
 
 				sync = !sync;
@@ -399,7 +379,7 @@ struct WolframModule : Module {
 					displayUpdate = true;
 				}
 
-				if (!delta)
+				if (delta == 0)
 					break;
 
 				vcoMode = !vcoMode;
@@ -414,7 +394,7 @@ struct WolframModule : Module {
 					displayUpdate = true;
 				}
 
-				if (!delta)
+				if (delta == 0)
 					break;
 
 				displayUpdate = true;
@@ -427,7 +407,7 @@ struct WolframModule : Module {
 					displayUpdate = true;
 				}
 
-				if (!delta)
+				if (delta == 0)
 					break;
 
 				const int numLooks = static_cast<int>(Look::LOOK_LEN);
@@ -459,11 +439,11 @@ struct WolframModule : Module {
 			}
 			else {
 				gen = random::get<float>() < chance;
+				genPending = true;
 				if (gen) {
 					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
 					internalCircularBuffer[internalReadHead] = resetRow;
 				}
-				genPending = true;
 				ruleResetPending = false;
 			}
 
@@ -543,6 +523,7 @@ struct WolframModule : Module {
 			}
 			else {
 				gen = random::get<float>() < chance;
+				genPending = true;
 				if (gen) {
 					uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
 					internalCircularBuffer[internalReadHead] = resetRow;
@@ -551,7 +532,6 @@ struct WolframModule : Module {
 					internalReadHead = 0;
 					internalWriteHead = 1;
 				}
-				genPending = true;
 				resetPending = false;
 				if (!menu) displayUpdate = true;
 			}
@@ -906,7 +886,7 @@ struct MatrixDisplay : Widget {
 };
 
 struct MoochEncoder : RoundBlackKnob { 
-	// Custom look & behaviour for Select encoder.
+	// Custom behaviour for Select encoder.
 	MoochEncoder() { }
 
 	void onDoubleClick(const DoubleClickEvent& e) override {
