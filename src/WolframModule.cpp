@@ -308,14 +308,14 @@ struct WolframModule : Module {
 	const std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	bool randSeed = false;
 	float chance = 1;
-	int offset = 0;
+	int offset = 0;	//display
 	int offsetPending = 0;
 	bool resetPending = false;
 	bool ruleResetPending = false;
 	int injectPendingState = 0;
 	bool gen = false;
 	bool genPending = false;
-	bool sync = false;
+	bool sync = true;
 	bool menu = false;
 	bool vcoMode = false;
 	float lastTrigVoltage = 0.f;
@@ -344,14 +344,6 @@ struct WolframModule : Module {
 	}
 
 	WolframModule() {
-		//oneDimensionalBuffer.fill(0);
-		//oneDimensionalBuffer[internalReadHead] = seedWolf;
-
-		//twoDimensionalBuffer[internalReadHead] = 123456;
-		//pushFrameToOutputMatrix(123456);
-
-		//wolframEngine.setAlgorithm(WolframEngine::Algorithm::WOLF);
-
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
@@ -385,8 +377,8 @@ struct WolframModule : Module {
 		configLight(TRIG_LIGHT, "Trigger");
 		configLight(INJECT_LIGHT, "Inject");
 
-		wEngine.setReadHead(0);
-		wEngine.setWriteHead(1);
+		//wEngine.setReadHead(0);
+		//wEngine.setWriteHead(1);
 
 		onSampleRateChange();
 	}
@@ -473,102 +465,6 @@ struct WolframModule : Module {
 		return rowBits;
 	}
 
-	void stepWolf() {
-		// One Dimensional Cellular Automata.
-		for (int column = 0; column < 8; column++) {
-
-			uint8_t readRow = oneDimensionalBuffer[internalReadHead];
-
-			int left = column - 1;
-			int right = column + 1;
-			int leftIndex = left;
-			int rightIndex = right;
-
-			// Wrap
-			if (left < 0) { leftIndex = 7; }
-			if (right > 7) { rightIndex = 0; }
-
-			int leftCell = (readRow >> leftIndex) & 1;
-			int cell = (readRow >> column) & 1;
-			int rightCell = (readRow >> rightIndex) & 1;
-
-			switch (moduleMode) {
-			case CLIP:
-				if (left < 0) { leftCell = 0; }
-				if (right > 7) { rightCell = 0; }
-				break;
-			case RAND:
-				if (left < 0) { leftCell = random::get<bool>(); }
-				if (right > 7) { rightCell = random::get<bool>(); }
-				break;
-			default:
-				break;
-			}
-
-			int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
-
-			bool ruleBit = (rule >> (7 - tag)) & 1;
-			if (ruleBit) {
-				oneDimensionalBuffer[internalWriteHead] |= (1 << column);
-			}
-			else {
-				oneDimensionalBuffer[internalWriteHead] &= ~(1 << column);
-			}
-		}
-	}
-
-	void stepLife() {
-		// Conways Game of Life.
-		uint64_t readFrame = twoDimensionalBuffer[internalReadHead];
-		
-		for (int row = 0; row < 8; row++) {
-			for (int column = 0; column < 8; column++) {
-				bool writeCell = false;
-				int aliveCount = 0;
-				
-				//int bitIndex = y * 8 + x;
-				int bitIndex = row * 8 + column;
-				bool cell = (readFrame >> bitIndex) & 1ULL;
-
-				// Clipped?
-				if (row > 0) {
-					aliveCount += (readFrame >> (bitIndex - 8)) & 1ULL;						// Up
-					if (column > 0) aliveCount += (readFrame >> (bitIndex - 8 - 1)) & 1ULL;	// Up-left
-					if (column < 7) aliveCount += (readFrame >> (bitIndex - 8 + 1)) & 1ULL; // Up-right
-				}
-				if (row < 7) {
-					aliveCount += (readFrame >> (bitIndex + 8)) & 1ULL;						// Down
-					if (column > 0) aliveCount += (readFrame >> (bitIndex + 8 - 1)) & 1ULL; // Down-left
-					if (column < 7) aliveCount += (readFrame >> (bitIndex + 8 + 1)) & 1ULL; // Down-right
-				}
-				if (column > 0) 
-					aliveCount += (readFrame >> (bitIndex - 1)) & 1ULL;						// Left
-				if (column < 7)
-					aliveCount += (readFrame >> (bitIndex + 1)) & 1ULL;						// Right
-				
-				if (cell && aliveCount < 2) {
-					// Any live cell with fewer than two live neighbours dies, as if by underpopulation
-					writeCell = false;
-				}
-				else if (cell && (aliveCount == 2 || aliveCount == 3)) {
-					// Any live cell with two or three live neighbours lives on to the next generation
-					writeCell = true;
-				}
-				else if (cell && aliveCount > 3) {
-					// Any live cell with more than three live neighbours dies, as if by overpopulation
-					writeCell = false;
-				}
-				else if (!cell && aliveCount == 3) {
-					// Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction
-					writeCell = true;
-				}
-
-				twoDimensionalBuffer[internalWriteHead] &= ~(1ULL << bitIndex);
-				twoDimensionalBuffer[internalWriteHead] |= (uint64_t(writeCell) << bitIndex);
-			}
-		}
-	}
-
 	void processEncoder(const ProcessArgs& args) {
 		const float encoderValue = params[SELECT_PARAM].getValue();
 		float difference = encoderValue - prevEncoderValue;
@@ -638,16 +534,14 @@ struct WolframModule : Module {
 			}
 			case ALGORITHM: {
 				if (encoderReset) {
-					wEngine.algoithmReset();
+					wEngine.algoithmUpdate(0, true);
 					encoderReset = false;
 					displayUpdate = true;
+					break;
 				}
-
 				if (delta == 0)
 					break;
-
-				wEngine.algoithmUpdate(delta);
-
+				wEngine.algoithmUpdate(delta, false);
 				displayUpdate = true;
 				break;
 			}
@@ -697,8 +591,8 @@ struct WolframModule : Module {
 				if (gen) {
 					//wolframEngine.generateReset(internalReadHead);
 					//wolframEngine.pushToOutputMatix(internalReadHead);
-					wEngine.outputMatrixPush();
 					wEngine.generateReset();
+					wEngine.outputMatrixPush();
 				}
 			}
 			displayRule = true;
@@ -728,12 +622,6 @@ struct WolframModule : Module {
 				displayUpdate = true;
 			}
 			else {
-				//int numModes = static_cast<int>(Mode::MODE_LEN);
-				//int modeIndex = static_cast<int>(moduleMode);
-				//modeIndex++;
-				//if (modeIndex >= numModes) { modeIndex = 0; }
-				//moduleMode = static_cast<Mode>(modeIndex);
-
 				wEngine.modeUpdate(1, false);
 			}
 		}
@@ -750,9 +638,10 @@ struct WolframModule : Module {
 		if (sync) {
 			offsetPending = newOffset;
 		}
-		else {
-			if (!menu && (offset != newOffset)) { displayUpdate = true; }
+		else if (offset != newOffset) {
 			offset = newOffset;
+			wEngine.setOffset(newOffset);
+			if (!menu) { displayUpdate = true; }
 		}
 
 		bool posInject = posInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
@@ -768,7 +657,9 @@ struct WolframModule : Module {
 			}
 			else {
 				oneDimensionalBuffer[internalReadHead] = applyInject(oneDimensionalBuffer[internalReadHead], posInject ? false : true);
-				pushRowToOutputMatrix(oneDimensionalBuffer[internalReadHead]);
+				//pushRowToOutputMatrix(oneDimensionalBuffer[internalReadHead]);
+
+				wEngine.outputMatrixPush();
 				injectPendingState = 0;
 				if (!menu) displayUpdate = true;
 			}
@@ -788,9 +679,6 @@ struct WolframModule : Module {
 					wEngine.generateReset();
 				}
 				else {
-					//internalReadHead = 0;
-					//internalWriteHead = 1;
-
 					wEngine.setReadHead(0);
 					wEngine.setWriteHead(1);
 				}
@@ -816,13 +704,13 @@ struct WolframModule : Module {
 		// TODO: do the dont trigger when reseting thing SEQ3
 		if (trig) {
 			if (!genPending) {
-				// Find gen if not found when reset triggered and sync false
+				// Find gen if not found when reset triggered and sync off
 				gen = random::get<float>() < chance;
 			}
 
 			// Synced offset
 			if (sync) {
-				offset = offsetPending;
+				wEngine.setOffset(offsetPending);
 			}
 
 			// Synced inject
@@ -842,6 +730,7 @@ struct WolframModule : Module {
 				if (gen) {
 					//uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
 					//oneDimensionalBuffer[internalWriteHead] = resetRow;
+					wEngine.generateReset(true);
 				}
 				else if (!ruleResetPending) {
 					//internalWriteHead = 0;
@@ -869,36 +758,36 @@ struct WolframModule : Module {
 		}
 
 		// OUTPUT
-
-		//uint8_t x = getOutputGridRow();
-		//float xCv = x * eightBitScaler * 10.f;
-		float xCv = wEngine.getXVoltage();
+		//float xCv = wEngine.getXVoltage();
+		float xCv = 0;
 		if (vcoMode) {
 			xCv -= 5.f;
+			// TODO: DC Blocker?
 		}
 		xCv *= params[X_SCALE_PARAM].getValue();;
-
 		outputs[X_CV_OUTPUT].setVoltage(xCv);
-		//bool xGate = (x >> 7) & 1;
-		bool xGate = (wEngine.getOutputMatrixRow(0) >> 7) & 1;
+
+		//bool xGate = wEngine.getXGate();
+		bool xGate = 0;
 		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
 
-		uint8_t y = getOutputGridColumn();
-		float yCv = y * eightBitScaler * 10.f;
+		//float yCv = wEngine.getYVoltage();
+		float yCv = 0;
 		if (vcoMode) {
 			yCv -= 5.f;
 		}
 		yCv *= params[Y_SCALE_PARAM].getValue();;
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
-		bool yGate = y & 1;
+
+		//bool yGate = wEngine.getYGate();
+		bool yGate = 0;
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// Debug output
 		//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
 
 		// LIGHTS
-
-		lights[MODE_LIGHT].setBrightnessSmooth(static_cast<float>(moduleMode) / (Mode::MODE_LEN - 1), args.sampleTime); // bad div
+		lights[MODE_LIGHT].setBrightnessSmooth(wEngine.getModeValue(), args.sampleTime); 
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_GATE_LIGHT].setBrightness(xGate);
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
@@ -1092,14 +981,15 @@ struct MatrixDisplay : Widget {
 				module->wEngine.drawRule(vg, fontSize);
 			}
 
+			// Requires flipping before drawing
 			uint64_t matrix = module->wEngine.getOutputMatrix();
 
 			for (int row = startRow; row < matrixRows; row++) {
-				// Invert row
 				int rowInvert = (row - 7) * -1;
 
 				for (int col = 0; col < matrixCols; col++) {
-					int cellIndex = rowInvert * 8 + col;
+					int colInvert = 7 - col;
+					int cellIndex = rowInvert * 8 + colInvert;
 					bool cellState = (matrix >> cellIndex) & 1ULL;  
 
 					nvgBeginPath(vg);

@@ -15,20 +15,26 @@ public:
 	virtual void OutputMatrixStep() = 0;
 	virtual void OutputMatrixPush() = 0;
 	virtual void Generate() = 0;
-	virtual void GenerateReset() = 0;
+	virtual void GenerateReset(bool w) = 0;
 
 	virtual void RuleUpdate(int d, bool r) = 0;
 	virtual void SeedUpdate(int d, bool r) = 0;
 	virtual void ModeUpdate(int d, bool r) = 0;
 
 	// Output functions
+	// TODO: these get called every process, need a better way to get stuff from Output Matrix...
 	virtual float GetXVoltage() = 0;
 	virtual float GetYVoltage() = 0;
+	virtual bool GetXGate() = 0;
+	virtual bool GetYGate() = 0;
 
 	// Drawing functions
 	virtual void DrawRule(NVGcontext* vg, float fs) = 0;
 	virtual void DrawSeedMenu(NVGcontext* vg, float fs) = 0;
 	virtual void DrawModeMenu(NVGcontext* vg, float fs) = 0;
+
+	// Light function
+	virtual float GetModeValue() = 0;
 
 	// Common functions
 	void SetReadHead(int r) {
@@ -41,6 +47,7 @@ public:
 
 	void AdvanceHeads(int s) {
 		// Advance read and write heads
+		// TODO: could use if, would be quicker
 		readHead = writeHead;
 		writeHead = (writeHead + 1) % s;
 	}
@@ -67,23 +74,10 @@ public:
 		uint64_t matrix = 0;
 		for (int i = 0; i < 8; i++) {
 			uint8_t row = GetOutputMatrixRow(i);
-			//row &= 0xFF; // mask to ensure we don't spill extra bits?
 			matrix |= static_cast<uint64_t>(row) << (i * 8);
 		}
 		return matrix;
 	}
-
-	/*
-	bool GetXGate() {
-		//x = row 
-		//bool xGate = (x >> 7) & 1;
-		return 0;
-	}
-	bool GetYGate() {
-		return 0;
-	}
-	*/
-
 
 protected:
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
@@ -104,7 +98,6 @@ public:
 		// Init seed
 		rowBuffer[readHead] = seed;
 		OutputMatrixPush();
-		
 	}
 
 	void OutputMatrixStep() override {
@@ -165,9 +158,13 @@ public:
 
 	}
 
-	void GenerateReset() override {
+	void GenerateReset(bool w) override {
 		uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
-		rowBuffer[readHead] = resetRow;
+		size_t head = readHead;
+		if (w) {
+			head = writeHead;
+		}
+		rowBuffer[head] = resetRow;
 	}
 
 	void RuleUpdate(int d, bool r) override {
@@ -208,7 +205,6 @@ public:
 			mode = Mode::WRAP;
 		}
 		else {
-			const int numModes = static_cast<int>(Mode::MODE_LEN);
 			int modeIndex = static_cast<int>(mode);
 			modeIndex = (modeIndex + d + numModes) % numModes;
 			mode = static_cast<Mode>(modeIndex);
@@ -216,17 +212,29 @@ public:
 
 	}
 
-	float GetXVoltage() override {
-		//rowIndex = clamp(rowIndex, 0, 7);
-		//return applyOffset((outputMatrix >> (rowIndex * 8)) & 0xFF);
-		//uint8_t x = getOutputGridRow();
-		
+	float GetXVoltage() override {		
+		// Returns bottom row of Ouput Matrix as voltage (0-10V).
 		return GetOutputMatrixRow(0) * voltageScaler * 10.f;
 	}
 
 	float GetYVoltage() override {
+		// Returns right column of Ouput Matrix as voltage (0-10V).
+		uint8_t col = 0;
+		for (int i = 0; i < 8; i++) {
+			uint8_t row = GetOutputMatrixRow(i);
+			col |= ((row & 0x01) << (7 - i));
+		}
+		return col * voltageScaler * 10.f;
+	}
 
-		return 0;
+	bool GetXGate() override {
+		// Returns bottom left cell state of Ouput Matrix.
+		return (GetOutputMatrixRow(0) >> 7) & 1;
+	}
+
+	bool GetYGate() override {
+		// Returns top right cell state of Ouput Matrix.
+		return GetOutputMatrixRow(7) & 1;
 	}
 
 	// Drawing functions
@@ -272,6 +280,12 @@ public:
 		}
 	}
 
+	// Light function
+	float GetModeValue() override {
+		int modeIndex = static_cast<int>(mode); //const?
+		return static_cast<float>(modeIndex) * numModesScaler;
+	}
+
 private:
 	enum class Mode {
 		WRAP,
@@ -281,6 +295,8 @@ private:
 	};
 
 	Mode mode = Mode::WRAP;
+	const int numModes = static_cast<int>(Mode::MODE_LEN);
+	const float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
 	uint8_t rule = 30;
 	uint8_t seed = 8;
@@ -307,9 +323,103 @@ public:
 	}
 
 	void Generate() override {
-		// Conways Game of Life.
+		// Conway's Game of Life.
+		// This is super fast
+		// https://stackoverflow.com/questions/40485/optimizing-conways-game-of-life
 		uint64_t readFrame = frameBuffer[readHead];
+		uint64_t writeFrame = 0;
 
+		uint8_t horizXor[8];
+		uint8_t horizAnd[8];
+		uint8_t partialXor[8];
+		uint8_t partialAnd[8];
+
+		for (int i = 0; i < 8; i++) {
+			uint8_t row = (readFrame >> (i * 8)) & 0xFF;
+			
+			// Clip
+			uint8_t left = (row >> 1);
+			uint8_t right = (row << 1);
+
+			switch (mode) {
+			case Mode::WRAP:
+				left = (row << 1) | (row >> 7);
+				right = (row >> 1) | (row << 7);
+				break;
+			default:
+				break;
+			}
+			horizXor[i] = left ^ right;
+			horizAnd[i] = left & right;
+			partialXor[i] = horizXor[i] ^ row;
+			partialAnd[i] = horizAnd[i] | (horizXor[i] & row);
+		}
+
+		uint8_t sumBit0[8];
+		uint8_t sumBit1[8];
+		uint8_t sumBit2[8];
+
+		switch (mode) {
+		case Mode::CLIP:
+			// Top row
+			sumBit0[0] = horizXor[0] ^ partialXor[1];
+			sumBit1[0] = (horizAnd[0] ^ partialAnd[1]) ^ (horizXor[0] & partialXor[1]);
+			sumBit2[0] = (horizAnd[0] & partialAnd[1]) | ((horizAnd[0] ^ partialAnd[1]) & (horizXor[0] & partialXor[1]));
+			break;
+		case Mode::WRAP:
+		{
+			// Top row (wrap above -> row 7)
+			sumBit0[0] = partialXor[7] ^ horizXor[0] ^ partialXor[1];
+			uint8_t carryTop = ((partialXor[7] | partialXor[1]) & horizXor[0]) | (partialXor[7] & partialXor[1]);
+			sumBit1[0] = partialAnd[7] ^ horizAnd[0] ^ partialAnd[1] ^ carryTop;
+			sumBit2[0] = ((partialAnd[7] | partialAnd[1]) & (horizAnd[0] | carryTop)) | (partialAnd[7] & partialAnd[1]) | (horizAnd[0] & carryTop);
+			break;
+		}
+		default:
+			break;
+		}
+
+		// middle rows
+		for (int i = 1; i < 7; i++) {
+			sumBit0[i] = partialXor[i - 1] ^ horizXor[i] ^ partialXor[i + 1];
+			uint64_t carryMiddle = (partialXor[i - 1] | partialXor[i + 1]) & horizXor[i] | partialXor[i - 1] & partialXor[i + 1];
+			sumBit1[i] = partialAnd[i - 1] ^ horizAnd[i] ^ partialAnd[i + 1] ^ carryMiddle;
+			sumBit2[i] = ((partialAnd[i - 1] | partialAnd[i + 1]) & (horizAnd[i] | carryMiddle)) | 
+				((partialAnd[i - 1] & partialAnd[i + 1]) | (horizAnd[i] & carryMiddle));
+		}
+
+		switch (mode) {
+		case Mode::CLIP:
+			// bottom row
+			sumBit0[7] = partialXor[6] ^ horizXor[7];
+			sumBit1[7] = (partialAnd[6] ^ horizAnd[7]) ^ (partialXor[6] & horizXor[7]);
+			sumBit2[7] = (partialAnd[6] & horizAnd[7]) | ((partialAnd[6] ^ horizAnd[7]) & (partialXor[6] & horizXor[7]));
+			break;
+		case Mode::WRAP:
+		{
+			// Bottom row (wrap below -> row 0)
+			sumBit0[7] = partialXor[6] ^ horizXor[7] ^ partialXor[0];
+			uint8_t carryBottom = ((partialXor[6] | partialXor[0]) & horizXor[7]) | (partialXor[6] & partialXor[0]);
+			sumBit1[7] = partialAnd[6] ^ horizAnd[7] ^ partialAnd[0] ^ carryBottom;
+			sumBit2[7] = ((partialAnd[6] | partialAnd[0]) & (horizAnd[7] | carryBottom)) | (partialAnd[6] & partialAnd[0]) | (horizAnd[7] & carryBottom);
+			break;
+		}
+		default:
+			break;
+		}
+
+
+		// apply rule
+		for (int i = 0; i < 8; ++i) {
+			uint8_t row = (readFrame >> (i * 8)) & 0xFF;
+
+			uint8_t newRow = ~sumBit2[i] & sumBit1[i] & (sumBit0[i] | row);
+			writeFrame |= (uint64_t(newRow) << (i * 8));
+		}
+
+		frameBuffer[writeHead] = writeFrame;
+
+		/*
 		for (int row = 0; row < 8; row++) {
 			for (int column = 0; column < 8; column++) {
 				bool writeCell = false;
@@ -349,11 +459,16 @@ public:
 				frameBuffer[writeHead] |= (uint64_t(writeCell) << bitIndex);
 			}
 		}
+		*/
 	}
 
-	void GenerateReset() override {
+	void GenerateReset(bool w) override {
 		uint64_t resetFrame = randSeed ? random::get<uint64_t>() : seed;
-		frameBuffer[readHead] = resetFrame;
+		size_t head = readHead;
+		if (w) {
+			head = writeHead;
+		}
+		frameBuffer[head] = resetFrame;
 	}
 
 	void RuleUpdate(int d, bool r) override {
@@ -381,7 +496,6 @@ public:
 			mode = Mode::WRAP;
 		}
 		else {
-			const int numModes = static_cast<int>(Mode::MODE_LEN);
 			int modeIndex = static_cast<int>(mode);
 			modeIndex = (modeIndex + d + numModes) % numModes;
 			mode = static_cast<Mode>(modeIndex);
@@ -390,14 +504,31 @@ public:
 	}
 
 	float GetXVoltage() override {
-
-		//return row * voltageScaler * 10.f;
-		return outputMatrix * voltageScaler * 10.f;
+		//float curve = 1000000; 
+		float normalizedMatrix = outputMatrix * voltageScaler;
+		//return (1.f - pow(1.f - normalizedMatrix, curve)) * 10.f;
+		// TODO: dont like this curve
+		//return (log(1 + curve * normalizedMatrix) / log(1 + curve)) * 10.f;
+		return normalizedMatrix * 10.f;
 	}
 
 	float GetYVoltage() override {
+		// Could return the ampount of change 
+		// Gate could return if the value has increased
+		// need sequenceLength...
+		
+		//int prevReadHead = (readHead - 1) % sequenceLength;
+		//float change = frameBuffer[readHead] - frameBuffer[prevReadHead];
 
 		return 0;
+	}
+
+	bool GetXGate() override {
+		return false;
+	}
+
+	bool GetYGate() override {
+		return false;
 	}
 
 	// Drawing functions
@@ -426,6 +557,12 @@ public:
 		nvgText(vg, 0, fs, "SEED", nullptr);
 	}
 
+	// Light function
+	float GetModeValue() override {
+		int modeIndex = static_cast<int>(mode); //const?
+		return static_cast<float>(modeIndex) * numModesScaler;
+	}
+
 private:
 	enum class Mode {
 		WRAP,
@@ -435,8 +572,10 @@ private:
 	};
 
 	Mode mode = Mode::WRAP;
+	const int numModes = static_cast<int>(Mode::MODE_LEN);
+	const float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
-	uint64_t seed = 123456;
+	uint64_t seed = 0x00000000F0888868ULL;
 
 	const float voltageScaler = 1.f / std::numeric_limits<uint64_t>::max();
 };
@@ -452,13 +591,13 @@ public:
 		activeAlogrithm = algorithms[algorithmIndex];
 	}
 	
-	void algoithmUpdate(int delta) {
-		algorithmIndex = (algorithmIndex + delta + MAX_ALGORITHMS) % MAX_ALGORITHMS;
-		activeAlogrithm = algorithms[algorithmIndex];
-	}
-
-	void algoithmReset() {
-		algorithmIndex = 0;
+	void algoithmUpdate(int delta, bool reset) {
+		if (reset) {
+			algorithmIndex = 0;
+		}
+		else {
+			algorithmIndex = (algorithmIndex + delta + MAX_ALGORITHMS) % MAX_ALGORITHMS;
+		}
 		activeAlogrithm = algorithms[algorithmIndex];
 	}
 
@@ -480,7 +619,7 @@ public:
 	void outputMatrixStep() { activeAlogrithm->OutputMatrixStep(); }
 	void outputMatrixPush() { activeAlogrithm->OutputMatrixPush(); }
 	void generate() { activeAlogrithm->Generate(); }
-	void generateReset() { activeAlogrithm->GenerateReset(); }
+	void generateReset(bool write = false) { activeAlogrithm->GenerateReset(write); }
 
 	void ruleUpdate(int delta, bool reset) { activeAlogrithm->RuleUpdate(delta, reset); }
 	void seedUpdate(int delta, bool reset) { activeAlogrithm->SeedUpdate(delta, reset); }
@@ -488,11 +627,16 @@ public:
 
 	float getXVoltage() { return activeAlogrithm->GetXVoltage(); }
 	float getYVoltage() { return activeAlogrithm->GetYVoltage(); }
+	bool getXGate() { return activeAlogrithm->GetXGate(); }
+	bool getYGate() { return activeAlogrithm->GetYGate(); }
 
 	// Drawing functions
 	void drawRule(NVGcontext* vg, float fontSize) { activeAlogrithm->DrawRule(vg, fontSize); }
 	void drawModeMenu(NVGcontext* vg, float fontSize) { activeAlogrithm->DrawModeMenu(vg, fontSize); }
 	void drawSeedMenu(NVGcontext* vg, float fontSize) { activeAlogrithm->DrawSeedMenu(vg, fontSize); }
+
+	// Light function
+	float getModeValue() { return activeAlogrithm->GetModeValue(); }
 
 	// Common functions
 	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
@@ -502,14 +646,11 @@ public:
 	uint8_t getOutputMatrixRow(int index) { return activeAlogrithm->GetOutputMatrixRow(index); }
 	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
 	
-	//bool getXGate() { return activeAlogrithm->GetXGate(); }
-	//bool getYGate() { return activeAlogrithm->GetYGate(); }
-
 private:
 	WolfAlgoithm wolf;
 	LifeAlgoithm life;
 
-	int algorithmIndex = 0;
+	int algorithmIndex = 1;
 
 	static constexpr int MAX_ALGORITHMS = 2;
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
@@ -518,6 +659,9 @@ private:
 	// uint64_t outputMatrix = 0 here?
 	// int offset = 0 here?
 };
+
+
+
 
 
 /*
