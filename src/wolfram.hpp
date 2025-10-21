@@ -112,50 +112,40 @@ public:
 	}
 
 	void Generate() override {
-		// One Dimensional Cellular Automata
-		for (int column = 0; column < 8; column++) {
+		// One Dimensional Cellular Automata.
+		uint8_t readRow = rowBuffer[readHead];
+		uint8_t writeRow = 0;
 
-			uint8_t readRow = rowBuffer[readHead];
-			//uint8_t writeRow = 0;
-
-			int left = column - 1;
-			int right = column + 1;
-			int leftIndex = left;
-			int rightIndex = right;
-
-			// Wrap
-			if (left < 0) { leftIndex = 7; }
-			if (right > 7) { rightIndex = 0; }
-
-			int leftCell = (readRow >> leftIndex) & 1;
-			int cell = (readRow >> column) & 1;
-			int rightCell = (readRow >> rightIndex) & 1;
-
-			switch (mode) {
-			case Mode::CLIP:
-				if (left < 0) { leftCell = 0; }
-				if (right > 7) { rightCell = 0; }
-				break;
-			case Mode::RAND:
-				if (left < 0) { leftCell = random::get<bool>(); }
-				if (right > 7) { rightCell = random::get<bool>(); }
-				break;
-			default:
-				break;
-			}
-
-			int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
-
-			bool ruleBit = (rule >> (7 - tag)) & 1;
-			if (ruleBit) {
-				rowBuffer[writeHead] |= (1 << column);
-			}
-			else {
-				rowBuffer[writeHead] &= ~(1 << column);
-			}
-			//rowBuffer[writeHead] = writeRow;
+		// 0000100
+		
+		// Clip
+		uint8_t left = readRow >> 1;
+		uint8_t right = readRow << 1;
+		switch (mode) {
+		case Mode::WRAP:
+			left |= readRow << 7;
+			right |= readRow >> 7;
+			break;
+		case Mode::RAND:
+			left |= random::get<bool>() << 7;
+			right |= random::get<bool>();
+			break;
+		default:
+			break;
 		}
 
+		for (int col = 0; col < 8; col++) {
+			uint8_t leftBit = (left >> col) & 1;
+			uint8_t thisBit = (readRow >> col) & 1;
+			uint8_t rightBit = (right >> col) & 1;
+
+			uint8_t tag = (leftBit << 2) | (thisBit << 1) | rightBit;
+			uint8_t newBit = (rule >> tag) & 1;
+			
+			writeRow |= newBit << col;
+		}
+
+		rowBuffer[writeHead] = writeRow;
 	}
 
 	void GenerateReset(bool w) override {
@@ -326,6 +316,90 @@ public:
 		// Conway's Game of Life.
 		// This is super fast
 		// https://stackoverflow.com/questions/40485/optimizing-conways-game-of-life
+
+		/*
+		uint64_t readMatrix = frameBuffer[readHead];
+		uint64_t writeMatrix = 0;
+
+		uint8_t horizXor[8];
+		uint8_t horizAnd[8];
+		uint8_t partialXor[8];
+		uint8_t partialAnd[8];
+
+		for (int i = 0; i < 8; i++) {
+			
+			uint8_t row = (readMatrix >> (i * 8)) & 0xFF;
+			// 00100100
+
+			// Clip
+			uint8_t left = row >> 1;
+			uint8_t right = row << 1;
+			// 00100100
+			// 00010010 l
+			// 01001000 r
+
+			horizXor[i] = left ^ right;	// Encodes which horizontal neighbors are different from each other.
+			// 00010010 l
+			// 01001000 r	
+			// 01011010 dif
+
+			// 00100100
+			// 01011010 
+			horizAnd[i] = left & right; // Encodes which horizontal neighbors are the same as each other.
+			// 00010010 l
+			// 01001000 r	
+			// 00000000 same
+
+			partialXor[i] = horizXor[i] ^ row; // Represents all three horizontal bits combined for each cell.
+			// 01011010 
+			// 00100100
+			// 01111110 sum 
+
+			partialAnd[i] = horizAnd[i] | (horizXor[i] & row);
+			// 01011010 &
+			// 00100100
+			// 00000000
+
+			// 00000000 |
+			// 00000000
+		}	// 00000000
+
+
+		// 00100100 row
+		// 01111110 sum
+
+		// Full-adder logic
+		uint8_t sumBit0[8];
+		uint8_t sumBit1[8];
+		uint8_t sumBit2[8];
+
+		// Top row
+		sumBit0[0] = horizXor[0] ^ partialXor[1];
+		sumBit1[0] = (horizAnd[0] ^ partialAnd[1]) ^ (horizXor[0] & partialXor[1]);
+		sumBit2[0] = (horizAnd[0] & partialAnd[1]) | ((horizAnd[0] ^ partialAnd[1]) & (horizXor[0] & partialXor[1]));
+
+		// 8x8 matrix as 64 bit int
+		// 00001000
+		// 00011100
+		// 00110111
+		// ...
+		// ...
+		// ...
+		// ...
+		// 00000000
+
+		//uint64_t left = readMatrix;
+		// 00001000
+		// 00011100
+		// 00110111
+		// ...
+		// ...
+		// ...
+		// ...
+		// 00000000
+		*/
+		
+		//
 		uint64_t readFrame = frameBuffer[readHead];
 		uint64_t writeFrame = 0;
 
@@ -341,14 +415,14 @@ public:
 			uint8_t left = (row >> 1);
 			uint8_t right = (row << 1);
 
-			switch (mode) {
-			case Mode::WRAP:
-				left = (row << 1) | (row >> 7);
-				right = (row >> 1) | (row << 7);
-				break;
-			default:
-				break;
-			}
+			//switch (mode) {
+			//case Mode::WRAP:
+			//	left = (row << 1) | (row >> 7);
+			//	right = (row >> 1) | (row << 7);
+			//	break;
+			//default:
+			//	break;
+			//}
 			horizXor[i] = left ^ right;
 			horizAnd[i] = left & right;
 			partialXor[i] = horizXor[i] ^ row;
@@ -359,6 +433,27 @@ public:
 		uint8_t sumBit1[8];
 		uint8_t sumBit2[8];
 
+
+		// Top row
+		sumBit0[0] = horizXor[0] ^ partialXor[1];
+		sumBit1[0] = (horizAnd[0] ^ partialAnd[1]) ^ (horizXor[0] & partialXor[1]);
+		sumBit2[0] = (horizAnd[0] & partialAnd[1]) | ((horizAnd[0] ^ partialAnd[1]) & (horizXor[0] & partialXor[1]));
+
+		// middle rows
+		for (int i = 1; i < 7; i++) {
+			sumBit0[i] = partialXor[i - 1] ^ horizXor[i] ^ partialXor[i + 1];
+			uint64_t carryMiddle = (partialXor[i - 1] | partialXor[i + 1]) & horizXor[i] | partialXor[i - 1] & partialXor[i + 1];
+			sumBit1[i] = partialAnd[i - 1] ^ horizAnd[i] ^ partialAnd[i + 1] ^ carryMiddle;
+			sumBit2[i] = ((partialAnd[i - 1] | partialAnd[i + 1]) & (horizAnd[i] | carryMiddle)) |
+				((partialAnd[i - 1] & partialAnd[i + 1]) | (horizAnd[i] & carryMiddle));
+		}
+
+		// bottom row
+		sumBit0[7] = partialXor[6] ^ horizXor[7];
+		sumBit1[7] = (partialAnd[6] ^ horizAnd[7]) ^ (partialXor[6] & horizXor[7]);
+		sumBit2[7] = (partialAnd[6] & horizAnd[7]) | ((partialAnd[6] ^ horizAnd[7]) & (partialXor[6] & horizXor[7]));
+
+		/*
 		switch (mode) {
 		case Mode::CLIP:
 			// Top row
@@ -407,7 +502,7 @@ public:
 		default:
 			break;
 		}
-
+		*/
 
 		// apply rule
 		for (int i = 0; i < 8; ++i) {
@@ -650,7 +745,7 @@ private:
 	WolfAlgoithm wolf;
 	LifeAlgoithm life;
 
-	int algorithmIndex = 1;
+	int algorithmIndex = 0;
 
 	static constexpr int MAX_ALGORITHMS = 2;
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
