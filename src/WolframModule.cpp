@@ -315,7 +315,7 @@ struct WolframModule : Module {
 	int injectPendingState = 0;
 	bool gen = false;
 	bool genPending = false;
-	bool sync = true;
+	bool sync = false;
 	bool menu = false;
 	bool vcoMode = false;
 	float lastTrigVoltage = 0.f;
@@ -542,6 +542,7 @@ struct WolframModule : Module {
 				if (delta == 0)
 					break;
 				wEngine.algoithmUpdate(delta, false);
+				wEngine.outputMatrixPush();
 				displayUpdate = true;
 				break;
 			}
@@ -641,6 +642,7 @@ struct WolframModule : Module {
 		else if (offset != newOffset) {
 			offset = newOffset;
 			wEngine.setOffset(newOffset);
+			wEngine.outputMatrixPush();
 			if (!menu) { displayUpdate = true; }
 		}
 
@@ -758,8 +760,7 @@ struct WolframModule : Module {
 		}
 
 		// OUTPUT
-		//float xCv = wEngine.getXVoltage();
-		float xCv = 0;
+		float xCv = wEngine.getXVoltage();
 		if (vcoMode) {
 			xCv -= 5.f;
 			// TODO: DC Blocker?

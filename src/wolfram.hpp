@@ -11,9 +11,9 @@ public:
 	AlgorithmBase() {}
 	~AlgorithmBase() {}
 
-	// TODO: bundle update and reseters together?
+	//
 	virtual void OutputMatrixStep() = 0;
-	virtual void OutputMatrixPush() = 0;
+	virtual void OutputMatrixPush(int o) = 0;
 	virtual void Generate() = 0;
 	virtual void GenerateReset(bool w) = 0;
 
@@ -22,7 +22,6 @@ public:
 	virtual void ModeUpdate(int d, bool r) = 0;
 
 	// Output functions
-	// TODO: these get called every process, need a better way to get stuff from Output Matrix...
 	virtual float GetXVoltage() = 0;
 	virtual float GetYVoltage() = 0;
 	virtual bool GetXGate() = 0;
@@ -52,43 +51,31 @@ public:
 		writeHead = (writeHead + 1) % s;
 	}
 	
-	void SetOffset(int o) {
-		offset = clamp(o, -4, 4);
-	}
-
-	uint8_t GetOutputMatrixRow(int i) {
-		uint8_t row = (outputMatrix >> (i * 8)) & 0xFF;
-		// Apply offset
-		int shift = offset;
+	uint8_t ApplyOffset(uint8_t r, int o) {
+		// Apply a horizontal offset to a row.
+		int shift = clamp(o, -4, 4);
 		if (shift < 0) {
 			shift = -shift;
-			row = (row << shift) | (row >> (8 - shift));
+			r = (r << shift) | (r >> (8 - shift));
 		}
 		else if (shift > 0) {
-			row = (row >> shift) | (row << (8 - shift));
+			r = (r >> shift) | (r << (8 - shift));
 		}
-		return row;
+		return r;
 	}
-
-	uint64_t GetOutputMatrix() {
-		uint64_t matrix = 0;
-		for (int i = 0; i < 8; i++) {
-			uint8_t row = GetOutputMatrixRow(i);
-			matrix |= static_cast<uint64_t>(row) << (i * 8);
-		}
-		return matrix;
-	}
+	
+	uint64_t GetOutputMatrix() { return outputMatrix; }
 
 protected:
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
 	std::array<uint8_t, MAX_SEQUENCE_LENGTH> rowBuffer {};
 	std::array<uint64_t, MAX_SEQUENCE_LENGTH> frameBuffer {};
+
 	uint64_t outputMatrix = 0;
 
 	int readHead = 0;
 	int writeHead = 1;
 	
-	int offset = 0;
 	bool randSeed = false;
 };
 
@@ -97,7 +84,6 @@ public:
 	WolfAlgoithm() {
 		// Init seed
 		rowBuffer[readHead] = seed;
-		OutputMatrixPush();
 	}
 
 	void OutputMatrixStep() override {
@@ -105,18 +91,26 @@ public:
 		outputMatrix <<= 8;
 	}
 
-	void OutputMatrixPush() override {
-		// Push row to output matrix
-		outputMatrix &= ~0xFFULL;		// Clear first row
-		outputMatrix |= static_cast<uint64_t>(rowBuffer[readHead]);
+	void OutputMatrixPush(int o) override {
+		// Apply new offset
+		int offsetDifference = o - prevOffset;
+		uint64_t tempMatrix = 0;
+		for (int i = 1; i < 8; i++) {
+			uint8_t row = (outputMatrix >> (i * 8)) & 0xFF;
+			tempMatrix |= uint64_t(ApplyOffset(row, offsetDifference)) << (i * 8);
+		}
+		outputMatrix = tempMatrix;
+		prevOffset = o;
+
+		// Push latest row
+		outputMatrix &= ~0xFFULL;	// Clear first row
+		outputMatrix |= static_cast<uint64_t>(ApplyOffset(rowBuffer[readHead], o));	
 	}
 
 	void Generate() override {
 		// One Dimensional Cellular Automata.
 		uint8_t readRow = rowBuffer[readHead];
 		uint8_t writeRow = 0;
-
-		// 0000100
 		
 		// Clip
 		uint8_t left = readRow >> 1;
@@ -144,7 +138,6 @@ public:
 			
 			writeRow |= newBit << col;
 		}
-
 		rowBuffer[writeHead] = writeRow;
 	}
 
@@ -202,29 +195,35 @@ public:
 
 	}
 
-	float GetXVoltage() override {		
-		// Returns bottom row of Ouput Matrix as voltage (0-10V).
-		return GetOutputMatrixRow(0) * voltageScaler * 10.f;
+	float GetXVoltage() override {
+		// Returns bottom row of Ouput Matrix as voltage (0-10V).		
+		uint8_t firstRow = outputMatrix & 0xFF;
+		return firstRow * voltageScaler * 10.f;
 	}
 
 	float GetYVoltage() override {
 		// Returns right column of Ouput Matrix as voltage (0-10V).
-		uint8_t col = 0;
-		for (int i = 0; i < 8; i++) {
-			uint8_t row = GetOutputMatrixRow(i);
-			col |= ((row & 0x01) << (7 - i));
-		}
-		return col * voltageScaler * 10.f;
+		//uint8_t col = 0;
+		//for (int i = 0; i < 8; i++) {
+		//	uint8_t row = GetOutputMatrixRow(i);
+		//	col |= ((row & 0x01) << (7 - i));
+		//}
+		//return col * voltageScaler * 10.f;
+
+		//return right col of m * voltageScaler * 10.f;
+		return 0;
 	}
 
 	bool GetXGate() override {
 		// Returns bottom left cell state of Ouput Matrix.
-		return (GetOutputMatrixRow(0) >> 7) & 1;
+		//return (GetOutputMatrixRow(0) >> 7) & 1;
+		return 0;
 	}
 
 	bool GetYGate() override {
 		// Returns top right cell state of Ouput Matrix.
-		return GetOutputMatrixRow(7) & 1;
+		//return GetOutputMatrixRow(7) & 1;
+		return 0;
 	}
 
 	// Drawing functions
@@ -292,6 +291,8 @@ private:
 	uint8_t seed = 8;
 	int seedSelect = seed;
 
+	int prevOffset = 0;
+
 	const float voltageScaler = 1.f / std::numeric_limits<uint8_t>::max();
 };
 
@@ -300,16 +301,20 @@ public:
 	LifeAlgoithm() {
 		// Init seed
 		frameBuffer[readHead] = seed;
-		OutputMatrixPush();
 	}
 
 	void OutputMatrixStep() override {
 		// Suppress behaviour
 	}
 
-	void OutputMatrixPush() override {
+	void OutputMatrixPush(int o) override {
 		// Push frame to output matrix
-		outputMatrix = frameBuffer[readHead];
+		uint64_t tempMatrix = 0;
+		for (int i = 0; i < 8; i++) {
+			uint8_t row = (frameBuffer[readHead] >> (i * 8)) & 0xFF;
+			tempMatrix |= uint64_t(ApplyOffset(row, o)) << (i * 8);
+		}
+		outputMatrix = tempMatrix;
 	}
 
 	void Generate() override {
@@ -398,6 +403,43 @@ public:
 		// ...
 		// 00000000
 		*/
+
+
+		// 0000
+		// 0010
+		// 0101
+		// 1110
+
+		// left
+		// 0000
+		// 0001
+		// 0010
+		// 0111
+
+		// right 
+		// 0000
+		// 0100
+		// 1010
+		// 1100
+		
+        // above
+		// 0000
+		// 0000
+		// 0010
+		// 0101
+
+		// below
+		// 0010
+		// 0101
+		// 1110
+		// 0000
+		
+		
+		// 4 2 1
+		//uint8_t sumBit0[8];
+		//uint8_t sumBit1[8];
+		//uint8_t sumBit2[8];
+
 		
 		//
 		uint64_t readFrame = frameBuffer[readHead];
@@ -412,8 +454,8 @@ public:
 			uint8_t row = (readFrame >> (i * 8)) & 0xFF;
 			
 			// Clip
-			uint8_t left = (row >> 1);
-			uint8_t right = (row << 1);
+			uint8_t left = row >> 1;
+			uint8_t right = row << 1;
 
 			//switch (mode) {
 			//case Mode::WRAP:
@@ -432,7 +474,6 @@ public:
 		uint8_t sumBit0[8];
 		uint8_t sumBit1[8];
 		uint8_t sumBit2[8];
-
 
 		// Top row
 		sumBit0[0] = horizXor[0] ^ partialXor[1];
@@ -600,10 +641,12 @@ public:
 
 	float GetXVoltage() override {
 		//float curve = 1000000; 
-		float normalizedMatrix = outputMatrix * voltageScaler;
+		// //float normalizedMatrix = outputMatrix * voltageScaler;
 		//return (1.f - pow(1.f - normalizedMatrix, curve)) * 10.f;
 		// TODO: dont like this curve
 		//return (log(1 + curve * normalizedMatrix) / log(1 + curve)) * 10.f;
+
+		float normalizedMatrix = outputMatrix * voltageScaler;
 		return normalizedMatrix * 10.f;
 	}
 
@@ -684,8 +727,14 @@ public:
 
 		// Default alogrithm
 		activeAlogrithm = algorithms[algorithmIndex];
+
+		outputMatrixPush();
 	}
 	
+	void setOffset(int newOffset) { 
+		offset = newOffset;
+	}
+
 	void algoithmUpdate(int delta, bool reset) {
 		if (reset) {
 			algorithmIndex = 0;
@@ -712,7 +761,7 @@ public:
 
 	// Algoithm functions
 	void outputMatrixStep() { activeAlogrithm->OutputMatrixStep(); }
-	void outputMatrixPush() { activeAlogrithm->OutputMatrixPush(); }
+	void outputMatrixPush() { activeAlogrithm->OutputMatrixPush(offset); }
 	void generate() { activeAlogrithm->Generate(); }
 	void generateReset(bool write = false) { activeAlogrithm->GenerateReset(write); }
 
@@ -737,22 +786,19 @@ public:
 	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
 	void setWriteHead(int writeHead) { activeAlogrithm->SetReadHead(writeHead); }
 	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
-	void setOffset(int offset) { activeAlogrithm->SetOffset(offset); }
-	uint8_t getOutputMatrixRow(int index) { return activeAlogrithm->GetOutputMatrixRow(index); }
 	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
 	
 private:
 	WolfAlgoithm wolf;
 	LifeAlgoithm life;
 
-	int algorithmIndex = 0;
-
 	static constexpr int MAX_ALGORITHMS = 2;
+	int algorithmIndex = 0;
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
 	AlgorithmBase* activeAlogrithm;
 
-	// uint64_t outputMatrix = 0 here?
-	// int offset = 0 here?
+	//uint64_t outputMatrix = 0;
+	int offset = 0;
 };
 
 
