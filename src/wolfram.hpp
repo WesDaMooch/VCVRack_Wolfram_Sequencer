@@ -11,12 +11,46 @@ public:
 	AlgorithmBase() {}
 	~AlgorithmBase() {}
 
-	//
+	// Common functions
+	void SetReadHead(int r) {
+		readHead = r;
+	}
+
+	void SetWriteHead(int w) {
+		writeHead = w;
+	}
+
+	void AdvanceHeads(int s) {
+		// Advance read and write heads
+		// TODO: could use if, would be quicker?
+		readHead = writeHead;
+		writeHead = (writeHead + 1) % s;
+	}
+
+	uint8_t ApplyOffset(uint8_t r, int o) {
+		// Apply a horizontal offset to a given row.
+		int shift = clamp(o, -4, 4);
+		if (shift < 0) {
+			shift = -shift;
+			r = (r << shift) | (r >> (8 - shift));
+		}
+		else if (shift > 0) {
+			r = (r >> shift) | (r << (8 - shift));
+		}
+		return r;
+	}
+
+	uint64_t GetOutputMatrix() { 
+		return outputMatrix; 
+	}
+
+	// Algorithm specific functions
 	virtual void OutputMatrixStep() = 0;
 	virtual void OutputMatrixPush(int o) = 0;
 	virtual void Generate() = 0;
 	virtual void GenerateReset(bool w) = 0;
 
+	// Update functions
 	virtual void RuleUpdate(int d, bool r) = 0;
 	virtual void SeedUpdate(int d, bool r) = 0;
 	virtual void ModeUpdate(int d, bool r) = 0;
@@ -34,37 +68,6 @@ public:
 
 	// Light function
 	virtual float GetModeValue() = 0;
-
-	// Common functions
-	void SetReadHead(int r) {
-		readHead = r;
-	}
-
-	void SetWriteHead(int w) {
-		writeHead = w;
-	}
-
-	void AdvanceHeads(int s) {
-		// Advance read and write heads
-		// TODO: could use if, would be quicker
-		readHead = writeHead;
-		writeHead = (writeHead + 1) % s;
-	}
-	
-	uint8_t ApplyOffset(uint8_t r, int o) {
-		// Apply a horizontal offset to a row.
-		int shift = clamp(o, -4, 4);
-		if (shift < 0) {
-			shift = -shift;
-			r = (r << shift) | (r >> (8 - shift));
-		}
-		else if (shift > 0) {
-			r = (r >> shift) | (r << (8 - shift));
-		}
-		return r;
-	}
-	
-	uint64_t GetOutputMatrix() { return outputMatrix; }
 
 protected:
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
@@ -117,8 +120,8 @@ public:
 		uint8_t right = readRow << 1;
 		switch (mode) {
 		case Mode::WRAP:
-			left |= readRow << 7;
-			right |= readRow >> 7;
+			left = (readRow >> 1) | (readRow << 7);
+			right = (readRow << 1) | (readRow >> 7);
 			break;
 		case Mode::RAND:
 			left |= random::get<bool>() << 7;
@@ -299,16 +302,16 @@ private:
 class LifeAlgoithm : public AlgorithmBase {
 public:
 	LifeAlgoithm() {
-		// Init seed
+		// Init seed.
 		frameBuffer[readHead] = seed;
 	}
 
 	void OutputMatrixStep() override {
-		// Suppress behaviour
+		// Suppress behaviour.
 	}
 
 	void OutputMatrixPush(int o) override {
-		// Push frame to output matrix
+		// Push current matrix to output matrix.
 		uint64_t tempMatrix = 0;
 		for (int i = 0; i < 8; i++) {
 			uint8_t row = (frameBuffer[readHead] >> (i * 8)) & 0xFF;
@@ -319,283 +322,113 @@ public:
 
 	void Generate() override {
 		// Conway's Game of Life.
-		// This is super fast
-		// https://stackoverflow.com/questions/40485/optimizing-conways-game-of-life
-
-		/*
+		// Base on efficent implementation by paperclip optimizer
+		// and Michael Abrash's (Graphics Programmer's Black Book, Chapter 17) padding method. 
+		
 		uint64_t readMatrix = frameBuffer[readHead];
-		uint64_t writeMatrix = 0;
-
-		uint8_t horizXor[8];
-		uint8_t horizAnd[8];
-		uint8_t partialXor[8];
-		uint8_t partialAnd[8];
-
-		for (int i = 0; i < 8; i++) {
-			
-			uint8_t row = (readMatrix >> (i * 8)) & 0xFF;
-			// 00100100
-
-			// Clip
-			uint8_t left = row >> 1;
-			uint8_t right = row << 1;
-			// 00100100
-			// 00010010 l
-			// 01001000 r
-
-			horizXor[i] = left ^ right;	// Encodes which horizontal neighbors are different from each other.
-			// 00010010 l
-			// 01001000 r	
-			// 01011010 dif
-
-			// 00100100
-			// 01011010 
-			horizAnd[i] = left & right; // Encodes which horizontal neighbors are the same as each other.
-			// 00010010 l
-			// 01001000 r	
-			// 00000000 same
-
-			partialXor[i] = horizXor[i] ^ row; // Represents all three horizontal bits combined for each cell.
-			// 01011010 
-			// 00100100
-			// 01111110 sum 
-
-			partialAnd[i] = horizAnd[i] | (horizXor[i] & row);
-			// 01011010 &
-			// 00100100
-			// 00000000
-
-			// 00000000 |
-			// 00000000
-		}	// 00000000
-
-
-		// 00100100 row
-		// 01111110 sum
-
-		// Full-adder logic
-		uint8_t sumBit0[8];
-		uint8_t sumBit1[8];
-		uint8_t sumBit2[8];
-
-		// Top row
-		sumBit0[0] = horizXor[0] ^ partialXor[1];
-		sumBit1[0] = (horizAnd[0] ^ partialAnd[1]) ^ (horizXor[0] & partialXor[1]);
-		sumBit2[0] = (horizAnd[0] & partialAnd[1]) | ((horizAnd[0] ^ partialAnd[1]) & (horizXor[0] & partialXor[1]));
-
-		// 8x8 matrix as 64 bit int
-		// 00001000
-		// 00011100
-		// 00110111
-		// ...
-		// ...
-		// ...
-		// ...
-		// 00000000
-
-		//uint64_t left = readMatrix;
-		// 00001000
-		// 00011100
-		// 00110111
-		// ...
-		// ...
-		// ...
-		// ...
-		// 00000000
-		*/
-
-
-		// 0000
-		// 0010
-		// 0101
-		// 1110
-
-		// left
-		// 0000
-		// 0001
-		// 0010
-		// 0111
-
-		// right 
-		// 0000
-		// 0100
-		// 1010
-		// 1100
-		
-        // above
-		// 0000
-		// 0000
-		// 0010
-		// 0101
-
-		// below
-		// 0010
-		// 0101
-		// 1110
-		// 0000
-		
-		
-		// 4 2 1
-		//uint8_t sumBit0[8];
-		//uint8_t sumBit1[8];
-		//uint8_t sumBit2[8];
-
-		
-		//
-		uint64_t readFrame = frameBuffer[readHead];
 		uint64_t writeFrame = 0;
 
-		uint8_t horizXor[8];
-		uint8_t horizAnd[8];
-		uint8_t partialXor[8];
-		uint8_t partialAnd[8];
+		// Eight matrix rows + top & bottom padding rows 
+		std::array<uint8_t, 10> row{};
 
-		for (int i = 0; i < 8; i++) {
-			uint8_t row = (readFrame >> (i * 8)) & 0xFF;
-			
+		// Fill rows
+		for (int i = 1; i < 9; i++) {
+			row[i] = (readMatrix >> ((i - 1) * 8)) & 0xFF;
+		}
+
+		// Fill top & bottom padding rows
+		switch (mode) {
+		case Mode::WRAP:
+			row[0] = row[8];
+			row[9] = row[1];
+			break;
+		case Mode::RAND:
+			row[0] = random::get<uint8_t>();
+			row[9] = random::get<uint8_t>();
+			break;
+		default:
 			// Clip
-			uint8_t left = row >> 1;
-			uint8_t right = row << 1;
+			row[0] = 0;
+			row[9] = 0;
+			break;
+		}
+		
+		std::array<uint8_t, 10> horizXor{};
+		std::array<uint8_t, 10> horizAnd{};
+		std::array<uint8_t, 10> partialXor{};
+		std::array<uint8_t, 10> partialAnd{};
 
-			//switch (mode) {
-			//case Mode::WRAP:
-			//	left = (row << 1) | (row >> 7);
-			//	right = (row >> 1) | (row << 7);
-			//	break;
-			//default:
-			//	break;
-			//}
+		for (int i = 0; i < 10; i++) {
+			// Clip
+			uint8_t left = row[i] >> 1;
+			uint8_t right = row[i] << 1;
+			
+			switch (mode) {
+			case Mode::WRAP:
+				left = (row[i] >> 1) | (row[i] << 7);
+				right = (row[i] << 1) | (row[i] >> 7);
+				break;
+			case Mode::RAND:
+				left |= (random::get<bool>() << 7);
+				right |= random::get<bool>();
+				break;
+			default:
+				break;
+			}
+			
 			horizXor[i] = left ^ right;
 			horizAnd[i] = left & right;
-			partialXor[i] = horizXor[i] ^ row;
-			partialAnd[i] = horizAnd[i] | (horizXor[i] & row);
+			partialXor[i] = horizXor[i] ^ row[i];
+			partialAnd[i] = horizAnd[i] | (horizXor[i] & row[i]);
 		}
-
-		uint8_t sumBit0[8];
-		uint8_t sumBit1[8];
-		uint8_t sumBit2[8];
+		
+		// Parallel bit-wise addition
+		std::array<uint8_t, 8>  sumBit0{};
+		std::array<uint8_t, 8>  sumBit1{};
+		std::array<uint8_t, 8>  sumBit2{};
 
 		// Top row
-		sumBit0[0] = horizXor[0] ^ partialXor[1];
-		sumBit1[0] = (horizAnd[0] ^ partialAnd[1]) ^ (horizXor[0] & partialXor[1]);
-		sumBit2[0] = (horizAnd[0] & partialAnd[1]) | ((horizAnd[0] ^ partialAnd[1]) & (horizXor[0] & partialXor[1]));
-
-		// middle rows
-		for (int i = 1; i < 7; i++) {
-			sumBit0[i] = partialXor[i - 1] ^ horizXor[i] ^ partialXor[i + 1];
-			uint64_t carryMiddle = (partialXor[i - 1] | partialXor[i + 1]) & horizXor[i] | partialXor[i - 1] & partialXor[i + 1];
-			sumBit1[i] = partialAnd[i - 1] ^ horizAnd[i] ^ partialAnd[i + 1] ^ carryMiddle;
-			sumBit2[i] = ((partialAnd[i - 1] | partialAnd[i + 1]) & (horizAnd[i] | carryMiddle)) |
-				((partialAnd[i - 1] & partialAnd[i + 1]) | (horizAnd[i] & carryMiddle));
-		}
-
-		// bottom row
-		sumBit0[7] = partialXor[6] ^ horizXor[7];
-		sumBit1[7] = (partialAnd[6] ^ horizAnd[7]) ^ (partialXor[6] & horizXor[7]);
-		sumBit2[7] = (partialAnd[6] & horizAnd[7]) | ((partialAnd[6] ^ horizAnd[7]) & (partialXor[6] & horizXor[7]));
-
-		/*
-		switch (mode) {
-		case Mode::CLIP:
-			// Top row
-			sumBit0[0] = horizXor[0] ^ partialXor[1];
-			sumBit1[0] = (horizAnd[0] ^ partialAnd[1]) ^ (horizXor[0] & partialXor[1]);
-			sumBit2[0] = (horizAnd[0] & partialAnd[1]) | ((horizAnd[0] ^ partialAnd[1]) & (horizXor[0] & partialXor[1]));
-			break;
-		case Mode::WRAP:
 		{
-			// Top row (wrap above -> row 7)
-			sumBit0[0] = partialXor[7] ^ horizXor[0] ^ partialXor[1];
-			uint8_t carryTop = ((partialXor[7] | partialXor[1]) & horizXor[0]) | (partialXor[7] & partialXor[1]);
-			sumBit1[0] = partialAnd[7] ^ horizAnd[0] ^ partialAnd[1] ^ carryTop;
-			sumBit2[0] = ((partialAnd[7] | partialAnd[1]) & (horizAnd[0] | carryTop)) | (partialAnd[7] & partialAnd[1]) | (horizAnd[0] & carryTop);
-			break;
-		}
-		default:
-			break;
+			int i = 1;
+			int sumIndex = i - 1;
+			sumBit0[sumIndex] = horizXor[i] ^ partialXor[i + 1];
+			sumBit1[sumIndex] = (horizAnd[i] ^ partialAnd[i + 1]) ^ (horizXor[i] & partialXor[i + 1]);
+			sumBit2[sumIndex] = (horizAnd[i] & partialAnd[i + 1]) | ((horizAnd[i] ^ partialAnd[i + 1]) & (horizXor[i] & partialXor[i + 1]));
 		}
 
-		// middle rows
-		for (int i = 1; i < 7; i++) {
-			sumBit0[i] = partialXor[i - 1] ^ horizXor[i] ^ partialXor[i + 1];
-			uint64_t carryMiddle = (partialXor[i - 1] | partialXor[i + 1]) & horizXor[i] | partialXor[i - 1] & partialXor[i + 1];
-			sumBit1[i] = partialAnd[i - 1] ^ horizAnd[i] ^ partialAnd[i + 1] ^ carryMiddle;
-			sumBit2[i] = ((partialAnd[i - 1] | partialAnd[i + 1]) & (horizAnd[i] | carryMiddle)) | 
-				((partialAnd[i - 1] & partialAnd[i + 1]) | (horizAnd[i] & carryMiddle));
+		// Middle rows
+		for (int i = 2; i <= 7; i++) {
+			int sumIndex = i - 1;
+			sumBit0[sumIndex] = partialXor[i - 1] ^ horizXor[i] ^ partialXor[i + 1];
+			uint8_t carryMid =
+				((partialXor[i - 1] | partialXor[i + 1]) & horizXor[i]) |
+				(partialXor[i - 1] & partialXor[i + 1]);
+			sumBit1[sumIndex] =
+				partialAnd[i - 1] ^ horizAnd[i] ^ partialAnd[i + 1] ^ carryMid;
+			sumBit2[sumIndex] =
+				((partialAnd[i - 1] | partialAnd[i + 1]) & (horizAnd[i] | carryMid)) |
+				((partialAnd[i - 1] & partialAnd[i + 1]) | (horizAnd[i] & carryMid));
 		}
 
-		switch (mode) {
-		case Mode::CLIP:
-			// bottom row
-			sumBit0[7] = partialXor[6] ^ horizXor[7];
-			sumBit1[7] = (partialAnd[6] ^ horizAnd[7]) ^ (partialXor[6] & horizXor[7]);
-			sumBit2[7] = (partialAnd[6] & horizAnd[7]) | ((partialAnd[6] ^ horizAnd[7]) & (partialXor[6] & horizXor[7]));
-			break;
-		case Mode::WRAP:
+		// Bottom row
 		{
-			// Bottom row (wrap below -> row 0)
-			sumBit0[7] = partialXor[6] ^ horizXor[7] ^ partialXor[0];
-			uint8_t carryBottom = ((partialXor[6] | partialXor[0]) & horizXor[7]) | (partialXor[6] & partialXor[0]);
-			sumBit1[7] = partialAnd[6] ^ horizAnd[7] ^ partialAnd[0] ^ carryBottom;
-			sumBit2[7] = ((partialAnd[6] | partialAnd[0]) & (horizAnd[7] | carryBottom)) | (partialAnd[6] & partialAnd[0]) | (horizAnd[7] & carryBottom);
-			break;
+			int i = 8;
+			int sumIndex = i - 1;
+			sumBit0[sumIndex] = partialXor[i - 1] ^ horizXor[i - 1];
+			sumBit1[sumIndex] = (partialAnd[i - 1] ^ horizAnd[i - 1]) ^ (partialXor[i - 1] & horizXor[i - 1]);
+			sumBit2[sumIndex] = (partialAnd[i - 1] & horizAnd[i - 1]) |
+				((partialAnd[i - 1] ^ horizAnd[i - 1]) & (partialXor[i - 1] & horizXor[i - 1]));
 		}
-		default:
-			break;
-		}
-		*/
-
-		// apply rule
-		for (int i = 0; i < 8; ++i) {
-			uint8_t row = (readFrame >> (i * 8)) & 0xFF;
-
-			uint8_t newRow = ~sumBit2[i] & sumBit1[i] & (sumBit0[i] | row);
-			writeFrame |= (uint64_t(newRow) << (i * 8));
-		}
-
-		frameBuffer[writeHead] = writeFrame;
-
-		/*
-		for (int row = 0; row < 8; row++) {
-			for (int column = 0; column < 8; column++) {
-				bool writeCell = false;
-				int aliveCount = 0;
-
-				int bitIndex = row * 8 + column;
-				bool cell = (readFrame >> bitIndex) & 1ULL;
-
-				// Clip
-				if (row > 0) {
-					aliveCount += (readFrame >> (bitIndex - 8)) & 1ULL;						// Up
-					if (column > 0) aliveCount += (readFrame >> (bitIndex - 8 - 1)) & 1ULL;	// Up-left
-					if (column < 7) aliveCount += (readFrame >> (bitIndex - 8 + 1)) & 1ULL; // Up-right
-				}
-				if (row < 7) {
-					aliveCount += (readFrame >> (bitIndex + 8)) & 1ULL;						// Down
-					if (column > 0) aliveCount += (readFrame >> (bitIndex + 8 - 1)) & 1ULL; // Down-left
-					if (column < 7) aliveCount += (readFrame >> (bitIndex + 8 + 1)) & 1ULL; // Down-right
-				}
-				if (column > 0)
-					aliveCount += (readFrame >> (bitIndex - 1)) & 1ULL;						// Left
-				if (column < 7)
-					aliveCount += (readFrame >> (bitIndex + 1)) & 1ULL;						// Right
-
-				// Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction
-				// Any live cell with two or three live neighbours lives on to the next generation
-				// Any live cell with fewer than two live neighbours dies, as if by underpopulation
-				// Any live cell with more than three live neighbours dies, as if by overpopulation
 				
-				//if (cell && (aliveCount == 2 || aliveCount == 3)) { writeCell = true; }
-				//else if (!cell && aliveCount == 3) { writeCell = true; }
+		// Apply rule
+		for (int i = 1; i < 9; i++) {
+			int sumIndex = i - 1;
 
-				if (cell && (aliveCount == 2 || aliveCount == 3)) { writeCell = true; }
-				else if (!cell && aliveCount == 3) { writeCell = true; }
-
-				frameBuffer[writeHead] &= ~(1ULL << bitIndex);
-				frameBuffer[writeHead] |= (uint64_t(writeCell) << bitIndex);
-			}
+			uint8_t newRow = GetRule(sumBit0[sumIndex], sumBit1[sumIndex], sumBit2[sumIndex], row[i]);
+			//uint8_t newRow = ~sumBit2[sumIndex] & sumBit1[sumIndex] & (sumBit0[sumIndex] | row[i]);
+			writeFrame |= (uint64_t(newRow) << (sumIndex * 8));
 		}
-		*/
+		frameBuffer[writeHead] = writeFrame;
 	}
 
 	void GenerateReset(bool w) override {
@@ -609,12 +442,13 @@ public:
 
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
-			//rule = 30;
+			rule = Rule::LIFE;
 		}
 		else {
-			//rule = static_cast<uint8_t>(rule + d);
+			int ruleIndex = static_cast<int>(rule);
+			ruleIndex = (ruleIndex + d + numRules) % numRules;
+			rule = static_cast<Rule>(ruleIndex);
 		}
-		
 	}
 
 	void SeedUpdate(int d, bool r) override {
@@ -640,14 +474,11 @@ public:
 	}
 
 	float GetXVoltage() override {
-		//float curve = 1000000; 
-		// //float normalizedMatrix = outputMatrix * voltageScaler;
-		//return (1.f - pow(1.f - normalizedMatrix, curve)) * 10.f;
-		// TODO: dont like this curve
-		//return (log(1 + curve * normalizedMatrix) / log(1 + curve)) * 10.f;
+		// TODO:
 
-		float normalizedMatrix = outputMatrix * voltageScaler;
-		return normalizedMatrix * 10.f;
+		// number of alive cells / 64;
+		// xVoltageScaler
+		return 0;
 	}
 
 	float GetYVoltage() override {
@@ -658,7 +489,9 @@ public:
 		//int prevReadHead = (readHead - 1) % sequenceLength;
 		//float change = frameBuffer[readHead] - frameBuffer[prevReadHead];
 
-		return 0;
+		// outputMatrix (int) as voltage
+		float normalizedMatrix = outputMatrix * yVoltageScaler;
+		return normalizedMatrix * 10.f;
 	}
 
 	bool GetXGate() override {
@@ -672,6 +505,20 @@ public:
 	// Drawing functions
 	void DrawRule(NVGcontext* vg, float fs) override {
 		nvgText(vg, 0, 0, "RULE", nullptr);
+		switch (rule) {
+		case Rule::LIFE:
+			nvgText(vg, 0, fs, "LIFE", nullptr);
+			break;
+		case Rule::HIGH:
+			nvgText(vg, 0, fs, "HIGH", nullptr);
+			break;
+		case Rule::SEED:
+			nvgText(vg, 0, fs, "SEED", nullptr);
+			break;
+		default:
+			nvgText(vg, 0, fs, "NOPE", nullptr);
+			break;
+		}
 	}
 
 	void DrawModeMenu(NVGcontext* vg, float fs) override {
@@ -701,7 +548,53 @@ public:
 		return static_cast<float>(modeIndex) * numModesScaler;
 	}
 
+
+	uint8_t GetRule(uint8_t bit0, uint8_t bit1, uint8_t bit2, uint8_t row) {
+		// Takes a three bit sum of alive cells per eacg row & the row itself, 
+		// applies selected rule and returns the row generation.
+
+		// Bool for each alive count (0-7)
+		uint8_t alive0 = ~bit0 & ~bit1 & ~bit2;
+		uint8_t alive1 = bit0 & ~bit1 & ~bit2;
+		uint8_t alive2 = ~bit0 & bit1 & ~bit2;
+		uint8_t alive3 = bit0 & bit1 & ~bit2;
+		uint8_t alive4 = ~bit0 & ~bit1 & bit2;
+		uint8_t alive5 = bit0 & ~bit1 & bit2;
+		uint8_t alive6 = ~bit0 & bit1 & bit2;
+		uint8_t alive7 = bit0 & bit1 & bit2;
+
+		// Birth & survival condtions
+		uint8_t birth = 0;
+		uint8_t survival = 0;
+
+		switch (rule) {
+		case Rule::HIGH:
+			// High Life (B36/S23)
+			birth = alive3 | alive6;
+			survival = alive2 | alive3;
+			break;
+		case Rule::SEED:
+
+			break;
+		default:
+			// Game of Life (B3/S23)
+			birth = alive3;
+			survival = alive2 | alive3;
+			break;
+		}
+
+		return birth | (row & survival);;
+	}
+
 private:
+
+	enum class Rule {
+		LIFE,
+		HIGH,
+		SEED,
+		RULE_LEN
+	};
+
 	enum class Mode {
 		WRAP,
 		CLIP,
@@ -709,13 +602,17 @@ private:
 		MODE_LEN
 	};
 
-	Mode mode = Mode::WRAP;
+	Mode mode = Mode::CLIP;
 	const int numModes = static_cast<int>(Mode::MODE_LEN);
 	const float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
+	Rule rule = Rule::LIFE;
+	const int numRules = static_cast<int>(Rule::RULE_LEN);
+
 	uint64_t seed = 0x00000000F0888868ULL;
 
-	const float voltageScaler = 1.f / std::numeric_limits<uint64_t>::max();
+	const float xVoltageScaler = 1.f / 64.f;
+	const float yVoltageScaler = 1.f / std::numeric_limits<uint64_t>::max();
 };
 
 // Dispatcher 
@@ -793,7 +690,7 @@ private:
 	LifeAlgoithm life;
 
 	static constexpr int MAX_ALGORITHMS = 2;
-	int algorithmIndex = 0;
+	int algorithmIndex = 1;
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
 	AlgorithmBase* activeAlogrithm;
 
