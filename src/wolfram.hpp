@@ -79,7 +79,7 @@ protected:
 	int readHead = 0;
 	int writeHead = 1;
 	
-	bool randSeed = false;
+	bool randSeed = true;
 };
 
 class WolfAlgoithm : public AlgorithmBase {
@@ -452,6 +452,7 @@ public:
 	}
 
 	void SeedUpdate(int d, bool r) override {
+		//  use rule switch style to change seed
 		if (r) {
 
 			randSeed = false;
@@ -512,6 +513,15 @@ public:
 		case Rule::HIGH:
 			nvgText(vg, 0, fs, "HIGH", nullptr);
 			break;
+		case Rule::DUPE:
+			nvgText(vg, 0, fs, "DUPE", nullptr);
+			break;
+		case Rule::R2X2:
+			nvgText(vg, 0, fs, " 2X2", nullptr);
+			break;
+		case Rule::R34:
+			nvgText(vg, 0, fs, "  34", nullptr);
+			break;
 		case Rule::SEED:
 			nvgText(vg, 0, fs, "SEED", nullptr);
 			break;
@@ -548,7 +558,7 @@ public:
 		return static_cast<float>(modeIndex) * numModesScaler;
 	}
 
-
+	// Internal algoithm specific functions
 	uint8_t GetRule(uint8_t bit0, uint8_t bit1, uint8_t bit2, uint8_t row) {
 		// Takes a three bit sum of alive cells per eacg row & the row itself, 
 		// applies selected rule and returns the row generation.
@@ -569,15 +579,32 @@ public:
 
 		switch (rule) {
 		case Rule::HIGH:
-			// High Life (B36/S23)
+			// High Life (B36/S23) *
 			birth = alive3 | alive6;
 			survival = alive2 | alive3;
 			break;
+		case Rule::DUPE:
+			// Replicator (B1357/S1357) *
+			birth = alive1 | alive3 | alive5 | alive7;
+			survival = alive1 | alive3 | alive5 | alive7;
+			break;
+		case Rule::R2X2:
+			// 2x2 (B36/S125) *? maybe a bit boring
+			birth = alive3 | alive6;
+			survival = alive1 | alive2 | alive5;
+			break;
+		case Rule::R34:
+			// 34 Life (B34/S34) **
+			birth = alive3 | alive4;
+			survival = alive3 | alive4;
+			break;
 		case Rule::SEED:
-
+			// Seeds (B2/S) ** got a glider I think!
+			birth = alive2;
+			survival = 0; //?
 			break;
 		default:
-			// Game of Life (B3/S23)
+			// Game of Life (B3/S23) *
 			birth = alive3;
 			survival = alive2 | alive3;
 			break;
@@ -587,12 +614,40 @@ public:
 	}
 
 private:
-
 	enum class Rule {
-		LIFE,
-		HIGH,
-		SEED,
+		LIFE,	// cool
+		HIGH,	// cool (bit like life)
+		DUPE,	// cool
+		R2X2,	// bit boring 
+		R34,	// v cool
+		SEED,	// v cool
+
+		// Amoeba (S1358/B357), might not work on 8x8 board *
+		// Assimilation (S4567/B345), might be fun with rand mode? *
+		// Coagulations (S235678/B378), pretty cool *
+		// Coral (S45678/B3), pretty cool, but goes semi-static fast
+		// Day & Night (S34678/B3678), cool *
+		// Diamoeba (S5678/B35678), cool but goes semi-static fast
+		// Flakes (S012345678/B3), also known as Life without Death (LwoD), cool but semi-static
+		// Gnarl (S1/B1), pretty mental and cool *
+		// InverseLife (S34678/B0123478), ye kinda cool *
+		// Long life (S5/B345), cool but might do dead on a small grid *
+		// Maze (S12345/B3), cool but goes semi-static fast
+		// Mazectric (S1234/B3), cool but goes semi-static fast
+		// Mazectric non static (S1234/B45), cool *
+		// Corrosion of Conformity (S124/B3), check rule, cool ish *
+		// Move (S245/B368), do kinda like it *
+		// Pseudo life (S238/B357), could include bit it might be so similar to life *
+		// Seeds (2) (/B2), might be cool? * 
+		// Serviettes (/B234), ye p cool *
+		// Stains (S235678/B3678), too static maybe 
+		// WalledCities (S2345/B45678), cool but will it work on small grid
+
 		RULE_LEN
+	};
+
+	enum class Seed {
+		SEED_LEN
 	};
 
 	enum class Mode {
@@ -602,13 +657,14 @@ private:
 		MODE_LEN
 	};
 
-	Mode mode = Mode::CLIP;
+	Mode mode = Mode::WRAP;
 	const int numModes = static_cast<int>(Mode::MODE_LEN);
 	const float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
 	Rule rule = Rule::LIFE;
 	const int numRules = static_cast<int>(Rule::RULE_LEN);
 
+	// TODO: change to how rule works
 	uint64_t seed = 0x00000000F0888868ULL;
 
 	const float xVoltageScaler = 1.f / 64.f;
@@ -627,7 +683,8 @@ public:
 
 		outputMatrixPush();
 	}
-	
+
+	// Common functions
 	void setOffset(int newOffset) { 
 		offset = newOffset;
 	}
@@ -656,7 +713,13 @@ public:
 		}		
 	}
 
-	// Algoithm functions
+	// Common algoithm specific functions
+	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
+	void setWriteHead(int writeHead) { activeAlogrithm->SetReadHead(writeHead); }
+	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
+	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
+
+	// Algoithm specific functions
 	void outputMatrixStep() { activeAlogrithm->OutputMatrixStep(); }
 	void outputMatrixPush() { activeAlogrithm->OutputMatrixPush(offset); }
 	void generate() { activeAlogrithm->Generate(); }
@@ -679,12 +742,6 @@ public:
 	// Light function
 	float getModeValue() { return activeAlogrithm->GetModeValue(); }
 
-	// Common functions
-	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
-	void setWriteHead(int writeHead) { activeAlogrithm->SetReadHead(writeHead); }
-	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
-	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
-	
 private:
 	WolfAlgoithm wolf;
 	LifeAlgoithm life;
@@ -694,118 +751,5 @@ private:
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
 	AlgorithmBase* activeAlogrithm;
 
-	//uint64_t outputMatrix = 0;
 	int offset = 0;
 };
-
-
-
-
-
-/*
-struct WolframEngine;
-
-// Each algorithm's function signature
-using GetCellFunction = bool (*)(WolframEngine&, int x, int y);
-//using GetRowFunction = void (*)(WolframEngine&, int x, int y);
-//using GetFrameFunction = void (*)(WolframEngine&, int x, int y);
-using GenerateFunction = void (*)(WolframEngine&, int readHead, int writeHead);
-using GenerateResetFunction = void (*)(WolframEngine&, int readHead);
-using PushToOutputMatixFunction = void (*)(WolframEngine&, int readHead);
-using RuleUpdateFunction = void (*)(WolframEngine&, int delta);
-using RuleResetFunction = void (*)(WolframEngine&);
-// InitSeedFunction??
-using SeedUpdateFunction = void (*)(WolframEngine&, int delta);
-using SeedResetFunction = void (*)(WolframEngine&);
-//using ModeUpdateFunction = void (*)(WolframEngine&, int delta);
-//using ModeResetFunction = void (*)(WolframEngine&);
-
-static bool wolfGetCell(WolframEngine&, int, int);
-static void wolfGenerate(WolframEngine&, int, int);
-static void wolfGenerateReset(WolframEngine&, int);
-static void wolfPushToOutputMatrix(WolframEngine&, int);
-static void wolfRuleUpdate(WolframEngine&, int);
-static void wolfRuleReset(WolframEngine&);
-static void wolfSeedUpdate(WolframEngine&, int);
-static void wolfSeedReset(WolframEngine&);
-
-static bool lifeGetCell(WolframEngine&, int, int);
-static void lifeGenerate(WolframEngine&, int, int);
-static void lifeGenerateReset(WolframEngine&, int);
-static void lifePushToOutputMatrix(WolframEngine&, int);
-static void lifeRuleUpdate(WolframEngine&, int);
-static void lifeRuleReset(WolframEngine&);
-static void lifeSeedUpdate(WolframEngine&, int);
-static void lifeSeedReset(WolframEngine&);
-
-
-struct WolframEngine {
-	enum class Algorithm { WOLF, LIFE };
-	enum class Mode { WRAP, CLIP, RAND };
-
-	Algorithm algorithm = Algorithm::WOLF;
-	Mode mode = Mode::WRAP;
-
-	uint64_t outputMatrix = 0;
-
-	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
-	std::array<uint8_t, MAX_SEQUENCE_LENGTH> oneDimensionalBuffer{};
-	std::array<uint64_t, MAX_SEQUENCE_LENGTH> twoDimensionalBuffer{};
-
-	bool randSeed = false;
-
-	// Wolf variables
-	uint8_t ruleWolf = 30;
-	uint8_t seedWolf = 8;
-	int seedSelectWolf = seedWolf;
-
-	// Life variables
-
-	// Function pointers
-	GetCellFunction getCellFunction = nullptr;
-	GenerateFunction generateFunction = nullptr;
-	GenerateResetFunction generateResetFunction = nullptr;
-	PushToOutputMatixFunction pushToOutputMatixFunction = nullptr;
-	RuleUpdateFunction ruleUpdateFunction = nullptr;
-	RuleResetFunction ruleResetFunction = nullptr;
-	SeedUpdateFunction seedUpdateFunction = nullptr;
-	SeedResetFunction seedResetFunction = nullptr;
-
-	// Fast inline dispatch
-	inline bool getCell(int x, int y) { return getCellFunction(*this, x, y); }
-	inline void generate(int r, int w) { generateFunction(*this, r, w); }
-	inline void generateReset(int r) { generateResetFunction(*this, r); }
-	inline void pushToOutputMatrix(int r) { pushToOutputMatixFunction(*this, r); }
-	inline void ruleUpdate(int d) { ruleUpdateFunction(*this, d); }
-	inline void ruleReset() { ruleResetFunction(*this); }
-	inline void seedUpdate(int d) { seedUpdateFunction(*this, d); }
-	inline void seedReset() { seedResetFunction(*this); }
-
-	void setAlgorithm(Algorithm algo) {
-		algorithm = algo;
-		switch (algo) {
-		case Algorithm::WOLF:
-			getCellFunction = wolfGetCell;
-			generateFunction = wolfGenerate;
-			generateResetFunction = wolfGenerateReset;
-			pushToOutputMatixFunction = wolfPushToOutputMatrix;
-			ruleUpdateFunction = wolfRuleUpdate;
-			ruleResetFunction = wolfRuleReset;
-			seedUpdateFunction = wolfSeedUpdate;
-			seedResetFunction = wolfSeedReset;
-			break;
-		case Algorithm::LIFE:
-			getCellFunction = lifeGetCell;
-			generateFunction = lifeGenerate;
-			generateResetFunction = lifeGenerateReset;
-			pushToOutputMatixFunction = lifePushToOutputMatrix;
-			ruleUpdateFunction = lifeRuleUpdate;
-			ruleResetFunction = lifeRuleReset;
-			seedUpdateFunction = lifeSeedUpdate;
-			seedResetFunction = lifeSeedReset;
-			break;
-		}
-	}
-};
-*/
-
