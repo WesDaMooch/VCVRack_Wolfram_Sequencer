@@ -71,15 +71,15 @@ public:
 
 protected:
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
-	std::array<uint8_t, MAX_SEQUENCE_LENGTH> rowBuffer {};
-	std::array<uint64_t, MAX_SEQUENCE_LENGTH> frameBuffer {};
+	std::array<uint8_t, MAX_SEQUENCE_LENGTH> rowBuffer{};
+	std::array<uint64_t, MAX_SEQUENCE_LENGTH> frameBuffer{};
 
 	uint64_t outputMatrix = 0;
 
 	int readHead = 0;
 	int writeHead = 1;
 	
-	bool randSeed = true;
+	bool randSeed = false;
 };
 
 class WolfAlgoithm : public AlgorithmBase {
@@ -287,8 +287,8 @@ private:
 	};
 
 	Mode mode = Mode::WRAP;
-	const int numModes = static_cast<int>(Mode::MODE_LEN);
-	const float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
+	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
+	static constexpr float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
 	uint8_t rule = 30;
 	uint8_t seed = 8;
@@ -296,13 +296,29 @@ private:
 
 	int prevOffset = 0;
 
-	const float voltageScaler = 1.f / std::numeric_limits<uint8_t>::max();
+	static constexpr float voltageScaler = 1.f / std::numeric_limits<uint8_t>::max();
 };
 
 class LifeAlgoithm : public AlgorithmBase {
 public:
 	LifeAlgoithm() {
+		
+		// Define seeds.
+		// Generic rand seed as randSeed will override behaviour.
+		std::array<Vec, 1> rand{ Vec(0, 0) };
+		seedValues[static_cast<int>(Seeds::RAND)] = GetSeed(rand);
+		// Single dot
+		std::array<Vec, 1> dot { Vec(3, 3) };
+		seedValues[static_cast<int>(Seeds::DOT)] = GetSeed(dot);
+		// 2x2 block
+		std::array<Vec, 4> blok { Vec(3, 3), Vec(3, 4), Vec(4, 3), Vec(4, 4) };
+		seedValues[static_cast<int>(Seeds::BLOK)] = GetSeed(blok);
+		// Glider
+		std::array<Vec, 5> flyr { Vec(3, 2), Vec(4, 3), Vec(3, 4), Vec(4, 4), Vec(2, 4) };
+		seedValues[static_cast<int>(Seeds::FLYR)] = GetSeed(flyr);
+		
 		// Init seed.
+		seed = seedValues[static_cast<int>(seeds)];
 		frameBuffer[readHead] = seed;
 	}
 
@@ -454,11 +470,21 @@ public:
 	void SeedUpdate(int d, bool r) override {
 		//  use rule switch style to change seed
 		if (r) {
-
+			seeds = Seeds::DOT;
+			seed = seedValues[static_cast<int>(seeds)];
 			randSeed = false;
 		}
 		else {
+			int seedIndex = static_cast<int>(seeds);
+			seedIndex = (seedIndex + d + numSeeds) % numSeeds;
+			seeds = static_cast<Seeds>(seedIndex);
 
+			seed = seedValues[static_cast<int>(seeds)];
+			randSeed = false;
+
+			if (seeds == Seeds::RAND) {
+				randSeed = true;
+			}
 		}
 	}
 
@@ -550,6 +576,22 @@ public:
 
 	void DrawSeedMenu(NVGcontext* vg, float fs) override {
 		nvgText(vg, 0, fs, "SEED", nullptr);
+		switch (seeds) {
+		case Seeds::DOT:
+			nvgText(vg, 0, fs * 2, " DOT", nullptr);
+			break;
+		case Seeds::BLOK:
+			nvgText(vg, 0, fs * 2, "BLOK", nullptr);
+			break;
+		case Seeds::FLYR:
+			nvgText(vg, 0, fs * 2, "FLYR", nullptr);
+			break;
+		case Seeds::RAND:
+			nvgText(vg, 0, fs * 2, "RAND", nullptr);
+			break;
+		default:
+			break;
+		}
 	}
 
 	// Light function
@@ -613,6 +655,26 @@ public:
 		return birth | (row & survival);;
 	}
 
+	template<size_t SIZE>
+	uint64_t GetSeed(std::array<rack::math::Vec, SIZE>& cellCoordinates) {
+		// 
+		uint64_t m = 0;
+
+		for (auto& coordinates : cellCoordinates) {
+			int x = static_cast<int>(coordinates.x);
+			int y = static_cast<int>(coordinates.y);
+
+			// Check bounds
+			if (x < 0 || x >= 8 || y < 0 || y >= 8)
+				continue;
+
+			int index = y * 8 + x;
+
+			m |= (uint64_t(1) << index);
+		}
+		return m;
+	}
+
 private:
 	enum class Rule {
 		LIFE,	// cool
@@ -646,8 +708,12 @@ private:
 		RULE_LEN
 	};
 
-	enum class Seed {
-		SEED_LEN
+	enum class Seeds {
+		RAND,
+		DOT,		
+		BLOK,
+		FLYR,
+		SEED_LEN	
 	};
 
 	enum class Mode {
@@ -658,14 +724,16 @@ private:
 	};
 
 	Mode mode = Mode::WRAP;
-	const int numModes = static_cast<int>(Mode::MODE_LEN);
-	const float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
+	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
+	static constexpr float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
 	Rule rule = Rule::LIFE;
-	const int numRules = static_cast<int>(Rule::RULE_LEN);
-
-	// TODO: change to how rule works
-	uint64_t seed = 0x00000000F0888868ULL;
+	static constexpr int numRules = static_cast<int>(Rule::RULE_LEN);
+	
+	Seeds seeds = Seeds::DOT;
+	static constexpr int numSeeds = static_cast<int>(Seeds::SEED_LEN);
+	std::array<uint64_t, numSeeds> seedValues{};
+	uint64_t seed = 0;
 
 	const float xVoltageScaler = 1.f / 64.f;
 	const float yVoltageScaler = 1.f / std::numeric_limits<uint64_t>::max();
