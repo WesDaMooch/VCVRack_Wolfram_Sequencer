@@ -49,6 +49,7 @@ public:
 	virtual void OutputMatrixPush(int o) = 0;
 	virtual void Generate() = 0;
 	virtual void GenerateReset(bool w) = 0;
+	virtual void Inject(bool a, bool w) = 0;
 
 	// Update functions
 	virtual void RuleUpdate(int d, bool r) = 0;
@@ -153,14 +154,67 @@ public:
 		rowBuffer[head] = resetRow;
 	}
 
-	void RuleUpdate(int d, bool r) override {
-		if (r) {
-			rule = 30;
+	void Inject(bool a, bool w) override {
+		int head = readHead;
+		if (w)
+			head = writeHead;
+		uint8_t rowBits = rowBuffer[head];
+
+		// Check to see if row is already full or empty
+		if ((a & (rowBits == 0xFF)) | (!a & (rowBits == 0x00)))
+			return;
+
+		uint8_t targetMask = rowBits;
+		if (a)
+			targetMask = ~rowBits;	// Flip row
+
+		// TODO: what is popcount doing, is it safe
+		int targetCount = __builtin_popcount(targetMask);	// Count target bits
+		int target = random::get<uint8_t>() % targetCount;	// Random target index
+
+		// Find corresponding bit position
+		uint8_t bitMask;
+		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
+			if (targetMask & bitMask)
+				target--;
+		}
+
+		//rowBits = remove ? (rowBits & ~bitMask) : (rowBits | bitMask);
+		rowBits = a ? (rowBits | bitMask) : (rowBits & ~bitMask);
+		rowBuffer[head] = rowBits;
+	}
+
+	/*
+	uint8_t applyInject(uint8_t rowBits, bool remove = false) {
+		// TODO: is this an ok level of efficentcy
+		uint8_t targetMask = rowBits;
+		if (remove) {
+			if (rowBits == 0x00) return rowBits;
 		}
 		else {
-			rule = static_cast<uint8_t>(rule + d);
+			if (rowBits == 0xFF) return rowBits;
+			targetMask = ~rowBits;	// Flip row
 		}
-		
+
+		int targetCount = __builtin_popcount(targetMask);	// Count target bits
+		int target = random::get<uint8_t>() % targetCount;	// Random target index
+
+		// Find corresponding bit position
+		uint8_t bitMask;
+		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
+			if (targetMask & bitMask) target--;
+		}
+
+		rowBits = remove ? (rowBits & ~bitMask) : (rowBits | bitMask);
+		return rowBits;
+	}
+	*/
+
+	void RuleUpdate(int d, bool r) override {
+		if (r)
+			rule = 30;
+		else
+			rule = static_cast<uint8_t>(rule + d);
 	}
 
 	void SeedUpdate(int d, bool r) override {
@@ -179,18 +233,17 @@ public:
 
 			randSeed = (seedSelect == 256);
 
-			if (!randSeed) {
+			if (!randSeed)
 				seed = static_cast<uint8_t>(seedSelect);
-			}
 		}
 
 	}
 
 	void ModeUpdate(int d, bool r) override {
-		if (r) {
+		if (r)
 			mode = Mode::WRAP;
-		}
-		else {
+		else
+		{
 			int modeIndex = static_cast<int>(mode);
 			modeIndex = (modeIndex + d + numModes) % numModes;
 			mode = static_cast<Mode>(modeIndex);
@@ -456,6 +509,10 @@ public:
 		frameBuffer[head] = resetFrame;
 	}
 
+	void Inject(bool a, bool w) override {
+
+	}
+
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
 			rule = Rule::LIFE;
@@ -606,7 +663,7 @@ public:
 		// applies selected rule and returns the row generation.
 
 		// Bool for each alive count (0-7)
-		uint8_t alive0 = ~bit0 & ~bit1 & ~bit2;
+		// uint8_t alive0 = ~bit0 & ~bit1 & ~bit2;
 		uint8_t alive1 = bit0 & ~bit1 & ~bit2;
 		uint8_t alive2 = ~bit0 & bit1 & ~bit2;
 		uint8_t alive3 = bit0 & bit1 & ~bit2;
@@ -735,14 +792,14 @@ private:
 	std::array<uint64_t, numSeeds> seedValues{};
 	uint64_t seed = 0;
 
-	const float xVoltageScaler = 1.f / 64.f;
-	const float yVoltageScaler = 1.f / std::numeric_limits<uint64_t>::max();
+	static constexpr float xVoltageScaler = 1.f / 64.f;
+	static constexpr float yVoltageScaler = 1.f / std::numeric_limits<uint64_t>::max();
 };
 
 // Dispatcher 
-class WEngine {
+class WolframEngine {
 public:
-	WEngine() {
+	WolframEngine() {
 		algorithms[0] = &wolf;
 		algorithms[1] = &life;
 
@@ -792,6 +849,7 @@ public:
 	void outputMatrixPush() { activeAlogrithm->OutputMatrixPush(offset); }
 	void generate() { activeAlogrithm->Generate(); }
 	void generateReset(bool write = false) { activeAlogrithm->GenerateReset(write); }
+	void inject(bool add, bool write = false) { activeAlogrithm->Inject(add, write); }
 
 	void ruleUpdate(int delta, bool reset) { activeAlogrithm->RuleUpdate(delta, reset); }
 	void seedUpdate(int delta, bool reset) { activeAlogrithm->SeedUpdate(delta, reset); }
@@ -815,7 +873,7 @@ private:
 	LifeAlgoithm life;
 
 	static constexpr int MAX_ALGORITHMS = 2;
-	int algorithmIndex = 1;
+	int algorithmIndex = 0;
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
 	AlgorithmBase* activeAlogrithm;
 

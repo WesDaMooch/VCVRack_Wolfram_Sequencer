@@ -23,12 +23,12 @@
 
 #include "wolfram.hpp"
 
-enum Mode {
-	WRAP,
-	CLIP,
-	RAND,
-	MODE_LEN
-};
+//enum Mode {
+//	WRAP,
+//	CLIP,
+//	RAND,
+//	MODE_LEN
+//};
 
 enum DisplayMenu {
 	SEED,
@@ -55,182 +55,6 @@ enum Algorithm {
 	LIFE,
 	ALGORITHM_LEN
 };
-
-
-// Wolf 
-/*
-static bool wolfGetCell(WolframEngine& e, int x, int y) {
-	return false;
-}
-
-static void wolfGenerate(WolframEngine& e, int readHead, int writeHead) {
-	// One Dimensional Cellular Automata
-	for (int column = 0; column < 8; column++) {
-
-		uint8_t readRow = e.oneDimensionalBuffer[readHead];
-		// uint8_t writeRow
-
-		int left = column - 1;
-		int right = column + 1;
-		int leftIndex = left;
-		int rightIndex = right;
-
-		// Wrap
-		if (left < 0) { leftIndex = 7; }
-		if (right > 7) { rightIndex = 0; }
-
-		int leftCell = (readRow >> leftIndex) & 1;
-		int cell = (readRow >> column) & 1;
-		int rightCell = (readRow >> rightIndex) & 1;
-
-		switch (e.mode) {
-		case WolframEngine::Mode::CLIP:
-			if (left < 0) { leftCell = 0; }
-			if (right > 7) { rightCell = 0; }
-			break;
-		case WolframEngine::Mode::RAND:
-			if (left < 0) { leftCell = random::get<bool>(); }
-			if (right > 7) { rightCell = random::get<bool>(); }
-			break;
-		default:
-			break;
-		}
-
-		int tag = 7 - ((leftCell << 2) | (cell << 1) | rightCell);
-
-		bool ruleBit = (e.ruleWolf >> (7 - tag)) & 1;
-		if (ruleBit) {
-			e.oneDimensionalBuffer[writeHead] |= (1 << column);
-		}
-		else {
-			e.oneDimensionalBuffer[writeHead] &= ~(1 << column);
-		}
-		// e.oneDimensionalBuffer[writeHead] = writeRow]
-	}
-}
-
-static void wolfGenerateReset(WolframEngine& e, int readHead) {
-	uint8_t resetRow = e.randSeed ? random::get<uint8_t>() : e.seedWolf;
-	e.oneDimensionalBuffer[readHead] = resetRow;
-}
-
-static void wolfPushToOutputMatix(WolframEngine& e, int readHead) {
-	e.outputMatrix &= ~0xFFULL;
-	e.outputMatrix |= static_cast<uint64_t>(e.oneDimensionalBuffer[readHead]);
-}
-
-static void wolfRuleUpdate(WolframEngine& e, int delta) {
-	e.ruleWolf = static_cast<uint8_t>(e.ruleWolf + delta);
-}
-
-static void wolfRuleReset(WolframEngine& e) {
-	e.ruleWolf = 30;
-}
-
-static void wolfSeedUpdate(WolframEngine& e, int delta) {
-	// Seed options are 256 + 1 (RAND) 
-	e.seedSelectWolf += delta;
-	if (e.seedSelectWolf > 256)
-		e.seedSelectWolf -= 257;
-	else if (e.seedSelectWolf < 0)
-		e.seedSelectWolf += 257; 
-
-	e.randSeed = (e.seedSelectWolf == 256);
-
-	if (!e.randSeed) {
-		e.seedWolf = static_cast<uint8_t>(e.seedSelectWolf);
-	}
-}
-
-static void wolfSeedReset(WolframEngine& e) {
-	e.seedWolf = 8;
-	e.seedSelectWolf = e.seedWolf;
-	e.randSeed = false;
-}
-
-
-// Life
-static bool lifeGetCell(WolframEngine& e, int x, int y) {
-	return false;
-}
-
-static void lifeGenerate(WolframEngine& e, int readHead, int writeHead) {
-	// Conways Game of Life
-	uint64_t readFrame = e.twoDimensionalBuffer[readHead];
-
-	for (int row = 0; row < 8; row++) {
-		for (int column = 0; column < 8; column++) {
-			bool writeCell = false;
-			int aliveCount = 0;
-
-			//int bitIndex = y * 8 + x;
-			int bitIndex = row * 8 + column;
-			bool cell = (readFrame >> bitIndex) & 1ULL;
-
-			// Clipped?
-			if (row > 0) {
-				aliveCount += (readFrame >> (bitIndex - 8)) & 1ULL;						// Up
-				if (column > 0) aliveCount += (readFrame >> (bitIndex - 8 - 1)) & 1ULL;	// Up-left
-				if (column < 7) aliveCount += (readFrame >> (bitIndex - 8 + 1)) & 1ULL; // Up-right
-			}
-			if (row < 7) {
-				aliveCount += (readFrame >> (bitIndex + 8)) & 1ULL;						// Down
-				if (column > 0) aliveCount += (readFrame >> (bitIndex + 8 - 1)) & 1ULL; // Down-left
-				if (column < 7) aliveCount += (readFrame >> (bitIndex + 8 + 1)) & 1ULL; // Down-right
-			}
-			if (column > 0)
-				aliveCount += (readFrame >> (bitIndex - 1)) & 1ULL;						// Left
-			if (column < 7)
-				aliveCount += (readFrame >> (bitIndex + 1)) & 1ULL;						// Right
-
-			if (cell && aliveCount < 2) {
-				// Any live cell with fewer than two live neighbours dies, as if by underpopulation
-				writeCell = false;
-			}
-			else if (cell && (aliveCount == 2 || aliveCount == 3)) {
-				// Any live cell with two or three live neighbours lives on to the next generation
-				writeCell = true;
-			}
-			else if (cell && aliveCount > 3) {
-				// Any live cell with more than three live neighbours dies, as if by overpopulation
-				writeCell = false;
-			}
-			else if (!cell && aliveCount == 3) {
-				// Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction
-				writeCell = true;
-			}
-
-			e.twoDimensionalBuffer[writeHead] &= ~(1ULL << bitIndex);
-			e.twoDimensionalBuffer[writeHead] |= (uint64_t(writeCell) << bitIndex);
-		}
-	}
-}
-
-static void lifeGenerateReset(WolframEngine& e, int readHead) {
-
-}
-
-static void lifePushToOutputMatix(WolframEngine& e, int readHead) {
-
-}
-
-static void lifeRuleUpdate(WolframEngine& e, int delta) {
-
-}
-
-static void lifeRuleReset(WolframEngine& e) {
-
-}
-
-static void lifeSeedUpdate(WolframEngine& e, int delta) {
-
-}
-
-static void lifeSeedReset(WolframEngine& e) {
-
-}
-*/
-
 
 struct WolframModule : Module {
 	enum ParamId {
@@ -270,11 +94,8 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
-	//WolframEngine wolframEngine; 
+	WolframEngine wEngine; 
 
-	WEngine wEngine; 
-
-	Mode moduleMode = Mode::WRAP;
 	Look moduleLook = Look::BEFACO;
 	DisplayMenu moduleMenu = DisplayMenu::SEED;
 
@@ -287,26 +108,10 @@ struct WolframModule : Module {
 	dsp::BooleanTrigger modeTrigger;
 	dsp::Timer ruleDisplayTimer;
 
-	// TODO: are these the right types
-	constexpr static int PARAM_CONTROL_INTERVAL = 64;
-	constexpr static size_t MAX_SEQUENCE_LENGTH = 64;
-
-	// One Dimensional 8 bit sequence with history
-	std::array<uint8_t, MAX_SEQUENCE_LENGTH> oneDimensionalBuffer;	// Row buffer
-
-	// Two Dimensional 8x8 bit sequence with history
-	std::array<uint64_t, MAX_SEQUENCE_LENGTH> twoDimensionalBuffer; // Frame buffer
-
-	// Sequencer
-	// 8x8 output matrix
-	uint64_t outputMatrix = 0;
-
-	int internalReadHead = 0;
-	int internalWriteHead = 1;
+	static constexpr int PARAM_CONTROL_INTERVAL = 64;
 
 	int sequenceLength = 8;
-	const std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
-	bool randSeed = false;
+	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 }; // static constexpr errors
 	float chance = 1;
 	int offset = 0;	//display
 	int offsetPending = 0;
@@ -319,16 +124,9 @@ struct WolframModule : Module {
 	bool menu = false;
 	bool vcoMode = false;
 	float lastTrigVoltage = 0.f;
-	const float eightBitScaler = 1.f / 255.f;
-
-	// Algorithm specific
-	uint8_t seedWolf = 8;
-	uint8_t rule = 30;
-	int seedSelectWolf = seedWolf;
 
 	// Encoder
-	// TODO: make static constexpr?
-	const float encoderIndent = 1.f / 30.f;
+	static constexpr float encoderIndent = 1.f / 30.f;
 	float prevEncoderValue = 0.f;
 	bool encoderReset = false;
 	
@@ -386,8 +184,9 @@ struct WolframModule : Module {
 	struct EncoderParamQuantity : ParamQuantity {
 		// Custom behaviour to display rule when hovering over Select encoder.
 		float getDisplayValue() override {
-			auto* m = dynamic_cast<WolframModule*>(module);
-			return m ? m->rule : 30;
+			//auto* m = dynamic_cast<WolframModule*>(module);
+			//return m ? m->rule : 30;
+			return 0;
 		}
 	};
 
@@ -402,43 +201,6 @@ struct WolframModule : Module {
 	void onSampleRateChange() override {
 		float sampleRate = APP->engine->getSampleRate();
 		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
-	}
-
-	void pushRowToOutputMatrix(const uint8_t rowBits) {
-		// Push row to output matrix
-		outputMatrix &= ~0xFFULL;		// Clear row
-		outputMatrix |= static_cast<uint64_t>(rowBits); 
-	}
-
-	void pushFrameToOutputMatrix(const uint64_t matrixBits) {
-		// Push frame to output matrix
-		outputMatrix = matrixBits;
-	}
-
-	uint8_t applyOffset(uint8_t rowBits) {
-		int shift = offset;
-		if (shift < 0) {
-			shift = -shift;
-			return (rowBits << shift) | (rowBits >> (8 - shift));
-		}
-		else if (shift > 0) {
-			return (rowBits >> shift) | (rowBits << (8 - shift));
-		}
-		return rowBits;
-	}
-
-	uint8_t getOutputGridRow(int rowIndex = 0) {
-		rowIndex = clamp(rowIndex, 0, 7);
-		return applyOffset((outputMatrix >> (rowIndex * 8)) & 0xFF);
-	}
-
-	uint8_t getOutputGridColumn() {
-		uint8_t columnBits = 0;
-		for (int rowIndex = 0; rowIndex < 8; rowIndex++) {
-			uint8_t rowBits = getOutputGridRow(rowIndex);
-			columnBits |= ((rowBits & 0x01) << (7 - rowIndex));
-		}
-		return columnBits;
 	}
 
 	uint8_t applyInject(uint8_t rowBits, bool remove=false) {
@@ -646,11 +408,11 @@ struct WolframModule : Module {
 			if (!menu) { displayUpdate = true; }
 		}
 
-		bool posInject = posInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
-		bool negInject = negInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), -2.f, -0.1f);
-		if (posInject || negInject) {
+		bool positiveInject = posInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
+		bool negativeInject = negInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), -2.f, -0.1f);
+		if (positiveInject || negativeInject) {
 			if (sync) {
-				if (posInject) {
+				if (positiveInject) {
 					injectPendingState = 1;
 				}
 				else {
@@ -658,9 +420,7 @@ struct WolframModule : Module {
 				}
 			}
 			else {
-				oneDimensionalBuffer[internalReadHead] = applyInject(oneDimensionalBuffer[internalReadHead], posInject ? false : true);
-				//pushRowToOutputMatrix(oneDimensionalBuffer[internalReadHead]);
-
+				wEngine.inject(positiveInject ? true : false);
 				wEngine.outputMatrixPush();
 				injectPendingState = 0;
 				if (!menu) displayUpdate = true;
@@ -676,15 +436,12 @@ struct WolframModule : Module {
 				genPending = true;
 				resetPending = false;
 				if (gen) {
-					//uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
-					//oneDimensionalBuffer[internalReadHead] = resetRow;
 					wEngine.generateReset();
 				}
 				else {
 					wEngine.setReadHead(0);
 					wEngine.setWriteHead(1);
 				}
-				//pushRowToOutputMatrix(oneDimensionalBuffer[internalReadHead]);
 				wEngine.outputMatrixPush();
 				if (!menu) displayUpdate = true;
 			}
@@ -718,10 +475,12 @@ struct WolframModule : Module {
 			// Synced inject
 			switch (injectPendingState) {
 			case 1:
-				oneDimensionalBuffer[internalWriteHead] = applyInject(oneDimensionalBuffer[internalWriteHead], false);
+				//oneDimensionalBuffer[internalWriteHead] = applyInject(oneDimensionalBuffer[internalWriteHead], false);
+				wEngine.inject(true, true);
 				break;
 			case 2:
-				oneDimensionalBuffer[internalWriteHead] = applyInject(oneDimensionalBuffer[internalWriteHead], true);
+				//oneDimensionalBuffer[internalWriteHead] = applyInject(oneDimensionalBuffer[internalWriteHead], true);
+				wEngine.inject(false, true);
 				break;
 			default: 
 				break;
@@ -730,12 +489,9 @@ struct WolframModule : Module {
 			// Synced reset
 			if (resetPending || ruleResetPending) {
 				if (gen) {
-					//uint8_t resetRow = randSeed ? random::get<uint8_t>() : seedWolf;
-					//oneDimensionalBuffer[internalWriteHead] = resetRow;
 					wEngine.generateReset(true);
 				}
 				else if (!ruleResetPending) {
-					//internalWriteHead = 0;
 					wEngine.setWriteHead(0);
 				}
 			}
@@ -794,7 +550,7 @@ struct WolframModule : Module {
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
 		lights[Y_GATE_LIGHT].setBrightness(yGate);
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
-		lights[INJECT_LIGHT].setBrightnessSmooth(posInject, args.sampleTime);
+		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject, args.sampleTime);
 
 		// UPDATE DISPLAY
 		
@@ -840,7 +596,6 @@ struct MatrixDisplay : Widget {
 	// Sort out mm2px stuff, need a rule
 	int matrixCols = 8;
 	int matrixRows = 8;
-
 
 	float matrixSize = mm2px(32.f);
 
