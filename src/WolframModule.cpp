@@ -12,23 +12,14 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
-// TODO: Push new rows into outputMatrix when sync is off
+// TODO: Pulse out not gates
 // TODO: Fix type in value behaviour of Select encoder and Length dial
-// TODO: Have x y row mode and average mode (this would be good for 2D world)
 // TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
 // TODO: The panel
 // TODO: Save state
 // TODO: onReset and onRandomize
-// TODO: 2D sequence engine for game of life
 
 #include "wolfram.hpp"
-
-//enum Mode {
-//	WRAP,
-//	CLIP,
-//	RAND,
-//	MODE_LEN
-//};
 
 enum DisplayMenu {
 	SEED,
@@ -98,6 +89,11 @@ struct WolframModule : Module {
 
 	Look moduleLook = Look::BEFACO;
 	DisplayMenu moduleMenu = DisplayMenu::SEED;
+
+	dsp::TBiquadFilter<float> dcBlockFilter;
+	//dsp::TRCFilter<float> dcBlockFilter2;
+
+	dsp::RCFilter dcFilter[2];
 
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger posInjectTrigger;
@@ -199,32 +195,19 @@ struct WolframModule : Module {
 	};
 
 	void onSampleRateChange() override {
-		float sampleRate = APP->engine->getSampleRate();
+		// 
+		const float sampleRate = APP->engine->getSampleRate();
 		displayUpdateInterval = static_cast<int>(sampleRate / 30.f);
-	}
 
-	uint8_t applyInject(uint8_t rowBits, bool remove=false) {
-		// TODO: is this an ok level of efficentcy
-		uint8_t targetMask = rowBits;
-		if (remove) {
-			if (rowBits == 0x00) return rowBits;
+		// set DC blocker to ~20Hz.
+		//const float freq = 22.05f / sampleRate;
+		
+		// TODO: Use sampleRate? 20Hz?
+		// Set up X & Y DC Blocking filters
+		const float sampleTime = APP->engine->getSampleTime();
+		for (int i = 0; i < 2; i++) {
+			dcFilter[i].setCutoffFreq(10.f * sampleTime);
 		}
-		else {
-			if (rowBits == 0xFF) return rowBits;
-			targetMask = ~rowBits;	// Flip row
-		}
-
-		int targetCount = __builtin_popcount(targetMask);	// Count target bits
-		int target = random::get<uint8_t>() % targetCount;	// Random target index
-
-		// Find corresponding bit position
-		uint8_t bitMask;
-		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
-			if (targetMask & bitMask) target--;
-		}
-
-		rowBits = remove ? (rowBits & ~bitMask) : (rowBits | bitMask);
-		return rowBits;
 	}
 
 	void processEncoder(const ProcessArgs& args) {
@@ -475,11 +458,9 @@ struct WolframModule : Module {
 			// Synced inject
 			switch (injectPendingState) {
 			case 1:
-				//oneDimensionalBuffer[internalWriteHead] = applyInject(oneDimensionalBuffer[internalWriteHead], false);
 				wEngine.inject(true, true);
 				break;
 			case 2:
-				//oneDimensionalBuffer[internalWriteHead] = applyInject(oneDimensionalBuffer[internalWriteHead], true);
 				wEngine.inject(false, true);
 				break;
 			default: 
@@ -517,27 +498,28 @@ struct WolframModule : Module {
 
 		// OUTPUT
 		float xCv = wEngine.getXVoltage();
+		float yCv = wEngine.getYVoltage();
 		if (vcoMode) {
-			xCv -= 5.f;
-			// TODO: DC Blocker?
+			xCv -= 0.5f;
+			dcFilter[0].process(xCv);
+			xCv = dcFilter[0].highpass();
+
+			yCv -= 0.5f;
+			dcFilter[1].process(yCv);
+			yCv = dcFilter[1].highpass();
 		}
-		xCv *= params[X_SCALE_PARAM].getValue();;
+		// Cv outputs -  0V to 10V or -5V to 5V (10Vpp).
+		xCv = xCv * params[X_SCALE_PARAM].getValue() * 10.f; 
 		outputs[X_CV_OUTPUT].setVoltage(xCv);
 
-		//bool xGate = wEngine.getXGate();
-		bool xGate = 0;
-		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
-
-		//float yCv = wEngine.getYVoltage();
-		float yCv = 0;
-		if (vcoMode) {
-			yCv -= 5.f;
-		}
-		yCv *= params[Y_SCALE_PARAM].getValue();;
+		yCv *= params[Y_SCALE_PARAM].getValue() * 10.f;
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
-		//bool yGate = wEngine.getYGate();
-		bool yGate = 0;
+		// Pulse outputs - 0V to 10V.
+		bool xGate = wEngine.getXGate();
+		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
+
+		bool yGate = wEngine.getYGate();
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// Debug output

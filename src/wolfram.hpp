@@ -1,7 +1,6 @@
 #pragma once
 #include "plugin.hpp"
 #include <array>
-#include <limits>
 
 // TODO: stop using virtuals, use Function pointer instead?
 
@@ -79,8 +78,6 @@ protected:
 
 	int readHead = 0;
 	int writeHead = 1;
-	
-	bool randSeed = false;
 };
 
 class WolfAlgoithm : public AlgorithmBase {
@@ -107,7 +104,7 @@ public:
 		prevOffset = o;
 
 		// Push latest row
-		outputMatrix &= ~0xFFULL;	// Clear first row
+		outputMatrix &= ~0xFFULL;	
 		outputMatrix |= static_cast<uint64_t>(ApplyOffset(rowBuffer[readHead], o));	
 	}
 
@@ -158,21 +155,20 @@ public:
 		int head = readHead;
 		if (w)
 			head = writeHead;
-		uint8_t rowBits = rowBuffer[head];
+		uint8_t row = rowBuffer[head];
 
 		// Check to see if row is already full or empty
-		if ((a & (rowBits == 0xFF)) | (!a & (rowBits == 0x00)))
+		if ((a & (row == UINT8_MAX)) | (!a & (row == 0)))
 			return;
 
-		uint8_t targetMask = rowBits;
+		uint8_t targetMask = row;
 		if (a)
-			targetMask = ~rowBits;	// Flip row
+			targetMask = ~row;	// Flip row
 
-		// TODO: what is popcount doing, is it safe
 		int targetCount = __builtin_popcount(targetMask);	// Count target bits
 		int target = random::get<uint8_t>() % targetCount;	// Random target index
 
-		// Find corresponding bit position
+		// Find corresponding bit position, TODO: this is hard to read
 		uint8_t bitMask;
 		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
 			if (targetMask & bitMask)
@@ -180,41 +176,17 @@ public:
 		}
 
 		//rowBits = remove ? (rowBits & ~bitMask) : (rowBits | bitMask);
-		rowBits = a ? (rowBits | bitMask) : (rowBits & ~bitMask);
-		rowBuffer[head] = rowBits;
+		row = a ? (row | bitMask) : (row & ~bitMask);
+		rowBuffer[head] = row;
 	}
-
-	/*
-	uint8_t applyInject(uint8_t rowBits, bool remove = false) {
-		// TODO: is this an ok level of efficentcy
-		uint8_t targetMask = rowBits;
-		if (remove) {
-			if (rowBits == 0x00) return rowBits;
-		}
-		else {
-			if (rowBits == 0xFF) return rowBits;
-			targetMask = ~rowBits;	// Flip row
-		}
-
-		int targetCount = __builtin_popcount(targetMask);	// Count target bits
-		int target = random::get<uint8_t>() % targetCount;	// Random target index
-
-		// Find corresponding bit position
-		uint8_t bitMask;
-		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
-			if (targetMask & bitMask) target--;
-		}
-
-		rowBits = remove ? (rowBits & ~bitMask) : (rowBits | bitMask);
-		return rowBits;
-	}
-	*/
 
 	void RuleUpdate(int d, bool r) override {
-		if (r)
+		if (r) {
 			rule = 30;
-		else
-			rule = static_cast<uint8_t>(rule + d);
+			return;
+		}
+		// TODO: is the wrapped because of the cast, is this a good way to do things
+		rule = static_cast<uint8_t>(rule + d);
 	}
 
 	void SeedUpdate(int d, bool r) override {
@@ -222,64 +194,59 @@ public:
 			seed = 8;
 			seedSelect = seed;
 			randSeed = false;
-		}
-		else {
-			// Seed options are 256 + 1 (RAND) 
-			seedSelect += d;
-			if (seedSelect > 256)
-				seedSelect -= 257;
-			else if (seedSelect < 0)
-				seedSelect += 257;
-
-			randSeed = (seedSelect == 256);
-
-			if (!randSeed)
-				seed = static_cast<uint8_t>(seedSelect);
+			return;
 		}
 
+		// Seed options are 256 + 1 (RAND) 
+		seedSelect += d;
+
+		if (seedSelect > 256)
+			seedSelect -= 257;
+		else if (seedSelect < 0)
+			seedSelect += 257;
+
+		randSeed = (seedSelect == 256);
+
+		if (!randSeed)
+			seed = static_cast<uint8_t>(seedSelect);
 	}
 
 	void ModeUpdate(int d, bool r) override {
-		if (r)
+		if (r) {
 			mode = Mode::WRAP;
-		else
-		{
-			int modeIndex = static_cast<int>(mode);
-			modeIndex = (modeIndex + d + numModes) % numModes;
-			mode = static_cast<Mode>(modeIndex);
+			return;
 		}
 
+		int modeIndex = static_cast<int>(mode);
+		modeIndex = (modeIndex + d + numModes) % numModes;
+		mode = static_cast<Mode>(modeIndex);
 	}
 
 	float GetXVoltage() override {
-		// Returns bottom row of Ouput Matrix as voltage (0-10V).		
-		uint8_t firstRow = outputMatrix & 0xFF;
-		return firstRow * voltageScaler * 10.f;
+		// Returns bottom row of Ouput Matrix as 'voltage' (0-1V).		
+		uint8_t firstRow = outputMatrix & 0xFFULL;
+		return firstRow * voltageScaler;
 	}
 
 	float GetYVoltage() override {
-		// Returns right column of Ouput Matrix as voltage (0-10V).
-		//uint8_t col = 0;
-		//for (int i = 0; i < 8; i++) {
-		//	uint8_t row = GetOutputMatrixRow(i);
-		//	col |= ((row & 0x01) << (7 - i));
-		//}
-		//return col * voltageScaler * 10.f;
-
-		//return right col of m * voltageScaler * 10.f;
-		return 0;
+		// Returns right column of ouput matrix as 'voltage' (0-1V).
+		// Output matrix is flipped when draw (right -> left, left <- right),
+		uint64_t yMask = 0x0101010101010101ULL;
+		uint64_t column = outputMatrix & yMask;
+		uint8_t yColumn = static_cast<uint8_t>((column * 0x8040201008040201ULL) >> 56);
+		return yColumn * voltageScaler;
 	}
 
 	bool GetXGate() override {
-		// Returns bottom left cell state of Ouput Matrix.
-		//return (GetOutputMatrixRow(0) >> 7) & 1;
-		return 0;
+		// Returns bottom left cell state of ouput matrix.
+		uint8_t firstRow = outputMatrix & 0xFFULL;
+		return (firstRow >> 7) & 1;
 	}
 
 	bool GetYGate() override {
-		// Returns top right cell state of Ouput Matrix.
-		//return GetOutputMatrixRow(7) & 1;
-		return 0;
+		// Returns top right cell state of ouput matrix.
+		uint8_t lastRow = (outputMatrix >> 56) & 0xFFULL;
+		return lastRow & 1;
 	}
 
 	// Drawing functions
@@ -346,33 +313,50 @@ private:
 	uint8_t rule = 30;
 	uint8_t seed = 8;
 	int seedSelect = seed;
+	bool randSeed = false;
 
 	int prevOffset = 0;
 
-	static constexpr float voltageScaler = 1.f / std::numeric_limits<uint8_t>::max();
+	static constexpr float voltageScaler = 1.f / UINT8_MAX;
 };
 
 class LifeAlgoithm : public AlgorithmBase {
 public:
 	LifeAlgoithm() {
-		
 		// Define seeds.
-		// Generic rand seed as randSeed will override behaviour.
-		std::array<Vec, 1> rand{ Vec(0, 0) };
-		seedValues[static_cast<int>(Seeds::RAND)] = GetSeed(rand);
-		// Single dot
-		std::array<Vec, 1> dot { Vec(3, 3) };
-		seedValues[static_cast<int>(Seeds::DOT)] = GetSeed(dot);
-		// 2x2 block
-		std::array<Vec, 4> blok { Vec(3, 3), Vec(3, 4), Vec(4, 3), Vec(4, 4) };
-		seedValues[static_cast<int>(Seeds::BLOK)] = GetSeed(blok);
-		// Glider
-		std::array<Vec, 5> flyr { Vec(3, 2), Vec(4, 3), Vec(3, 4), Vec(4, 4), Vec(2, 4) };
-		seedValues[static_cast<int>(Seeds::FLYR)] = GetSeed(flyr);
-		
+		// Generic rand seeds as randSeed will override behaviour.
+		/*
+		seedValues[static_cast<int>(Seeds::MIRROR_RANDOM)]			= 0;
+		seedValues[static_cast<int>(Seeds::HALF_RANDOM)]			= 0;
+		seedValues[static_cast<int>(Seeds::RANDOM)]					= 0;
+		// Spaceships
+		seedValues[static_cast<int>(Seeds::GLIDER)]					= 0x382010000000ULL;
+		seedValues[static_cast<int>(Seeds::LIGHTWEIGHT_SPACESHIP)]	= 0x1220223C00000000ULL;
+		seedValues[static_cast<int>(Seeds::MIDDLEWEIGHT_SPACESHIP)] = 0x82240427C000000ULL;
+		seedValues[static_cast<int>(Seeds::HEAVYEIGHT_SPACESHIP)]	= 0xC2140417E000000ULL;		// doesnt act like a spaceship, dont like that
+		seedValues[static_cast<int>(Seeds::SHIP)]					= 0xE62543000000ULL;
+		// Oscillator
+		seedValues[static_cast<int>(Seeds::OCTAGON_II)]				= 0x1824428181422418ULL;
+		seedValues[static_cast<int>(Seeds::FUMAROLE)]				= 0;
+		seedValues[static_cast<int>(Seeds::GLIDER_BLOCK_CYCLE)]		= 0;
+		seedValues[static_cast<int>(Seeds::BY_FLOPS)]				= 0;
+		// Heptomino
+		seedValues[static_cast<int>(Seeds::B_HEPTOMINO)]			= 0;
+		seedValues[static_cast<int>(Seeds::C_HEPTOMINO)]			= 0;
+		seedValues[static_cast<int>(Seeds::E_HEPTOMINO)]			= 0;
+		seedValues[static_cast<int>(Seeds::F_HEPTOMINO)]			= 0;
+		seedValues[static_cast<int>(Seeds::H_HEPTOMINO)]			= 0;
+		// Coil
+		seedValues[static_cast<int>(Seeds::CAP)]					= 0;
+		// Still life
+		seedValues[static_cast<int>(Seeds::DOT)]					= 0x8000000ULL;
+		*/
+
+
 		// Init seed.
-		seed = seedValues[static_cast<int>(seeds)];
-		frameBuffer[readHead] = seed;
+		//seed = seedValues[static_cast<int>(seeds)];
+		//frameBuffer[readHead] = seed;
+		frameBuffer[readHead] = seeds[seedIndex].value;
 	}
 
 	void OutputMatrixStep() override {
@@ -383,10 +367,13 @@ public:
 		// Push current matrix to output matrix.
 		uint64_t tempMatrix = 0;
 		for (int i = 0; i < 8; i++) {
-			uint8_t row = (frameBuffer[readHead] >> (i * 8)) & 0xFF;
+			uint8_t row = (frameBuffer[readHead] >> (i * 8)) & 0xFFULL;
 			tempMatrix |= uint64_t(ApplyOffset(row, o)) << (i * 8);
 		}
 		outputMatrix = tempMatrix;
+
+		// Count the current number of living cells.
+		population = __builtin_popcountll(outputMatrix);
 	}
 
 	void Generate() override {
@@ -401,9 +388,8 @@ public:
 		std::array<uint8_t, 10> row{};
 
 		// Fill rows
-		for (int i = 1; i < 9; i++) {
-			row[i] = (readMatrix >> ((i - 1) * 8)) & 0xFF;
-		}
+		for (int i = 1; i < 9; i++)
+			row[i] = (readMatrix >> ((i - 1) * 8)) & 0xFFULL;
 
 		// Fill top & bottom padding rows
 		switch (mode) {
@@ -456,133 +442,147 @@ public:
 		std::array<uint8_t, 8>  sumBit1{};
 		std::array<uint8_t, 8>  sumBit2{};
 
-		// Top row
-		{
-			int i = 1;
-			int sumIndex = i - 1;
-			sumBit0[sumIndex] = horizXor[i] ^ partialXor[i + 1];
-			sumBit1[sumIndex] = (horizAnd[i] ^ partialAnd[i + 1]) ^ (horizXor[i] & partialXor[i + 1]);
-			sumBit2[sumIndex] = (horizAnd[i] & partialAnd[i + 1]) | ((horizAnd[i] ^ partialAnd[i + 1]) & (horizXor[i] & partialXor[i + 1]));
-		}
-
-		// Middle rows
-		for (int i = 2; i <= 7; i++) {
+		for (int i = 1; i <= 8; ++i) {
 			int sumIndex = i - 1;
 			sumBit0[sumIndex] = partialXor[i - 1] ^ horizXor[i] ^ partialXor[i + 1];
-			uint8_t carryMid =
-				((partialXor[i - 1] | partialXor[i + 1]) & horizXor[i]) |
+			uint8_t carry = ((partialXor[i - 1] | partialXor[i + 1]) & horizXor[i]) |
 				(partialXor[i - 1] & partialXor[i + 1]);
-			sumBit1[sumIndex] =
-				partialAnd[i - 1] ^ horizAnd[i] ^ partialAnd[i + 1] ^ carryMid;
-			sumBit2[sumIndex] =
-				((partialAnd[i - 1] | partialAnd[i + 1]) & (horizAnd[i] | carryMid)) |
-				((partialAnd[i - 1] & partialAnd[i + 1]) | (horizAnd[i] & carryMid));
+			sumBit1[sumIndex] = partialAnd[i - 1] ^ horizAnd[i] ^ partialAnd[i + 1] ^ carry;
+			sumBit2[sumIndex] = ((partialAnd[i - 1] | partialAnd[i + 1]) & (horizAnd[i] | carry)) |
+				((partialAnd[i - 1] & partialAnd[i + 1]) | (horizAnd[i] & carry));
 		}
 
-		// Bottom row
-		{
-			int i = 8;
-			int sumIndex = i - 1;
-			sumBit0[sumIndex] = partialXor[i - 1] ^ horizXor[i - 1];
-			sumBit1[sumIndex] = (partialAnd[i - 1] ^ horizAnd[i - 1]) ^ (partialXor[i - 1] & horizXor[i - 1]);
-			sumBit2[sumIndex] = (partialAnd[i - 1] & horizAnd[i - 1]) |
-				((partialAnd[i - 1] ^ horizAnd[i - 1]) & (partialXor[i - 1] & horizXor[i - 1]));
-		}
-				
 		// Apply rule
 		for (int i = 1; i < 9; i++) {
 			int sumIndex = i - 1;
 
 			uint8_t newRow = GetRule(sumBit0[sumIndex], sumBit1[sumIndex], sumBit2[sumIndex], row[i]);
-			//uint8_t newRow = ~sumBit2[sumIndex] & sumBit1[sumIndex] & (sumBit0[sumIndex] | row[i]);
 			writeFrame |= (uint64_t(newRow) << (sumIndex * 8));
 		}
 		frameBuffer[writeHead] = writeFrame;
 	}
 
 	void GenerateReset(bool w) override {
-		uint64_t resetFrame = randSeed ? random::get<uint64_t>() : seed;
-		size_t head = readHead;
-		if (w) {
-			head = writeHead;
+		//
+		uint64_t resetFrame = seeds[seedIndex].value;
+
+		// Dynamic random seeds.
+		switch (seedIndex) {
+		case 0:
+			// S random
+			resetFrame = random::get<uint32_t>();
+			break;
+		case 1:
+			// Half random
+			resetFrame = 0;
+			break;
+		case 2:
+			// True random
+			resetFrame = random::get<uint64_t>();
+			break;
+		default:
+			break;
 		}
+
+		size_t head = readHead;
+		if (w)
+			head = writeHead;
+
 		frameBuffer[head] = resetFrame;
 	}
 
 	void Inject(bool a, bool w) override {
+		int head = readHead;
+		if (w)
+			head = writeHead;
+		uint64_t matrix = frameBuffer[head];
 
+		// Check to see if row is already full or empty
+		if ((a & (matrix == UINT64_MAX)) | (!a & (matrix == 0)))
+			return;
+		
+		uint64_t targetMask = matrix;
+		if (a)
+			targetMask = ~matrix;	// Flip row
+
+		int targetCount = __builtin_popcountll(targetMask);	// Count target bits
+		int target = random::get<uint8_t>() % targetCount;	// Random target index
+
+		// Find corresponding bit position
+		uint64_t bitMask;
+		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
+			if (targetMask & bitMask)
+				target--;
+		}
+
+		/*
+		// TODO: Safer way to to inject?
+		uint64_t bitMask = 1;
+		while (true) {
+			if (targetMask & bitMask) {
+				if (target == 0)
+					break;
+				target--;
+			}
+			bitMask <<= 1;
+		}
+		*/
+		matrix = a ? (matrix | bitMask) : (matrix & ~bitMask);
+		frameBuffer[head] = matrix;
 	}
 
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
 			rule = Rule::LIFE;
+			return;
 		}
-		else {
-			int ruleIndex = static_cast<int>(rule);
-			ruleIndex = (ruleIndex + d + numRules) % numRules;
-			rule = static_cast<Rule>(ruleIndex);
-		}
+
+		int ruleIndex = static_cast<int>(rule);
+		ruleIndex = (ruleIndex + d + numRules) % numRules;
+		rule = static_cast<Rule>(ruleIndex);
 	}
 
 	void SeedUpdate(int d, bool r) override {
-		//  use rule switch style to change seed
 		if (r) {
-			seeds = Seeds::DOT;
-			seed = seedValues[static_cast<int>(seeds)];
-			randSeed = false;
+			seedIndex = seedDefault;
+			return;
 		}
-		else {
-			int seedIndex = static_cast<int>(seeds);
-			seedIndex = (seedIndex + d + numSeeds) % numSeeds;
-			seeds = static_cast<Seeds>(seedIndex);
 
-			seed = seedValues[static_cast<int>(seeds)];
-			randSeed = false;
-
-			if (seeds == Seeds::RAND) {
-				randSeed = true;
-			}
-		}
+		seedIndex = (seedIndex + d + numSeeds) % numSeeds;
 	}
 
 	void ModeUpdate(int d, bool r) override {
 		if (r) {
 			mode = Mode::WRAP;
+			return;
 		}
-		else {
-			int modeIndex = static_cast<int>(mode);
-			modeIndex = (modeIndex + d + numModes) % numModes;
-			mode = static_cast<Mode>(modeIndex);
-		}
-
+			
+		int modeIndex = static_cast<int>(mode);
+		modeIndex = (modeIndex + d + numModes) % numModes;
+		mode = static_cast<Mode>(modeIndex);
 	}
 
 	float GetXVoltage() override {
-		// TODO:
-
-		// number of alive cells / 64;
-		// xVoltageScaler
-		return 0;
+		// Returns the population (number of alive cells) as voltage (0-1V).
+		return population * xVoltageScaler;
 	}
 
 	float GetYVoltage() override {
-		// Could return the ampount of change 
-		// Gate could return if the value has increased
-		// need sequenceLength...
-		
-		//int prevReadHead = (readHead - 1) % sequenceLength;
-		//float change = frameBuffer[readHead] - frameBuffer[prevReadHead];
-
-		// outputMatrix (int) as voltage
-		float normalizedMatrix = outputMatrix * yVoltageScaler;
-		return normalizedMatrix * 10.f;
+		// Returns the 64-bit number output matrix as voltage (0-1V).
+		return outputMatrix * yVoltageScaler;
 	}
 
 	bool GetXGate() override {
-		return false;
+		// True if population (number of alive cells) has grown.
+		bool growth = false;
+		if (population > prevPopulation)
+			growth = true;
+		prevPopulation = population;
+		return growth;
 	}
 
 	bool GetYGate() override {
+		// TODO: Think what this out should be
 		return false;
 	}
 
@@ -604,6 +604,9 @@ public:
 			break;
 		case Rule::R34:
 			nvgText(vg, 0, fs, "  34", nullptr);
+			break;
+		case Rule::WES:
+			nvgText(vg, 0, fs, " WES", nullptr);
 			break;
 		case Rule::SEED:
 			nvgText(vg, 0, fs, "SEED", nullptr);
@@ -633,27 +636,12 @@ public:
 
 	void DrawSeedMenu(NVGcontext* vg, float fs) override {
 		nvgText(vg, 0, fs, "SEED", nullptr);
-		switch (seeds) {
-		case Seeds::DOT:
-			nvgText(vg, 0, fs * 2, " DOT", nullptr);
-			break;
-		case Seeds::BLOK:
-			nvgText(vg, 0, fs * 2, "BLOK", nullptr);
-			break;
-		case Seeds::FLYR:
-			nvgText(vg, 0, fs * 2, "FLYR", nullptr);
-			break;
-		case Seeds::RAND:
-			nvgText(vg, 0, fs * 2, "RAND", nullptr);
-			break;
-		default:
-			break;
-		}
+		nvgText(vg, 0, fs * 2, seeds[seedIndex].displayName, nullptr);
 	}
 
 	// Light function
 	float GetModeValue() override {
-		int modeIndex = static_cast<int>(mode); //const?
+		const int modeIndex = static_cast<int>(mode);
 		return static_cast<float>(modeIndex) * numModesScaler;
 	}
 
@@ -676,6 +664,9 @@ public:
 		uint8_t birth = 0;
 		uint8_t survival = 0;
 
+		// rules[ruleIndex].birth
+
+
 		switch (rule) {
 		case Rule::HIGH:
 			// High Life (B36/S23) *
@@ -697,10 +688,15 @@ public:
 			birth = alive3 | alive4;
 			survival = alive3 | alive4;
 			break;
+		case Rule::WES:
+
+			birth = alive1 | alive3;
+			survival = alive3;
+			break;
 		case Rule::SEED:
 			// Seeds (B2/S) ** got a glider I think!
 			birth = alive2;
-			survival = 0; //?
+			survival = 0;
 			break;
 		default:
 			// Game of Life (B3/S23) *
@@ -708,37 +704,18 @@ public:
 			survival = alive2 | alive3;
 			break;
 		}
-
 		return birth | (row & survival);;
-	}
-
-	template<size_t SIZE>
-	uint64_t GetSeed(std::array<rack::math::Vec, SIZE>& cellCoordinates) {
-		// 
-		uint64_t m = 0;
-
-		for (auto& coordinates : cellCoordinates) {
-			int x = static_cast<int>(coordinates.x);
-			int y = static_cast<int>(coordinates.y);
-
-			// Check bounds
-			if (x < 0 || x >= 8 || y < 0 || y >= 8)
-				continue;
-
-			int index = y * 8 + x;
-
-			m |= (uint64_t(1) << index);
-		}
-		return m;
 	}
 
 private:
 	enum class Rule {
+		// idk
 		LIFE,	// cool
 		HIGH,	// cool (bit like life)
 		DUPE,	// cool
-		R2X2,	// bit boring 
+		R2X2,	// bit boring, 
 		R34,	// v cool
+		WES, 
 		SEED,	// v cool
 
 		// Amoeba (S1358/B357), might not work on 8x8 board *
@@ -765,20 +742,55 @@ private:
 		RULE_LEN
 	};
 
-	enum class Seeds {
-		RAND,
-		DOT,		
-		BLOK,
-		FLYR,
-		SEED_LEN	
-	};
+
+
+
+	//enum class Seeds {
+	//	// Random
+	//	MIRROR_RANDOM,			// MRND
+	//	HALF_RANDOM,			// 2RND
+	//	RANDOM,					//  RND
+	//	// Spaceships
+	//	GLIDER,					// FLYR
+	//	LIGHTWEIGHT_SPACESHIP,	// LWSS
+	//	MIDDLEWEIGHT_SPACESHIP,	// MWSS
+	//	HEAVYEIGHT_SPACESHIP,	// HWSS
+	//	SHIP,					// SHIP
+	//	// Oscillator
+	//	OCTAGON_II,				//	OCT
+	//	FUMAROLE,				// FUMA, ROLE
+	//	GLIDER_BLOCK_CYCLE,		//  GBC, ?
+	//	BY_FLOPS,				// FLOP
+	//	// Heptomino
+	//	B_HEPTOMINO,			// BHEP
+	//	C_HEPTOMINO,			// CHEP
+	//	E_HEPTOMINO,			// EHEP
+	//	F_HEPTOMINO,			// FHEP
+	//	H_HEPTOMINO,			// HHEP
+	//	// Coil
+	//	CAP,					//  CAP
+	//	// Still life
+	//	DOT,					//  DOT
+	//	SEED_LEN
+	//};
 
 	enum class Mode {
 		WRAP,
+		// KLEIN?
+		// C
 		CLIP,
 		RAND,
 		MODE_LEN
 	};
+
+
+	struct Rule2 {
+		char displayName[5];
+		// TODO: hmmm this
+	};
+
+
+
 
 	Mode mode = Mode::WRAP;
 	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
@@ -787,13 +799,69 @@ private:
 	Rule rule = Rule::LIFE;
 	static constexpr int numRules = static_cast<int>(Rule::RULE_LEN);
 	
-	Seeds seeds = Seeds::DOT;
-	static constexpr int numSeeds = static_cast<int>(Seeds::SEED_LEN);
-	std::array<uint64_t, numSeeds> seedValues{};
-	uint64_t seed = 0;
+	//Seeds seeds = Seeds::HEAVYEIGHT_SPACESHIP;
+	//static constexpr int numSeeds = static_cast<int>(Seeds::SEED_LEN);
+	
+	//std::array<uint64_t, numSeeds> seedValues {};
+
+	struct Seed {
+		char displayName[5];
+		uint64_t value;
+	};
+	
+	static constexpr int numSeeds = 33;
+	std::array<Seed, numSeeds> seeds { {
+		// Patterns from the Life Lexicon.
+		// Random - generic seeds as values are dynamic.
+		{ "SRND", 0x0ULL },					// Symmetrical random
+		{ "2RND", 0x0ULL },					// Half random				could be quarter random
+		{ " RND", 0x0ULL },					// True random **
+		// Spaceships.
+		{ "FLYR", 0x382010000000ULL },		// Glider **
+		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight spaceship
+		{ "MWSS", 0x82240427C000000ULL },	// Middleweight spaceship	
+		{ "HWSS", 0xC2140417E000000ULL },	// Heavyweight spaceship	doesnt act like a spaceship, dont like that
+		{ "SHIP", 0xE62543000000ULL },		// Ship,					boring
+		// Heptomino.
+		{ "BHEP", 0x2C3810000000ULL },		// B-heptomino **
+		{ "CHEP", 0},		// C-heptomino
+		{ "EHEP", 0},		// E-heptomino
+		{ "FHEP", 0x3010101C0000ULL },		// F-heptomino **
+		{ "HHEP", 0},		// H-heptomino
+		// Oscillator.
+		{ " OCT", 0x1824428181422418ULL },	// Octagon II				boring only good for a cool shape rly
+		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole **
+		{ " GBC", 0 },		// Glider block cycle
+		{ "FLOP", 0x828027C02280800ULL },		// By flops				boring only good for a cool shape rly
+		// Coil.
+		{ " CAP", 0},		// Cap
+		// Misc.
+		{ " B&G", 0},		// Block and glider
+		{ "BUNY", 0},		// Rabbits
+		{ "WING", 0},		// Wing
+		{ "STEP", 0},		// Stairstep hexomino
+		{ "WORD", 0},		// Rephaser
+		{ "CORN", 0},		// Acorn		meh?
+		{ " CUP", 0},		// Cuphook		HOOK?
+		{ "NSEP", 0},		// Nonomino switch engine predecessor
+		{ "HAND", 0},		// Handshake
+		{ "CENT", 0},		// Century
+		{ "PARV", 0},		// Multum in parvo
+		{ "SENG", 0},		// Switch engine
+		{ "CHEL", 0},		// Herschel descendant
+		{ "FIG8", 0x7070700E0E0E00ULL },		// Figure 8 **
+		// Still life.
+		{ " BIT", 0x8000000ULL }			// Single dot **
+	} };
+	static constexpr int seedDefault = 3;
+	int seedIndex = seedDefault;
+
+
+	int population = 0;
+	int prevPopulation = 0;
 
 	static constexpr float xVoltageScaler = 1.f / 64.f;
-	static constexpr float yVoltageScaler = 1.f / std::numeric_limits<uint64_t>::max();
+	static constexpr float yVoltageScaler = 1.f / UINT64_MAX;
 };
 
 // Dispatcher 
@@ -873,7 +941,7 @@ private:
 	LifeAlgoithm life;
 
 	static constexpr int MAX_ALGORITHMS = 2;
-	int algorithmIndex = 0;
+	int algorithmIndex = 1;
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
 	AlgorithmBase* activeAlogrithm;
 
