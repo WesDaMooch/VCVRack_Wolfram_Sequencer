@@ -122,7 +122,7 @@ struct WolframModule : Module {
 	float lastTrigVoltage = 0.f;
 
 	// Encoder
-	static constexpr float encoderIndent = 1.f / 30.f;
+	static constexpr float encoderIndent = 1.f / 20.f;
 	float prevEncoderValue = 0.f;
 	bool encoderReset = false;
 	
@@ -512,7 +512,7 @@ struct WolframModule : Module {
 		xCv = xCv * params[X_SCALE_PARAM].getValue() * 10.f; 
 		outputs[X_CV_OUTPUT].setVoltage(xCv);
 
-		yCv *= params[Y_SCALE_PARAM].getValue() * 10.f;
+		yCv = yCv * params[Y_SCALE_PARAM].getValue() * 10.f;
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
 		// Pulse outputs - 0V to 10V.

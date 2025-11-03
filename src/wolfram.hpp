@@ -647,8 +647,15 @@ public:
 
 	// Internal algoithm specific functions
 	uint8_t GetRule(uint8_t bit0, uint8_t bit1, uint8_t bit2, uint8_t row) {
-		// Takes a three bit sum of alive cells per eacg row & the row itself, 
+		// Takes a three bit sum of alive cells per each row & the row itself, 
 		// applies selected rule and returns the row generation.
+
+
+
+		rules[ruleIndex].birth;
+		rules[ruleIndex].survival;
+
+		// old working code...
 
 		// Bool for each alive count (0-7)
 		// uint8_t alive0 = ~bit0 & ~bit1 & ~bit2;
@@ -663,8 +670,6 @@ public:
 		// Birth & survival condtions
 		uint8_t birth = 0;
 		uint8_t survival = 0;
-
-		// rules[ruleIndex].birth
 
 
 		switch (rule) {
@@ -704,7 +709,7 @@ public:
 			survival = alive2 | alive3;
 			break;
 		}
-		return birth | (row & survival);;
+		return birth | (row & survival);
 	}
 
 private:
@@ -742,55 +747,15 @@ private:
 		RULE_LEN
 	};
 
-
-
-
-	//enum class Seeds {
-	//	// Random
-	//	MIRROR_RANDOM,			// MRND
-	//	HALF_RANDOM,			// 2RND
-	//	RANDOM,					//  RND
-	//	// Spaceships
-	//	GLIDER,					// FLYR
-	//	LIGHTWEIGHT_SPACESHIP,	// LWSS
-	//	MIDDLEWEIGHT_SPACESHIP,	// MWSS
-	//	HEAVYEIGHT_SPACESHIP,	// HWSS
-	//	SHIP,					// SHIP
-	//	// Oscillator
-	//	OCTAGON_II,				//	OCT
-	//	FUMAROLE,				// FUMA, ROLE
-	//	GLIDER_BLOCK_CYCLE,		//  GBC, ?
-	//	BY_FLOPS,				// FLOP
-	//	// Heptomino
-	//	B_HEPTOMINO,			// BHEP
-	//	C_HEPTOMINO,			// CHEP
-	//	E_HEPTOMINO,			// EHEP
-	//	F_HEPTOMINO,			// FHEP
-	//	H_HEPTOMINO,			// HHEP
-	//	// Coil
-	//	CAP,					//  CAP
-	//	// Still life
-	//	DOT,					//  DOT
-	//	SEED_LEN
-	//};
-
 	enum class Mode {
-		WRAP,
-		// KLEIN?
-		// C
 		CLIP,
+		WRAP,
+		// BOTL	Klein bottle 
+		// CROS Cross-surface
+		// ORB	Sphere
 		RAND,
 		MODE_LEN
 	};
-
-
-	struct Rule2 {
-		char displayName[5];
-		// TODO: hmmm this
-	};
-
-
-
 
 	Mode mode = Mode::WRAP;
 	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
@@ -798,64 +763,66 @@ private:
 
 	Rule rule = Rule::LIFE;
 	static constexpr int numRules = static_cast<int>(Rule::RULE_LEN);
-	
-	//Seeds seeds = Seeds::HEAVYEIGHT_SPACESHIP;
-	//static constexpr int numSeeds = static_cast<int>(Seeds::SEED_LEN);
-	
-	//std::array<uint64_t, numSeeds> seedValues {};
+
+	struct Rule2 {
+		char displayName[5];
+		uint8_t birth;
+		uint8_t survival;
+		// TODO: hmmm this
+		// Alive data (uint8_t, 00100010 = 1 and 5 alive in the hood
+	};
+	static constexpr int numRules2 = 3;	// 10?
+	std::array<Rule2, numRules2> rules { {
+		{ "LIFE", 0x08, 0x0C },		// Conway's game of life B3/S23  0x08, 0x0C 
+		{ "DUPE", 0xAA, 0xAA },		// Replicator B1357/S1357
+		{ "SEED", 0x04, 0 }
+	} };
+	static constexpr int ruleDefault = 0;
+	int ruleIndex = seedDefault;
+
 
 	struct Seed {
 		char displayName[5];
 		uint64_t value;
 	};
-	
-	static constexpr int numSeeds = 33;
+	static constexpr int numSeeds = 28;
 	std::array<Seed, numSeeds> seeds { {
 		// Patterns from the Life Lexicon.
 		// Random - generic seeds as values are dynamic.
 		{ "SRND", 0x0ULL },					// Symmetrical random
-		{ "2RND", 0x0ULL },					// Half random				could be quarter random
-		{ " RND", 0x0ULL },					// True random **
-		// Spaceships.
-		{ "FLYR", 0x382010000000ULL },		// Glider **
-		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight spaceship
-		{ "MWSS", 0x82240427C000000ULL },	// Middleweight spaceship	
-		{ "HWSS", 0xC2140417E000000ULL },	// Heavyweight spaceship	doesnt act like a spaceship, dont like that
-		{ "SHIP", 0xE62543000000ULL },		// Ship,					boring
+		{ "2RND", 0x0ULL },					// Half random		could be quarter random
+		{ " RND", 0x0ULL },					// True random 
+		// Spaceship.
+		{ "FLYR", 0x382010000000ULL },		// Glider 
+		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight spaceship 
+		{ "MWSS", 0x82240427C000000ULL },	// Middleweight spaceship 
 		// Heptomino.
-		{ "BHEP", 0x2C3810000000ULL },		// B-heptomino **
-		{ "CHEP", 0},		// C-heptomino
-		{ "EHEP", 0},		// E-heptomino
-		{ "FHEP", 0x3010101C0000ULL },		// F-heptomino **
-		{ "HHEP", 0},		// H-heptomino
-		// Oscillator.
-		{ " OCT", 0x1824428181422418ULL },	// Octagon II				boring only good for a cool shape rly
-		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole **
-		{ " GBC", 0 },		// Glider block cycle
-		{ "FLOP", 0x828027C02280800ULL },		// By flops				boring only good for a cool shape rly
-		// Coil.
-		{ " CAP", 0},		// Cap
+		{ "BHEP", 0x2C3810000000ULL },		// B-heptomino 
+		{ "CHEP", 0x1C38100000ULL },		// C-heptomino 
+		{ "EHEP", 0x1C30180000ULL },		// E-heptomino 
+		{ "FHEP", 0x3010101C0000ULL },		// F-heptomino
+		{ "HHEP", 0x30101C080000ULL },		// H-heptomino
 		// Misc.
-		{ " B&G", 0},		// Block and glider
-		{ "BUNY", 0},		// Rabbits
-		{ "WING", 0},		// Wing
-		{ "STEP", 0},		// Stairstep hexomino
-		{ "WORD", 0},		// Rephaser
-		{ "CORN", 0},		// Acorn		meh?
-		{ " CUP", 0},		// Cuphook		HOOK?
-		{ "NSEP", 0},		// Nonomino switch engine predecessor
-		{ "HAND", 0},		// Handshake
-		{ "CENT", 0},		// Century
-		{ "PARV", 0},		// Multum in parvo
-		{ "SENG", 0},		// Switch engine
-		{ "CHEL", 0},		// Herschel descendant
-		{ "FIG8", 0x7070700E0E0E00ULL },		// Figure 8 **
-		// Still life.
-		{ " BIT", 0x8000000ULL }			// Single dot **
+		{ " BIT", 0x8000000ULL },			// Lonely living cell
+		{ "BLOK", 0x1818000000ULL },		// Still life 4x4
+		{ "BUNY", 0x4772200000ULL },		// Rabbits
+		{ " B&G", 0x30280C000000ULL },		// Block and glider
+		{ "CENT", 0xC38100000ULL },			// Century
+		{ "CHEL", 0x302C0414180000ULL },	// Herschel descendant
+		{ " CUP", 0xC1410D0D2161030ULL },	// Cuphook
+		{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8
+		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole
+		{ "G-BC", 0x1818000024A56600ULL },	// Glider-block cycle
+		{ "HAND", 0xC1634180000ULL },		// Handshake
+		{ "NSEP", 0x70141E000000ULL },		// Nonomino switch engine predecessor
+		{ "PARV", 0xE1220400000ULL },		// Multum in parvo
+		{ "SENG", 0x2840240E0000ULL },		// Switch engine
+		{ "STEP", 0xC1830000000ULL },		// Stairstep hexomino
+		{ "WING", 0x1824140C0000ULL },		// Wing
+		{ "WORD", 0x24A56600001818ULL }		// Rephaser
 	} };
 	static constexpr int seedDefault = 3;
 	int seedIndex = seedDefault;
-
 
 	int population = 0;
 	int prevPopulation = 0;
