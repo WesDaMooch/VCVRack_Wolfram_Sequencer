@@ -107,7 +107,7 @@ struct WolframModule : Module {
 	static constexpr int PARAM_CONTROL_INTERVAL = 64;
 
 	int sequenceLength = 8;
-	std::array<int, 10> sequenceLengths = { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 }; // static constexpr errors
+	std::array<int, 10> sequenceLengths { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	float chance = 1;
 	int offset = 0;	//display
 	int offsetPending = 0;

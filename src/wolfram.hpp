@@ -3,6 +3,8 @@
 #include <array>
 
 // TODO: stop using virtuals, use Function pointer instead?
+// TODO: If I want static constexpr need header and cpps for wolfram,
+// might be a good idea
 
 // Base class
 class AlgorithmBase {
@@ -323,40 +325,7 @@ private:
 class LifeAlgoithm : public AlgorithmBase {
 public:
 	LifeAlgoithm() {
-		// Define seeds.
-		// Generic rand seeds as randSeed will override behaviour.
-		/*
-		seedValues[static_cast<int>(Seeds::MIRROR_RANDOM)]			= 0;
-		seedValues[static_cast<int>(Seeds::HALF_RANDOM)]			= 0;
-		seedValues[static_cast<int>(Seeds::RANDOM)]					= 0;
-		// Spaceships
-		seedValues[static_cast<int>(Seeds::GLIDER)]					= 0x382010000000ULL;
-		seedValues[static_cast<int>(Seeds::LIGHTWEIGHT_SPACESHIP)]	= 0x1220223C00000000ULL;
-		seedValues[static_cast<int>(Seeds::MIDDLEWEIGHT_SPACESHIP)] = 0x82240427C000000ULL;
-		seedValues[static_cast<int>(Seeds::HEAVYEIGHT_SPACESHIP)]	= 0xC2140417E000000ULL;		// doesnt act like a spaceship, dont like that
-		seedValues[static_cast<int>(Seeds::SHIP)]					= 0xE62543000000ULL;
-		// Oscillator
-		seedValues[static_cast<int>(Seeds::OCTAGON_II)]				= 0x1824428181422418ULL;
-		seedValues[static_cast<int>(Seeds::FUMAROLE)]				= 0;
-		seedValues[static_cast<int>(Seeds::GLIDER_BLOCK_CYCLE)]		= 0;
-		seedValues[static_cast<int>(Seeds::BY_FLOPS)]				= 0;
-		// Heptomino
-		seedValues[static_cast<int>(Seeds::B_HEPTOMINO)]			= 0;
-		seedValues[static_cast<int>(Seeds::C_HEPTOMINO)]			= 0;
-		seedValues[static_cast<int>(Seeds::E_HEPTOMINO)]			= 0;
-		seedValues[static_cast<int>(Seeds::F_HEPTOMINO)]			= 0;
-		seedValues[static_cast<int>(Seeds::H_HEPTOMINO)]			= 0;
-		// Coil
-		seedValues[static_cast<int>(Seeds::CAP)]					= 0;
-		// Still life
-		seedValues[static_cast<int>(Seeds::DOT)]					= 0x8000000ULL;
-		*/
-
-
-		// Init seed.
-		//seed = seedValues[static_cast<int>(seeds)];
-		//frameBuffer[readHead] = seed;
-		frameBuffer[readHead] = seeds[seedIndex].value;
+		frameBuffer[readHead] = seeds[seedIndex].matrix;
 	}
 
 	void OutputMatrixStep() override {
@@ -377,27 +346,114 @@ public:
 	}
 
 	void Generate() override {
-		// Conway's Game of Life.
-		// Base on efficent implementation by paperclip optimizer
+		// 2D cellular automata.
+		// Based on parallel bitwise implementation by Tomas Rokicki, Paperclip Optimizer
 		// and Michael Abrash's (Graphics Programmer's Black Book, Chapter 17) padding method. 
 		
 		uint64_t readMatrix = frameBuffer[readHead];
-		uint64_t writeFrame = 0;
+		uint64_t writeMatrix = 0;
 
-		// Eight matrix rows + top & bottom padding rows 
+		// Eight matrix rows + top & bottom padding.
 		std::array<uint8_t, 10> row{};
 
-		// Fill rows
+		// Fill rows from current matrix.
 		for (int i = 1; i < 9; i++)
 			row[i] = (readMatrix >> ((i - 1) * 8)) & 0xFFULL;
 
-		// Fill top & bottom padding rows
+		// Fill top & bottom padding rows.
 		switch (mode) {
 		case Mode::WRAP:
 			row[0] = row[8];
 			row[9] = row[1];
 			break;
-		case Mode::RAND:
+		case Mode::RANDOM:
+			row[0] = random::get<uint8_t>();
+			row[9] = random::get<uint8_t>();
+			break;
+		default:
+			// Clip
+			row[0] = 0;
+			row[9] = 0;
+			break;
+		}
+
+		for (int i = 1; i < 9; i++) {
+			// 8 neighbours - NW, N, NE, W, E, SW, S, SE.
+			uint8_t n = row[i - 1];
+			uint8_t current = row[i];
+			uint8_t s = row[i + 1];
+			uint8_t nw = 0, ne = 0, w = 0, e = 0, sw = 0, se = 0;
+
+			getHorizontalNeighbours(n, nw, ne);
+			getHorizontalNeighbours(current, w, e);
+			getHorizontalNeighbours(s, sw, se);
+
+			// Parallel bit-wise addition.
+			// What the helly.
+			uint8_t s1, c1;
+			halfadder(nw, n, s1, c1);
+
+			uint8_t s2, c2;
+			fulladder(ne, w, s1, s2, c2);
+
+			uint8_t s3, c3;
+			fulladder(e, sw, s2, s3, c3);
+
+			uint8_t s4, c4;
+			fulladder(s, se, s3, s4, c4);
+
+			uint8_t bit0 = s4;
+			uint8_t bit1 = c1 ^ c2 ^ c3 ^ c4;
+			uint8_t bit2 = (c1 & c2) | (c1 & c3) | (c1 & c4) |
+				(c2 & c3) | (c2 & c4) | (c3 & c4);
+
+			std::array<uint8_t, 9> alive{};
+			alive[0] = ~bit0 & ~bit1 & ~bit2;				
+			alive[1] = bit0 & ~bit1 & ~bit2;				
+			alive[2] = ~bit0 & bit1 & ~bit2;
+			alive[3] = bit0 & bit1 & ~bit2;
+			alive[4] = ~bit0 & ~bit1 & bit2;
+			alive[5] = bit0 & ~bit1 & bit2;
+			alive[6] = ~bit0 & bit1 & bit2;
+			alive[7] = bit0 & bit1 & bit2;
+			alive[8] = nw & n & ne & w & e & sw & s & se;
+
+			// Apply rule
+			uint8_t birth = 0;
+			uint8_t survival = 0;
+
+			for (int k = 0; k < 9; k++) {
+				if (rules[ruleIndex].birth & (1 << k))
+					birth |= alive[k];
+				if (rules[ruleIndex].survival & (1 << k))
+					survival |= alive[k];
+			}
+
+			uint8_t nextRow = (current & survival) | birth;
+			writeMatrix |= static_cast<uint64_t>(nextRow) << ((i - 1) * 8);
+		}
+
+		frameBuffer[writeHead] = writeMatrix;
+
+
+		/*
+		uint64_t readMatrix = frameBuffer[readHead];
+		uint64_t writeMatrix = 0;
+
+		// Eight matrix rows + top & bottom padding.
+		std::array<uint8_t, 10> row {};
+
+		// Fill rows.
+		for (int i = 1; i < 9; i++)
+			row[i] = (readMatrix >> ((i - 1) * 8)) & 0xFFULL;
+
+		// Fill top & bottom padding rows.
+		switch (mode) {
+		case Mode::WRAP:
+			row[0] = row[8];
+			row[9] = row[1];
+			break;
+		case Mode::RANDOM:
 			row[0] = random::get<uint8_t>();
 			row[9] = random::get<uint8_t>();
 			break;
@@ -423,7 +479,7 @@ public:
 				left = (row[i] >> 1) | (row[i] << 7);
 				right = (row[i] << 1) | (row[i] >> 7);
 				break;
-			case Mode::RAND:
+			case Mode::RANDOM:
 				left |= (random::get<bool>() << 7);
 				right |= random::get<bool>();
 				break;
@@ -437,7 +493,8 @@ public:
 			partialAnd[i] = horizAnd[i] | (horizXor[i] & row[i]);
 		}
 		
-		// Parallel bit-wise addition
+		// Parallel bit-wise addition.
+		// What the helly.
 		std::array<uint8_t, 8>  sumBit0{};
 		std::array<uint8_t, 8>  sumBit1{};
 		std::array<uint8_t, 8>  sumBit2{};
@@ -455,44 +512,67 @@ public:
 		// Apply rule
 		for (int i = 1; i < 9; i++) {
 			int sumIndex = i - 1;
+			//uint8_t newRow = GetRule(sumBit0[sumIndex], sumBit1[sumIndex], sumBit2[sumIndex], row[i]);
 
-			uint8_t newRow = GetRule(sumBit0[sumIndex], sumBit1[sumIndex], sumBit2[sumIndex], row[i]);
-			writeFrame |= (uint64_t(newRow) << (sumIndex * 8));
+			// Takes a three bit sum of alive cells per each row & the row itself 
+			// applies selected rule and returns the row generation.
+			std::array<uint8_t, 8> alive{};
+			alive[0] = ~sumBit0[sumIndex] & ~sumBit1[sumIndex] & ~sumBit2[sumIndex];
+			alive[1] = sumBit0[sumIndex] & ~sumBit1[sumIndex] & ~sumBit2[sumIndex];
+			alive[2] = ~sumBit0[sumIndex] & sumBit1[sumIndex] & ~sumBit2[sumIndex];
+			alive[3] = sumBit0[sumIndex] & sumBit1[sumIndex] & ~sumBit2[sumIndex];
+			alive[4] = ~sumBit0[sumIndex] & ~sumBit1[sumIndex] & sumBit2[sumIndex];
+			alive[5] = sumBit0[sumIndex] & ~sumBit1[sumIndex] & sumBit2[sumIndex];
+			alive[6] = ~sumBit0[sumIndex] & sumBit1[sumIndex] & sumBit2[sumIndex];
+			alive[7] = sumBit0[sumIndex] & sumBit1[sumIndex] & sumBit2[sumIndex];
+
+			uint8_t birth = 0;
+			uint8_t survival = 0;
+
+			for (int k = 0; k < 8; k++) {
+				if (rules[ruleIndex].birth & (1 << k))
+					birth |= alive[k];
+				if (rules[ruleIndex].survival & (1 << k))
+					survival |= alive[k];
+			}
+
+			uint8_t newRow =  birth | (row[i] & survival);
+			writeMatrix |= (uint64_t(newRow) << (sumIndex * 8));
 		}
-		frameBuffer[writeHead] = writeFrame;
+		frameBuffer[writeHead] = writeMatrix;
+		*/
 	}
 
 	void GenerateReset(bool w) override {
-		//
-		uint64_t resetFrame = seeds[seedIndex].value;
+		size_t head = readHead;
+		if (w)
+			head = writeHead;
+
+		uint64_t resetMatrix = seeds[seedIndex].matrix;
 
 		// Dynamic random seeds.
 		switch (seedIndex) {
 		case 0:
-			// S random
-			resetFrame = random::get<uint32_t>();
+			// TODO: S random
+			resetMatrix = random::get<uint32_t>();
 			break;
 		case 1:
-			// Half random
-			resetFrame = 0;
+			// TODO: Half random
+			resetMatrix = 0;
 			break;
 		case 2:
 			// True random
-			resetFrame = random::get<uint64_t>();
+			resetMatrix = random::get<uint64_t>();
 			break;
 		default:
 			break;
 		}
 
-		size_t head = readHead;
-		if (w)
-			head = writeHead;
-
-		frameBuffer[head] = resetFrame;
+		frameBuffer[head] = resetMatrix;
 	}
 
 	void Inject(bool a, bool w) override {
-		int head = readHead;
+		size_t head = readHead;
 		if (w)
 			head = writeHead;
 		uint64_t matrix = frameBuffer[head];
@@ -533,13 +613,11 @@ public:
 
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
-			rule = Rule::LIFE;
+			//rule = Rule::LIFE;
+			ruleIndex = ruleDefault;
 			return;
 		}
-
-		int ruleIndex = static_cast<int>(rule);
 		ruleIndex = (ruleIndex + d + numRules) % numRules;
-		rule = static_cast<Rule>(ruleIndex);
 	}
 
 	void SeedUpdate(int d, bool r) override {
@@ -547,7 +625,6 @@ public:
 			seedIndex = seedDefault;
 			return;
 		}
-
 		seedIndex = (seedIndex + d + numSeeds) % numSeeds;
 	}
 
@@ -589,6 +666,9 @@ public:
 	// Drawing functions
 	void DrawRule(NVGcontext* vg, float fs) override {
 		nvgText(vg, 0, 0, "RULE", nullptr);
+		nvgText(vg, 0, fs, rules[ruleIndex].displayName, nullptr);
+
+		/*
 		switch (rule) {
 		case Rule::LIFE:
 			nvgText(vg, 0, fs, "LIFE", nullptr);
@@ -615,6 +695,7 @@ public:
 			nvgText(vg, 0, fs, "NOPE", nullptr);
 			break;
 		}
+		*/
 	}
 
 	void DrawModeMenu(NVGcontext* vg, float fs) override {
@@ -626,7 +707,7 @@ public:
 		case Mode::CLIP:
 			nvgText(vg, 0, fs * 2, "CLIP", nullptr);
 			break;
-		case Mode::RAND:
+		case Mode::RANDOM:
 			nvgText(vg, 0, fs * 2, "RAND", nullptr);
 			break;
 		default:
@@ -646,73 +727,43 @@ public:
 	}
 
 	// Internal algoithm specific functions
-	uint8_t GetRule(uint8_t bit0, uint8_t bit1, uint8_t bit2, uint8_t row) {
-		// Takes a three bit sum of alive cells per each row & the row itself, 
-		// applies selected rule and returns the row generation.
-
-
-
-		rules[ruleIndex].birth;
-		rules[ruleIndex].survival;
-
-		// old working code...
-
-		// Bool for each alive count (0-7)
-		// uint8_t alive0 = ~bit0 & ~bit1 & ~bit2;
-		uint8_t alive1 = bit0 & ~bit1 & ~bit2;
-		uint8_t alive2 = ~bit0 & bit1 & ~bit2;
-		uint8_t alive3 = bit0 & bit1 & ~bit2;
-		uint8_t alive4 = ~bit0 & ~bit1 & bit2;
-		uint8_t alive5 = bit0 & ~bit1 & bit2;
-		uint8_t alive6 = ~bit0 & bit1 & bit2;
-		uint8_t alive7 = bit0 & bit1 & bit2;
-
-		// Birth & survival condtions
-		uint8_t birth = 0;
-		uint8_t survival = 0;
-
-
-		switch (rule) {
-		case Rule::HIGH:
-			// High Life (B36/S23) *
-			birth = alive3 | alive6;
-			survival = alive2 | alive3;
+	void getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& east) {
+		switch (mode) {
+		case Mode::WRAP:
+			west = (row >> 1) | (row << 7);
+			east = (row << 1) | (row >> 7);
 			break;
-		case Rule::DUPE:
-			// Replicator (B1357/S1357) *
-			birth = alive1 | alive3 | alive5 | alive7;
-			survival = alive1 | alive3 | alive5 | alive7;
-			break;
-		case Rule::R2X2:
-			// 2x2 (B36/S125) *? maybe a bit boring
-			birth = alive3 | alive6;
-			survival = alive1 | alive2 | alive5;
-			break;
-		case Rule::R34:
-			// 34 Life (B34/S34) **
-			birth = alive3 | alive4;
-			survival = alive3 | alive4;
-			break;
-		case Rule::WES:
-
-			birth = alive1 | alive3;
-			survival = alive3;
-			break;
-		case Rule::SEED:
-			// Seeds (B2/S) ** got a glider I think!
-			birth = alive2;
-			survival = 0;
+		case Mode::RANDOM:
+			west |= (row >> 1) | (random::get<bool>() << 7);
+			east |= (row << 1) | random::get<bool>();
 			break;
 		default:
-			// Game of Life (B3/S23) *
-			birth = alive3;
-			survival = alive2 | alive3;
+			// Clip
+			west = row >> 1;
+			east = row << 1;
 			break;
 		}
-		return birth | (row & survival);
+	}
+
+	// Tomas Rokicki's Life Algorithms.
+	static inline void halfadder(uint8_t a, uint8_t b,
+		uint8_t& c0, uint8_t& c1) {
+
+		c0 = a ^ b;
+		c1 = a & b;
+	}
+
+	static inline void fulladder(uint8_t a, uint8_t b, uint8_t c,
+		uint8_t& c0, uint8_t& c1) {
+
+		uint8_t t0, t1, t2;
+		halfadder(a, b, t0, t1);
+		halfadder(t0, c, c0, t2);
+		c1 = t2 | t1;
 	}
 
 private:
+	/*
 	enum class Rule {
 		// idk
 		LIFE,	// cool
@@ -746,45 +797,59 @@ private:
 
 		RULE_LEN
 	};
+	*/
 
 	enum class Mode {
 		CLIP,
 		WRAP,
+		//KlEIN_BOTTLE,
+		//CROSS_SURFACE,
+		//SPHERE,
+		RANDOM,
+		MODE_LEN
+
 		// BOTL	Klein bottle 
 		// CROS Cross-surface
 		// ORB	Sphere
-		RAND,
-		MODE_LEN
 	};
 
 	Mode mode = Mode::WRAP;
 	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
 	static constexpr float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
-	Rule rule = Rule::LIFE;
-	static constexpr int numRules = static_cast<int>(Rule::RULE_LEN);
+	struct Rule {
+		// Birth and survival conditions are encoded by the 
+		// index position of a 1 in a 16-bit int,
+		// only the first 9 bits are used for neighbor count 0-8.
+		// Example rule: B3/S23 is ...000001000, ...000001100,
+		// or in hexadecimal	      0x08,			0x0C.
 
-	struct Rule2 {
 		char displayName[5];
-		uint8_t birth;
-		uint8_t survival;
-		// TODO: hmmm this
-		// Alive data (uint8_t, 00100010 = 1 and 5 alive in the hood
+		uint16_t birth;
+		uint16_t survival;
 	};
-	static constexpr int numRules2 = 3;	// 10?
-	std::array<Rule2, numRules2> rules { {
-		{ "LIFE", 0x08, 0x0C },		// Conway's game of life B3/S23  0x08, 0x0C 
-		{ "DUPE", 0xAA, 0xAA },		// Replicator B1357/S1357
-		{ "SEED", 0x04, 0 }
+
+	static constexpr int numRules = 8;
+	std::array<Rule, numRules> rules{ {
+		// Rules from the Hatsya catagolue.
+		{ "ACID", 0x08, 0x16 },		// Corrosion of conformity	B3/S124
+		{ "CLOT", 0x188, 0x1EC },	// Coagulations				B378/S235678
+		{ "DUPE", 0xAA, 0xAA },		// Replicator				B1357/S1357
+		{ "GNRL", 0x02, 0x02 },		// Gnarl					B1/S1
+		{ "LIFE", 0x08, 0x0C },		// Conway's game of life	B3/S23
+		{ "MAZE", 0x30, 0x1E },		// Mazectric non static		B45/S1234
+		{ "SEED", 0x04, 0 },		// Seeds					B2/S
+		{ "SERV", 0x1C, 0 },		// Serviettes				B234/S
 	} };
-	static constexpr int ruleDefault = 0;
-	int ruleIndex = seedDefault;
+	static constexpr int ruleDefault = 4;
+	int ruleIndex = ruleDefault;
 
 
 	struct Seed {
 		char displayName[5];
-		uint64_t value;
+		uint64_t matrix;
 	};
+
 	static constexpr int numSeeds = 28;
 	std::array<Seed, numSeeds> seeds { {
 		// Patterns from the Life Lexicon.
@@ -820,9 +885,13 @@ private:
 		{ "STEP", 0xC1830000000ULL },		// Stairstep hexomino
 		{ "WING", 0x1824140C0000ULL },		// Wing
 		{ "WORD", 0x24A56600001818ULL }		// Rephaser
+		// Cross
+		// Oct
 	} };
+
 	static constexpr int seedDefault = 3;
 	int seedIndex = seedDefault;
+
 
 	int population = 0;
 	int prevPopulation = 0;
