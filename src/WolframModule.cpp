@@ -85,15 +85,10 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
-	WolframEngine wEngine; 
+	AlgoithmEngine algo; 
 
-	Look moduleLook = Look::BEFACO;
-	DisplayMenu moduleMenu = DisplayMenu::SEED;
-
-	dsp::TBiquadFilter<float> dcBlockFilter;
-	//dsp::TRCFilter<float> dcBlockFilter2;
-
-	dsp::RCFilter dcFilter[2];
+	Look look = Look::BEFACO;
+	DisplayMenu displayMenu = DisplayMenu::SEED;
 
 	dsp::SchmittTrigger trigTrigger;
 	dsp::SchmittTrigger posInjectTrigger;
@@ -104,12 +99,14 @@ struct WolframModule : Module {
 	dsp::BooleanTrigger modeTrigger;
 	dsp::Timer ruleDisplayTimer;
 
+	dsp::RCFilter dcFilter[2];
+
 	static constexpr int PARAM_CONTROL_INTERVAL = 64;
 
 	int sequenceLength = 8;
 	std::array<int, 10> sequenceLengths { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	float chance = 1;
-	int offset = 0;	//display
+	int offset = 0;
 	int offsetPending = 0;
 	bool resetPending = false;
 	bool ruleResetPending = false;
@@ -171,9 +168,6 @@ struct WolframModule : Module {
 		configLight(TRIG_LIGHT, "Trigger");
 		configLight(INJECT_LIGHT, "Inject");
 
-		//wEngine.setReadHead(0);
-		//wEngine.setWriteHead(1);
-
 		onSampleRateChange();
 	}
 
@@ -206,6 +200,7 @@ struct WolframModule : Module {
 		// Set up X & Y DC Blocking filters
 		const float sampleTime = APP->engine->getSampleTime();
 		for (int i = 0; i < 2; i++) {
+			//dcFilter[i].setCutoffFreq(10.f * sampleTime);
 			dcFilter[i].setCutoffFreq(10.f * sampleTime);
 		}
 	}
@@ -220,30 +215,30 @@ struct WolframModule : Module {
 
 		// Select encoder drag and double-click selection logic
 		if (menu) {
-			switch (moduleMenu) {
+			switch (displayMenu) {
 			case SEED: {
 				if (encoderReset) {
-					wEngine.seedUpdate(0, true);
+					algo.seedUpdate(0, true);
 					encoderReset = false;
 					displayUpdate = true;
 					break;
 				}
 				if (delta == 0)
 					break;
-				wEngine.seedUpdate(delta, false);
+				algo.seedUpdate(delta, false);
 				displayUpdate = true;
 				break;
 			}
 			case MODE: {
 				if (encoderReset) {
-					wEngine.modeUpdate(0, true);
+					algo.modeUpdate(0, true);
 					encoderReset = false;
 					displayUpdate = true;
 					break;
 				}
 				if (delta == 0)
 					break;
-				wEngine.modeUpdate(delta, false);
+				algo.modeUpdate(delta, false);
 				displayUpdate = true;
 				break;
 			}
@@ -279,21 +274,21 @@ struct WolframModule : Module {
 			}
 			case ALGORITHM: {
 				if (encoderReset) {
-					wEngine.algoithmUpdate(0, true);
+					algo.algoithmUpdate(0, true);
 					encoderReset = false;
 					displayUpdate = true;
 					break;
 				}
 				if (delta == 0)
 					break;
-				wEngine.algoithmUpdate(delta, false);
-				wEngine.outputMatrixPush();
+				algo.algoithmUpdate(delta, false);
+				algo.outputMatrixPush();
 				displayUpdate = true;
 				break;
 			}
 			case LOOK: {
 				if (encoderReset) {
-					moduleLook = Look::BEFACO;
+					look = Look::BEFACO;
 					encoderReset = false;
 					displayUpdate = true;
 				}
@@ -302,9 +297,9 @@ struct WolframModule : Module {
 					break;
 
 				const int numLooks = static_cast<int>(Look::LOOK_LEN);
-				int lookIndex = static_cast<int>(moduleLook);
+				int lookIndex = static_cast<int>(look);
 				lookIndex = (lookIndex + delta + numLooks) % numLooks;
-				moduleLook = static_cast<Look>(lookIndex);
+				look = static_cast<Look>(lookIndex);
 
 				displayUpdate = true;
 				break;
@@ -315,13 +310,11 @@ struct WolframModule : Module {
 		else {
 			// Rule select
 			if (encoderReset) {
-				//wolframEngine.resetRule();
-				wEngine.ruleUpdate(0, true);
+				algo.ruleUpdate(0, true);
 				encoderReset = false;
 			}
 			else if (delta != 0) {
-				//wolframEngine.updateRule(delta);
-				wEngine.ruleUpdate(delta, false);
+				algo.ruleUpdate(delta, false);
 			}
 			else {
 				return; 
@@ -335,10 +328,8 @@ struct WolframModule : Module {
 				genPending = true;
 				ruleResetPending = false;
 				if (gen) {
-					//wolframEngine.generateReset(internalReadHead);
-					//wolframEngine.pushToOutputMatix(internalReadHead);
-					wEngine.generateReset();
-					wEngine.outputMatrixPush();
+					algo.seedReset();
+					algo.outputMatrixPush();
 				}
 			}
 			displayRule = true;
@@ -350,7 +341,6 @@ struct WolframModule : Module {
 	void process(const ProcessArgs& args) override {
 
 		// BUTTONS & ENCODER
-
 		processEncoder(args);
 
 		if (menuTrigger.process(params[MENU_PARAM].getValue())) {
@@ -361,14 +351,14 @@ struct WolframModule : Module {
 		if (modeTrigger.process(params[MODE_PARAM].getValue())) {
 			if (menu) {
 				int numMenus = static_cast<int>(DisplayMenu::MENU_LEN);
-				int menuIndex = static_cast<int>(moduleMenu);
+				int menuIndex = static_cast<int>(displayMenu);
 				menuIndex++;
 				if (menuIndex >= numMenus) { menuIndex = 0; }
-				moduleMenu = static_cast<DisplayMenu>(menuIndex);
+				displayMenu = static_cast<DisplayMenu>(menuIndex);
 				displayUpdate = true;
 			}
 			else {
-				wEngine.modeUpdate(1, false);
+				algo.modeUpdate(1, false);
 			}
 		}
 
@@ -386,8 +376,8 @@ struct WolframModule : Module {
 		}
 		else if (offset != newOffset) {
 			offset = newOffset;
-			wEngine.setOffset(newOffset);
-			wEngine.outputMatrixPush();
+			algo.setOffset(newOffset);
+			algo.outputMatrixPush();
 			if (!menu) { displayUpdate = true; }
 		}
 
@@ -403,8 +393,8 @@ struct WolframModule : Module {
 				}
 			}
 			else {
-				wEngine.inject(positiveInject ? true : false);
-				wEngine.outputMatrixPush();
+				algo.inject(positiveInject ? true : false);
+				algo.outputMatrixPush();
 				injectPendingState = 0;
 				if (!menu) displayUpdate = true;
 			}
@@ -419,13 +409,13 @@ struct WolframModule : Module {
 				genPending = true;
 				resetPending = false;
 				if (gen) {
-					wEngine.generateReset();
+					algo.seedReset();
 				}
 				else {
-					wEngine.setReadHead(0);
-					wEngine.setWriteHead(1);
+					algo.setReadHead(0);
+					algo.setWriteHead(1);
 				}
-				wEngine.outputMatrixPush();
+				algo.outputMatrixPush();
 				if (!menu) displayUpdate = true;
 			}
 		}
@@ -452,16 +442,16 @@ struct WolframModule : Module {
 
 			// Synced offset
 			if (sync) {
-				wEngine.setOffset(offsetPending);
+				algo.setOffset(offsetPending);
 			}
 
 			// Synced inject
 			switch (injectPendingState) {
 			case 1:
-				wEngine.inject(true, true);
+				algo.inject(true, true);
 				break;
 			case 2:
-				wEngine.inject(false, true);
+				algo.inject(false, true);
 				break;
 			default: 
 				break;
@@ -470,20 +460,20 @@ struct WolframModule : Module {
 			// Synced reset
 			if (resetPending || ruleResetPending) {
 				if (gen) {
-					wEngine.generateReset(true);
+					algo.seedReset(true);
 				}
 				else if (!ruleResetPending) {
-					wEngine.setWriteHead(0);
+					algo.setWriteHead(0);
 				}
 			}
 
 			if (gen && !resetPending && !ruleResetPending && !injectPendingState) {
-				wEngine.generate();
+				algo.generate();
 			}
 
-			wEngine.advanceHeads(sequenceLength);
-			wEngine.outputMatrixStep();
-			wEngine.outputMatrixPush();
+			algo.advanceHeads(sequenceLength);
+			algo.outputMatrixStep();
+			algo.outputMatrixPush();
 
 			// Reset gen and sync penders
 			gen = false;
@@ -497,8 +487,8 @@ struct WolframModule : Module {
 		}
 
 		// OUTPUT
-		float xCv = wEngine.getXVoltage();
-		float yCv = wEngine.getYVoltage();
+		float xCv = algo.getXVoltage();
+		float yCv = algo.getYVoltage();
 		if (vcoMode) {
 			xCv -= 0.5f;
 			dcFilter[0].process(xCv);
@@ -516,17 +506,17 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
 		// Pulse outputs - 0V to 10V.
-		bool xGate = wEngine.getXGate();
+		bool xGate = algo.getXGate();
 		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
 
-		bool yGate = wEngine.getYGate();
+		bool yGate = algo.getYGate();
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// Debug output
 		//outputs[Y_PULSE_OUTPUT].setVoltage(sequenceLength);
 
 		// LIGHTS
-		lights[MODE_LIGHT].setBrightnessSmooth(wEngine.getModeValue(), args.sampleTime); 
+		lights[MODE_LIGHT].setBrightnessSmooth(algo.getModeLEDValue(), args.sampleTime); 
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_GATE_LIGHT].setBrightness(xGate);
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
@@ -535,12 +525,10 @@ struct WolframModule : Module {
 		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject, args.sampleTime);
 
 		// UPDATE DISPLAY
-		
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
 			displayRule = false;
 			if (!menu) displayUpdate = true;
 		}
-
 		// 30fps limited
 		if (displayUpdate && (((args.frame + this->id) % displayUpdateInterval) == 0)) {
 			displayUpdate = false;
@@ -553,7 +541,7 @@ struct MatrixDisplayBuffer : FramebufferWidget {
 	WolframModule* module;
 	MatrixDisplayBuffer(WolframModule* m) {
 		module = m;
-		// what is this do ing?
+		// what is this doing?
 	}
 	void step() override {
 		if (module && module->dirty) {
@@ -605,11 +593,11 @@ struct MatrixDisplay : Widget {
 		nvgText(vg, 0, 0, "menu", nullptr);
 		switch (Menu) {
 			case SEED: {
-				module->wEngine.drawSeedMenu(vg, fontSize);
+				module->algo.drawSeedMenu(vg, fontSize);
 				break;
 			}
 			case MODE: {
-				module->wEngine.drawModeMenu(vg, fontSize);
+				module->algo.drawModeMenu(vg, fontSize);
 				break;
 			}
 			case SYNC: {
@@ -635,12 +623,12 @@ struct MatrixDisplay : Widget {
 			}
 			case ALGORITHM: {
 				// WOLF ANT LIFE
-				module->wEngine.drawAlgoithmMenu(vg, fontSize);
+				module->algo.drawAlgoithmMenu(vg, fontSize);
 				break;
 			}
 			case LOOK: {
 				nvgText(vg, 0, fontSize, "LOOK", nullptr);
-				switch (module->moduleLook) {
+				switch (module->look) {
 				case OLED:
 					nvgText(vg, 0, fontSize * 2, "OLED", nullptr);
 					lcdBackground = nvgRGB(33, 62, 115);
@@ -709,18 +697,18 @@ struct MatrixDisplay : Widget {
 		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
 		if (module->menu) {
-			drawMenu(vg, module->moduleMenu);
+			drawMenu(vg, module->displayMenu);
 		}
 		else {
 			int startRow = 0;
 			if (module->displayRule) {
 				startRow = matrixRows - 4;
 				nvgFillColor(vg, primaryAccent);
-				module->wEngine.drawRule(vg, fontSize);
+				module->algo.drawRuleMenu(vg, fontSize);
 			}
 
 			// Requires flipping before drawing
-			uint64_t matrix = module->wEngine.getOutputMatrix();
+			uint64_t matrix = module->algo.getOutputMatrix();
 
 			for (int row = startRow; row < matrixRows; row++) {
 				int rowInvert = (row - 7) * -1;
@@ -728,6 +716,7 @@ struct MatrixDisplay : Widget {
 				for (int col = 0; col < matrixCols; col++) {
 					int colInvert = 7 - col;
 					int cellIndex = rowInvert * 8 + colInvert;
+					//int cellIndex = row * 8 + col;
 					bool cellState = (matrix >> cellIndex) & 1ULL;  
 
 					nvgBeginPath(vg);
