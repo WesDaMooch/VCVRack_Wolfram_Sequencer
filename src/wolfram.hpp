@@ -6,10 +6,6 @@
 // TODO: If I want static constexpr need header and cpps for wolfram,
 // might be a good idea
 
-
-// MSB = left most
-// LSB = right most
-
 // Base class
 class AlgorithmBase {
 public:
@@ -395,7 +391,7 @@ public:
 
 	void Generate() override {
 		// 2D cellular automata.
-		// Based on parallel bitwise implementation by Tomas Rokicki, Paperclip Optimizer
+		// Based on parallel bitwise implementation by Tomas Rokicki, Paperclip Optimizer,
 		// and Michael Abrash's (Graphics Programmer's Black Book, Chapter 17) padding method.
 		//
 		// Not optimal but efficent enough and readable.
@@ -517,17 +513,17 @@ public:
 
 		// Dynamic random seeds.
 		switch (seedIndex) {
-		case 0:
-			// TODO: S random
-			resetMatrix = random::get<uint32_t>();
-			break;
-		case 1:
-			// TODO: Half random
-			resetMatrix = 0;
-			break;
-		case 2:
+		case 20:
 			// True random
 			resetMatrix = random::get<uint64_t>();
+			break;
+		case 21:
+			// TODO: Half random
+			resetMatrix = random::get<uint32_t>();
+			break;
+		case 22:
+			// TODO: S random
+			resetMatrix = 0;
 			break;
 		default:
 			break;
@@ -756,115 +752,80 @@ private:
 	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
 	static constexpr float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
-	static constexpr int numRules = 22;	// 30?
+	static constexpr int numRules = 30;
 	std::array<Rule, numRules> rules{ {
 			// Rules from the Hatsya catagolue & LifeWiki.
-			{ "24/7", 0x3B1C8U },		// Day & Night				B3678/S34678	*
-			{ " 2X2", 0x4C48U },		// 2x2						B35/S125		*
-			{ " 3-4", 0x3018U },		// 3-4 Life					B34/S34			*
-			{ "ACID", 0x2C08U },		// Corrosion of Conformity	B3/S124			*
-			//{ "CLOT", 0x188, 0x1EC },	// Coagulations				B378/S235678	
-			{ "DIAM", 0x3C1E8U },		// Diamoeba					B35678/S5678	*
-			{ "DUPE", 0x154AAU },		// Replicator				B1357/S1357		*
-			{ "FLOK", 0xC08U },			// Flock					B3/S12
-			{ "FREE", 0x204U },			// Live Free or Die			B2/S0			*
-			{ "GNRL", 0x402U },			// Gnarl					B1/S1			*
-			{ "LIFE", 0x1808U },		// Conway's Game of Life	B3/S23			*
-			{ "MAZE", 0x7C88U },		// Maze with mice			B37/S12345		Mazectric non static old:B45/S1234 <- better
-			{ "MESS", 0x3D9C8U },		// Stains					B3678/S235678   *
-			{ "MOVE", 0x6948U },		// Move	/ Morley			B368/S245		*
-			{ "SEED", 0x04U },			// Seeds					B2/S			*
-			{ "RUGS", 0x1CU },			// Serviettes				B234/S			*
-			{ "SQRT", 0x6848U },		// Sqrt Replicator			B36/S245		*
-			{ "LONG", 0x4038U },		// LongLife					B345/S5			*
-			{ " LOW", 0x21948U },		// LowDeath					B368/S238		*
-			{ "HUNY", 0x21908U },		// HoneyLife				B38/S238		
-			{ "ICE9", 0x3C1E4U },		// Iceballs					B25678/S5678	*
+			{ "24/7", 0x3B1C8U },		// Day & Night				B3678/S34678	
+			{ " 2X2", 0x4C48U },		// 2x2						B35/S125		
+			{ " 3-4", 0x3018U },		// 3-4 Life					B34/S34			
+			{ "ACID", 0x2C08U },		// Corrosion of Conformity	B3/S124			
+			{ "CLOT", 0x3D988U },		// Coagulations				B378/S235678	
+			{ "DANC", 0x5018U },		// Dance					B34/S35			
+			{ "DIAM", 0x3C1E8U },		// Diamoeba					B35678/S5678	
 			{ "DIRT", 0x1828U },		// Grounded Life			B35/S23
-			{ "TREK", 0x22A08U },		// Star Trek				B3/S0248		*
+			{ " DOT", 0x1A08U },		// DotLife					B3/S023
+			{ "DUPE", 0x154AAU },		// Replicator				B1357/S1357		
+			{ "FLOK", 0xC08U },			// Flock					B3/S12
+			{ "FORT", 0x3D5C8U },		// Castles					B3678/S135678   
+			{ "FREE", 0x204U },			// Live Free or Die			B2/S0			
+			{ "GEMS", 0x2E0B8U },		// Gems						B3457/S4568		
+			{ " GEO", 0x3A9A8U },		// Geology					B3578/S24678	
+			{ "GNRL", 0x402U },			// Gnarl					B1/S1			
+			{ "HUNY", 0x21908U },		// HoneyLife				B38/S238		
+			{ "ICE9", 0x3C1E4U },		// Iceballs					B25678/S5678	
+			{ "LIFE", 0x1808U },		// Conway's Game of Life	B3/S23			
+			{ "LONG", 0x4038U },		// LongLife					B345/S5			
+			{ " LOW", 0x1408U },		// LowLife					B3/S13		
+			{ "MAZE", 0x3C30U },		// Mazectric non Static		B45/S1234 
+			{ "MESS", 0x3D9C8U },		// Stains					B3678/S235678   
+			{ "MOVE", 0x6948U },		// Move / Morley			B368/S245		
+			{ "RUGS", 0x1CU },			// Serviettes				B234/S			
+			{ "SEED", 0x04U },			// Seeds					B2/S			
+			{ "SQRT", 0x6848U },		// Sqrt Replicator			B36/S245		
+			{ "TREK", 0x22A08U },		// Star Trek				B3/S0248		
+			{ "VRUS", 0x5848U },		// Virus					B36/S235
+			{ "WALK", 0x1908U },		// Pedestrian Life			B38/S23
 
-			// looks cool
-			// Shoots and Roots (??) - good ship https://conwaylife.com/wiki/OCA:Shoots_and_Roots
-			// Dance p cool tbh https://conwaylife.com/wiki/OCA:Dance
-			// Land Rush could b cool https://conwaylife.com/wiki/OCA:Land_Rush
-			// Geo might be ok https://conwaylife.com/wiki/OCA:Geology
-			// Virus, has some ship https://conwaylife.com/wiki/OCA:Virus
-			
-			// hmmm
-			// Castles https://conwaylife.com/wiki/OCA:Castles
-
-			// HighLife nah
-			// Gems ye?
-			// DryLife meh
-			// EightLife meh
-			// DotLife maybe
-			//{ "WALK", 0x1908U },		// Pedestrian Life			B38/S23			Bit to much like Life
 	} };
-	static constexpr int ruleDefault = 0;
+	static constexpr int ruleDefault = 18;
 	int ruleIndex = ruleDefault;
 
-	// TODO: Add some seeds from over rule sets
-	static constexpr int numSeeds = 40;
+	static constexpr int numSeeds = 30;
 	std::array<Seed, numSeeds> seeds { {
-		// Patterns from the Life Lexicon & LifeWiki.
-		// Random - generic seeds as values are dynamic.
+		// Patterns from the Life Lexicon, Hatsya catagolue & LifeWiki.
    		// Soup, junk, ash - https://conwaylife.com/wiki/Soup
-		{ " RND", 0x0ULL },					// True random
-		{ "RNDM", 0x0ULL },					// Mirror / symmetrical random,			
-		{ "RND2", 0x0ULL },					// Half random - could be quarter random
-		// Spaceship.
-		{ "FLYR", 0x382010000000ULL },		// Glider,								Rule: Life, LowDeath, HoneyLife			
-		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight spaceship,				Rule: Life, LowDeath, HoneyLife 
-		{ "MWSS", 0x82240427C000000ULL },	// Middleweight spaceship,	TODO: make face down			Rule: Life, LowDeath, HoneyLife
-		// Heptomino.
-		{ "BHEP", 0x2C3810000000ULL },		// B-heptomino   // TODO: R hep?
-		{ "CHEP", 0x1C38100000ULL },		// C-heptomino 
-		{ "EHEP", 0x1C30180000ULL },		// E-heptomino 
-		{ "FHEP", 0x3010101C0000ULL },		// F-heptomino
-		{ "HHEP", 0x30101C080000ULL },		// H-heptomino
-		// Misc.
-		{ " BIT", 0x8000000ULL },			// Lonely living cell - meh
-		{ "BLOK", 0x1818000000ULL },		// Still life 4x4		BORING, good with dupe
-		{ "BUNY", 0x4772200000ULL },		// Rabbits
-		{ " B&G", 0x30280C000000ULL },		// Block and glider
-		{ "CENT", 0xC38100000ULL },			// Century
-		{ "CHEL", 0x302C0414180000ULL },	// Herschel descendant
-		{ " CUP", 0xC1410D0D2161030ULL },	// Cuphook
-		{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8,							Rule: Life 
-		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole,							Rule: Life  						
-		{ "G-BC", 0x1818000024A56600ULL },	// Glider-block cycle,					Rule: Life 					
-		{ "HAND", 0xC1634180000ULL },		// Handshake							Rule: Life, HoneyLife
-		{ "NSEP", 0x70141E000000ULL },		// Nonomino switch engine predecessor
-		{ "PARV", 0xE1220400000ULL },		// Multum in parvo
-		{ "SENG", 0x2840240E0000ULL },		// Switch engine
-		{ "STEP", 0xC1830000000ULL },		// Stairstep hexomino					Rule: Life, HoneyLife
-		{ "WING", 0x1824140C0000ULL },		// Wing
-		{ "WORD", 0x24A56600001818ULL },	// Rephaser
-		// Cross
-		// Oct
-
-		{ "EPST", 0xBA7CEE440000ULL },		// Eppstein's glider,					Rule: Stains
-		{ "JELY", 0x203038000000ULL },		// Jellyfish spaceship,					Rule: Move, Sqrt replicator
-		{ "CRWL", 0x850001C0000ULL },		// Crawler,								Rule: 2x2
-		{ " GSV", 0x10387C38D60010ULL },	// Xq4_gkevekgzx2 spaceship, 			Rule: Day & Night
+		{ "34C3", 0x3C2464140000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
+		{ "34D3", 0x41E140C000000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
+		{ " B&G", 0x30280C000000ULL },		// Block and Glider						Rule: Life
 		{ "BFLY", 0x38740C0C0800ULL },		// Butterfly, 							Rule: Day & Night
-		{ "MOON", 0x1824000000ULL },		// Moon spaceship, 						Rule: Live Free or Die, Seeds, Iceballs
-		{ "34C3", 0x3C2464140000ULL },		// 3-4 Life spaceship, 					Rule: 3-4 Life
-		{ "34D3", 0x41E140C000000ULL },		// 3-4 Life spaceship, 					Rule: 3-4 Life
-		{ "BORG", 0x40304838380000ULL },	// xq6_5qqs spaceship, 					Rule: Star Trek
-
-
-		//LowLife seeds: https://conwaylife.com/wiki/OCA:LowLife
-
-		// Could add
-		//{ "XQ14", 0x10387C38D60010ULL },	// xq14_6q5tl spaceship, 				Rule: Amoeba b357s1358
-
-		// Nah
-		//{ "RGUN", 0x90048B88B0A000ULL },    // Rotating gun,						Rule: Pedestrian life DONT WORK
-		//{ "BLOB", 0x20BD3CFF3C3C0000ULL },	// Diamoeba Oscillator					Rule: Diamoeba
-		//{ "SHIP", 0x3018183000000000ULL },	// Ship,								Rule: Corrosion of Conformity
+		{ "BORG", 0x40304838380000ULL },	// Xq6_5qqs Spaceship, 					Rule: Star Trek	
+		{ "CHEL", 0x302C0414180000ULL },	// Herschel Descendant					Rule: Life
+		{ "CRWL", 0x850001C0000ULL },		// Crawler,								Rule: 2x2
+		{ "EPST", 0xBA7CEE440000ULL },		// Eppstein's Glider,					Rule: Stains
+		{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8,							Rule: Life 
+		{ "FLYR", 0x382010000000ULL },		// Glider,								Rule: Life, HoneyLife			
+		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole,							Rule: Life  						
+		{ " GSV", 0x10387C38D60010ULL },	// Xq4_gkevekgzx2 Spaceship, 			Rule: Day & Night
+		{ "G-BC", 0x1818000024A56600ULL },	// Glider-block Cycle,					Rule: Life 					
+		{ "HAND", 0xC1634180000ULL },		// Handshake							Rule: Life, HoneyLife
+		{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship,					Rule: Move, Sqrt Replicator
+		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship,				Rule: Life, HoneyLife 
+		{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship, 						Rule: Live Free or Die, Seeds, Iceballs
+		{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship, 					Rule: Virus
+		{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship,				Rule: Life, HoneyLife
+		{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
+		{ " RND", 0x0ULL },					// True Random,							generic seeds as values are dynamic.
+		{ "RND2", 0x0ULL },					// Half Density Random,					...
+		{ "RNDM", 0x0ULL },					// Symmetrical / Mirrored Random,		...
+		{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
+		{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship, 					Rule: LowLife
+		{ "STEP", 0xC1830000000ULL },		// Stairstep Hexomino					Rule: Life, HoneyLife
+		{ "VELP", 0x20700000705000ULL },	// Virus Spaceship, 					Rule: Virus
+		{ "VONG", 0x283C3C343000ULL },		// Castles Spaceship, 					Rule: Castles
+		{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship, 				Rule: LowLife
+		{ "WING", 0x1824140C0000ULL },		// Wing									Rule: Life
 	} };
-	static constexpr int seedDefault = 0;
+	static constexpr int seedDefault = 20;
 	int seedIndex = seedDefault;
 
 	int population = 0;
