@@ -14,14 +14,34 @@
 
 // TODO: Pulse out not gates
 // TODO: Fix type in value behaviour of Select encoder and Length dial
-// TODO: Game - space defence, control platform with offset, 'floor' rises when letting a bit through
 // TODO: The panel
 // TODO: Save state
 // TODO: onReset and onRandomize
 
+// TODO: Looks change Led colour
+
 #include "wolfram.hpp"
 
-enum DisplayMenu {
+struct Look {
+	char displayName[5];
+	NVGcolor background;
+	NVGcolor primaryAccent;
+	//NVGcolor secondaryAccent;
+
+	// NVGcolor led
+	// NVGcolor ledHalo
+};
+
+static constexpr int numLooks = 3;
+std::array<Look, numLooks> looks{ {
+		{ "BFAC", nvgRGB(67, 38, 38), nvgRGB(195, 67, 67) },	// Befaco
+		{ "OLED", nvgRGB(33, 62, 115), nvgRGB(183, 236, 255) },	// Oled
+		{ "RACK", nvgRGB(18, 18, 18), SCHEME_YELLOW },			// VCV Rack
+} };
+static constexpr int lookDefault = 0;
+int lookIndex = lookDefault;
+
+enum MenuPages {
 	SEED,
 	MODE,
 	SYNC,
@@ -29,22 +49,6 @@ enum DisplayMenu {
 	ALGORITHM,
 	LOOK,
 	MENU_LEN
-};
-
-enum Look {
-	BEFACO,
-	OLED,
-	RACK,
-	ACID,
-	MONO,
-	LOOK_LEN
-};
-
-
-enum Algorithm {
-	WOLF,
-	LIFE,
-	ALGORITHM_LEN
 };
 
 struct WolframModule : Module {
@@ -85,24 +89,13 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
-	AlgoithmEngine algo; 
-
-	Look look = Look::BEFACO;
-	DisplayMenu displayMenu = DisplayMenu::SEED;
-
-	dsp::SchmittTrigger trigTrigger;
-	dsp::SchmittTrigger posInjectTrigger;
-	dsp::SchmittTrigger negInjectTrigger;
-	dsp::SchmittTrigger resetTrigger;
-	dsp::PulseGenerator yPulseGenerator;
-	dsp::BooleanTrigger menuTrigger;
-	dsp::BooleanTrigger modeTrigger;
-	dsp::Timer ruleDisplayTimer;
-
-	dsp::RCFilter dcFilter[2];
+	AlgoithmDispatcher algo; 
+	
+	MenuPages menuPages = MenuPages::SEED;
 
 	static constexpr int PARAM_CONTROL_INTERVAL = 64;
 
+	//
 	int sequenceLength = 8;
 	std::array<int, 10> sequenceLengths { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
 	float chance = 1;
@@ -128,6 +121,17 @@ struct WolframModule : Module {
 	bool displayUpdate = true;
 	int displayUpdateInterval = 1000;
 	bool dirty = true;
+
+	dsp::SchmittTrigger trigTrigger;
+	dsp::SchmittTrigger posInjectTrigger;
+	dsp::SchmittTrigger negInjectTrigger;
+	dsp::SchmittTrigger resetTrigger;
+	dsp::PulseGenerator yPulseGenerator;
+	dsp::BooleanTrigger menuTrigger;
+	dsp::BooleanTrigger modeTrigger;
+	dsp::Timer ruleDisplayTimer;
+	// DC blocking filter.
+	dsp::RCFilter dcFilter[2];
 
 	// is this really nessisary 
 	inline int fastRoundInt(float value) {
@@ -215,7 +219,7 @@ struct WolframModule : Module {
 
 		// Select encoder drag and double-click selection logic
 		if (menu) {
-			switch (displayMenu) {
+			switch (menuPages) {
 			case SEED: {
 				if (encoderReset) {
 					algo.seedUpdate(0, true);
@@ -288,7 +292,7 @@ struct WolframModule : Module {
 			}
 			case LOOK: {
 				if (encoderReset) {
-					look = Look::BEFACO;
+					lookIndex = 0;
 					encoderReset = false;
 					displayUpdate = true;
 				}
@@ -296,10 +300,7 @@ struct WolframModule : Module {
 				if (delta == 0)
 					break;
 
-				const int numLooks = static_cast<int>(Look::LOOK_LEN);
-				int lookIndex = static_cast<int>(look);
 				lookIndex = (lookIndex + delta + numLooks) % numLooks;
-				look = static_cast<Look>(lookIndex);
 
 				displayUpdate = true;
 				break;
@@ -350,11 +351,11 @@ struct WolframModule : Module {
 
 		if (modeTrigger.process(params[MODE_PARAM].getValue())) {
 			if (menu) {
-				int numMenus = static_cast<int>(DisplayMenu::MENU_LEN);
-				int menuIndex = static_cast<int>(displayMenu);
+				int numMenus = static_cast<int>(MenuPages::MENU_LEN);
+				int menuIndex = static_cast<int>(menuPages);
 				menuIndex++;
 				if (menuIndex >= numMenus) { menuIndex = 0; }
-				displayMenu = static_cast<DisplayMenu>(menuIndex);
+				menuPages = static_cast<MenuPages>(menuIndex);
 				displayUpdate = true;
 			}
 			else {
@@ -363,7 +364,6 @@ struct WolframModule : Module {
 		}
 
 		// DIALS & INPUTS
-		// static_cast<size_t> ???
 		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
 		float chanceCv = clamp(inputs[CHANCE_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
@@ -498,18 +498,17 @@ struct WolframModule : Module {
 			dcFilter[1].process(yCv);
 			yCv = dcFilter[1].highpass();
 		}
-		// Cv outputs -  0V to 10V or -5V to 5V (10Vpp).
-		xCv = xCv * params[X_SCALE_PARAM].getValue() * 10.f; 
-		outputs[X_CV_OUTPUT].setVoltage(xCv);
 
+		// Cv outputs -  0V to 10V or -5V to 5V (10Vpp).
+		xCv = xCv * params[X_SCALE_PARAM].getValue() * 10.f;
 		yCv = yCv * params[Y_SCALE_PARAM].getValue() * 10.f;
+		outputs[X_CV_OUTPUT].setVoltage(xCv);
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
 		// Pulse outputs - 0V to 10V.
 		bool xGate = algo.getXGate();
-		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
-
 		bool yGate = algo.getYGate();
+		outputs[X_PULSE_OUTPUT].setVoltage(xGate ? 10.f : 0.f);
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// Debug output
@@ -522,7 +521,7 @@ struct WolframModule : Module {
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
 		lights[Y_GATE_LIGHT].setBrightness(yGate);
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
-		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject, args.sampleTime);
+		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject | negativeInject, args.sampleTime);
 
 		// UPDATE DISPLAY
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f) {
@@ -573,98 +572,50 @@ struct MatrixDisplay : Widget {
 	float cellSize = cellPos * 0.5f;
 	float fontSize = (matrixSize / matrixCols) * 2.f;
 
-	// Default Befaco colours 
-	NVGcolor lcdBackground = nvgRGB(67, 38, 38);		
-	NVGcolor primaryAccent = nvgRGB(195, 67, 67);		
-	NVGcolor primaryAccentOff = lcdBackground;
-	NVGcolor secondaryAccent = nvgRGB(76, 40, 40);
-
 	MatrixDisplay(WolframModule* m) {
 		module = m;	// TODO: does this get used
 		box.pos = Vec(mm2px(30.1) - matrixSize * 0.5, mm2px(26.14) - matrixSize * 0.5);
 		box.size = Vec(matrixSize, matrixSize);
 		
-		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf4.otf"));
+		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf5.otf"));
 		font = APP->window->loadFont(fontPath);
 	}
 
-	void drawMenu(NVGcontext* vg, DisplayMenu Menu) {
-		nvgFillColor(vg, primaryAccent);
+	void drawMenu(NVGcontext* vg, MenuPages Menu) {
+		//nvgFillColor(vg, primaryAccent);
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
 		nvgText(vg, 0, 0, "menu", nullptr);
 		switch (Menu) {
-			case SEED: {
+			case SEED:
 				module->algo.drawSeedMenu(vg, fontSize);
 				break;
-			}
-			case MODE: {
+			case MODE:
 				module->algo.drawModeMenu(vg, fontSize);
 				break;
-			}
-			case SYNC: {
+			case SYNC:
 				nvgText(vg, 0, fontSize, "SYNC", nullptr);
-				if (module->sync) {
+				if (module->sync)
 					nvgText(vg, 0, fontSize * 2, "LOCK", nullptr);
-				}
-				else {
+				else
 					nvgText(vg, 0, fontSize * 2, "FREE", nullptr);
-				}
 				break;
-			}
-			case FUNCTION: {
-				// CV AUD
+			case FUNCTION:
 				nvgText(vg, 0, fontSize, "FUNC", nullptr);
-				if (module->vcoMode) {
+				if (module->vcoMode)
 					nvgText(vg, 0, fontSize * 2, " VCO", nullptr);
-				}
-				else {
+				else
 					nvgText(vg, 0, fontSize * 2, " SEQ", nullptr);
-				}
 				break;
-			}
-			case ALGORITHM: {
-				// WOLF ANT LIFE
+			case ALGORITHM:
 				module->algo.drawAlgoithmMenu(vg, fontSize);
 				break;
-			}
-			case LOOK: {
+			case LOOK:
 				nvgText(vg, 0, fontSize, "LOOK", nullptr);
-				switch (module->look) {
-				case OLED:
-					nvgText(vg, 0, fontSize * 2, "OLED", nullptr);
-					lcdBackground = nvgRGB(33, 62, 115);
-					primaryAccent = nvgRGB(183, 236, 255);
-					primaryAccentOff = lcdBackground;
-					break;
-				case RACK:
-					nvgText(vg, 0, fontSize * 2, "RACK", nullptr);
-					lcdBackground = nvgRGB(18, 18, 18);
-					primaryAccent = SCHEME_YELLOW;
-					primaryAccentOff = lcdBackground;
-					break;
-				case ACID:
-					nvgText(vg, 0, fontSize * 2, "ACID", nullptr);
-					lcdBackground = nvgRGB(6, 56, 56);
-					primaryAccent = nvgRGB(175, 210, 44);	// Create theme
-					primaryAccentOff = lcdBackground;
-					break;
-				case MONO:
-					nvgText(vg, 0, fontSize * 2, "MONO", nullptr);
-					lcdBackground = nvgRGB(18, 18, 18);		// Create theme
-					primaryAccent = nvgRGB(255, 255, 255);
-					primaryAccentOff = lcdBackground;
-					break;
-				default:
-					// Befaco 
-					nvgText(vg, 0, fontSize * 2, "BFAC", nullptr);
-					lcdBackground = nvgRGB(67, 38, 38);
-					primaryAccent = nvgRGB(195, 67, 67);
-					primaryAccentOff = lcdBackground;
-					break;
-				}
+				nvgText(vg, 0, fontSize * 2, looks[lookIndex].displayName, nullptr);
 				module->dirty = true;	// TODO: feels bad doing this
 				break;
-			}
-			default: { break; }
+			default:
+				break;
 		}
 		nvgText(vg, 0, fontSize * 3, "<*+>", nullptr);
 	}
@@ -674,11 +625,12 @@ struct MatrixDisplay : Widget {
 		nvgBeginPath(vg);
 		//nvgRect(vg, 0, 0, matrixSize, matrixSize);
 		nvgRoundedRect(vg, 0.f, 0.f, matrixSize, matrixSize, 2.f);
-		nvgFillColor(vg, lcdBackground);
+		//nvgFillColor(vg, lcdBackground);
+		nvgFillColor(vg, looks[lookIndex].background);
 		nvgFill(vg);
 		// Border
 		nvgStrokeWidth(vg, 1.f);
-		nvgStrokeColor(vg, nvgRGB(0x10, 0x10, 0x10));
+		nvgStrokeColor(vg, nvgRGB(16, 16, 16));
 		nvgStroke(vg);
 		nvgClosePath(vg);
 
@@ -690,40 +642,40 @@ struct MatrixDisplay : Widget {
 			return;
 		}
 
-		if (!font) return;
+		if (!font)
+			return;
 
 		nvgFontSize(vg, fontSize);
 		nvgFontFaceId(vg, font->handle);
 		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
 		if (module->menu) {
-			drawMenu(vg, module->displayMenu);
+			drawMenu(vg, module->menuPages);
+			return;
 		}
-		else {
-			int startRow = 0;
-			if (module->displayRule) {
-				startRow = matrixRows - 4;
-				nvgFillColor(vg, primaryAccent);
-				module->algo.drawRuleMenu(vg, fontSize);
-			}
 
-			// Requires flipping before drawing
-			uint64_t matrix = module->algo.getOutputMatrix();
+		int firstRow = 0;
+		if (module->displayRule) {
+			firstRow = matrixRows - 4;
+			nvgFillColor(vg, looks[lookIndex].primaryAccent);
+			module->algo.drawRuleMenu(vg, fontSize);
+		}
 
-			for (int row = startRow; row < matrixRows; row++) {
-				int rowInvert = (row - 7) * -1;
+		// Requires flipping before drawing.
+		uint64_t matrix = module->algo.getOutputMatrix();
 
-				for (int col = 0; col < matrixCols; col++) {
-					int colInvert = 7 - col;
-					int cellIndex = rowInvert * 8 + colInvert;
-					//int cellIndex = row * 8 + col;
-					bool cellState = (matrix >> cellIndex) & 1ULL;  
+		for (int row = firstRow; row < matrixRows; row++) {
+			int rowInvert = (row - 7) * -1;
 
-					nvgBeginPath(vg);
-					nvgCircle(vg, (cellPos * col) + cellSize, (cellPos * row) + cellSize, cellSize);
-					nvgFillColor(vg, cellState ? primaryAccent : primaryAccentOff);
-					nvgFill(vg);
-				}
+			for (int col = 0; col < matrixCols; col++) {
+				int colInvert = 7 - col;
+				int cellIndex = rowInvert * 8 + colInvert;
+				bool cellState = (matrix >> cellIndex) & 1ULL;
+
+				nvgBeginPath(vg);
+				nvgCircle(vg, (cellPos * col) + cellSize, (cellPos * row) + cellSize, cellSize);
+				nvgFillColor(vg, cellState ? looks[lookIndex].primaryAccent : looks[lookIndex].background);
+				nvgFill(vg);
 			}
 		}
 	}
@@ -734,7 +686,8 @@ struct MoochEncoder : RoundBlackKnob {
 	MoochEncoder() { }
 
 	void onDoubleClick(const DoubleClickEvent& e) override {
-		// Reset Select encoder to default of current selection. See processEncoder for details.
+		// Reset Select encoder to default of current selection,
+		// see processEncoder for details.
 		auto* m = static_cast<WolframModule*>(module);
 		m->encoderReset = true;
 	}
@@ -788,6 +741,7 @@ struct WolframModuleWidget : ModuleWidget {
 				nvgRect(args.vg, 0, 0, this->box.size.x, this->box.size.y);
 
 				nvgFillColor(args.vg, this->color);
+				//nvgFillColor(args.vg, looks[lookIndex].primaryAccent);
 				nvgFill(args.vg);
 			}
 			nvgRestore(args.vg);
@@ -820,6 +774,7 @@ struct WolframModuleWidget : ModuleWidget {
 			nvgBeginPath(args.vg);
 			nvgRect(args.vg, -br, -br, this->box.size.x + 2 * br, this->box.size.y + 2 * br);
 			NVGcolor icol = color::mult(TBase::color, halo);
+			//NVGcolor icol = color::mult(looks[lookIndex].primaryAccent, halo);
 			NVGcolor ocol = nvgRGBA(0, 0, 0, 0);
 			nvgFillPaint(args.vg, nvgBoxGradient(args.vg, 0, 0, this->box.size.x, this->box.size.y, cr, br, icol, ocol));
 			nvgFill(args.vg);

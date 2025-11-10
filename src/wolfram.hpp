@@ -6,7 +6,6 @@
 // TODO: If I want static constexpr need header and cpps for wolfram,
 // might be a good idea
 
-// Base class
 class AlgorithmBase {
 public:
 	AlgorithmBase() {}
@@ -121,6 +120,7 @@ public:
 		uint8_t east = readRow << 1;
 		switch (mode) {
 		case Mode::WRAP:
+
 			west = (readRow >> 1) | (readRow << 7);
 			east = (readRow << 1) | (readRow >> 7);
 			break;
@@ -304,8 +304,8 @@ public:
 
 private:
 	enum class Mode {
-		WRAP,
 		CLIP,
+		WRAP,
 		RANDOM,
 		MODE_LEN
 	};
@@ -357,16 +357,16 @@ public:
 	void getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& east) {
 		switch (mode) {
 		case Mode::CLIP:
-			west = row << 1;  
-			east = row >> 1;  
+			west = row >> 1;  
+			east = row << 1;  
 			break;
 		case Mode::RANDOM:
-			west = (row << 1) | (random::get<bool>());     
-			east = (row >> 1) | (random::get<bool>() << 7);
+			west = (row >> 1) | (random::get<bool>() << 7);     
+			east = (row << 1) | random::get<bool>();
 			break;
 		default: // Wrap & klein bottle
-			west = (row << 1) | (row >> 7);
-			east = (row >> 1) | (row << 7);
+			west = (row >> 1) | (row << 7);
+			east = (row << 1) | (row >> 7);
 			break;
 		}
 	}
@@ -513,18 +513,26 @@ public:
 
 		// Dynamic random seeds.
 		switch (seedIndex) {
-		case 20:
-			// True random
+		case 9:
+			// True random.
 			resetMatrix = random::get<uint64_t>();
 			break;
-		case 21:
-			// TODO: Half random
-			resetMatrix = random::get<uint32_t>();
+		case 8:
+			// Half desity random.
+			resetMatrix = random::get<uint64_t>() & 
+				random::get<uint64_t>();
 			break;
-		case 22:
-			// TODO: S random
-			resetMatrix = 0;
+		case 7: {
+			// Symmetrical / mirrored random.
+			uint32_t randomHalf = random::get<uint32_t>();
+			uint64_t mirroredRandomHalf = 0;
+			for (int i = 0; i < 4; i++) {
+				uint8_t row = (randomHalf >> (i * 8)) & 0xFFUL;
+				mirroredRandomHalf |= static_cast<uint64_t>(row) << ((i - 3) * -8);
+			}
+			resetMatrix = randomHalf | (mirroredRandomHalf << 32);
 			break;
+		}
 		default:
 			break;
 		}
@@ -701,42 +709,6 @@ private:
 		uint64_t seedInt;
 	};
 
-	/*
-	enum class Rule {
-		// idk
-		LIFE,	// cool
-		HIGH,	// cool (bit like life)
-		DUPE,	// cool
-		R2X2,	// bit boring, 
-		R34,	// v cool
-		WES, 
-		SEED,	// v cool
-
-		// Amoeba (S1358/B357), might not work on 8x8 board *
-		// Assimilation (S4567/B345), might be fun with rand mode? *
-		// Coagulations (S235678/B378), pretty cool *
-		// Coral (S45678/B3), pretty cool, but goes semi-static fast
-		// Day & Night (S34678/B3678), cool *
-		// Diamoeba (S5678/B35678), cool but goes semi-static fast
-		// Flakes (S012345678/B3), also known as Life without Death (LwoD), cool but semi-static
-		// Gnarl (S1/B1), pretty mental and cool *
-		// InverseLife (S34678/B0123478), ye kinda cool *
-		// Long life (S5/B345), cool but might do dead on a small grid *
-		// Maze (S12345/B3), cool but goes semi-static fast
-		// Mazectric (S1234/B3), cool but goes semi-static fast
-		// Mazectric non static (S1234/B45), cool *
-		// Corrosion of Conformity (S124/B3), check rule, cool ish *
-		// Move (S245/B368), do kinda like it *
-		// Pseudo life (S238/B357), could include bit it might be so similar to life *
-		// Seeds (2) (/B2), might be cool? * 
-		// Serviettes (/B234), ye p cool *
-		// Stains (S235678/B3678), too static maybe 
-		// WalledCities (S2345/B45678), cool but will it work on small grid
-
-		RULE_LEN
-	};
-	*/
-
 	enum class Mode {
 		CLIP,			// A plane bounded by 0s.
 		WRAP,			// Donut-shaped torus.
@@ -754,78 +726,76 @@ private:
 
 	static constexpr int numRules = 30;
 	std::array<Rule, numRules> rules{ {
-			// Rules from the Hatsya catagolue & LifeWiki.
-			{ "24/7", 0x3B1C8U },		// Day & Night				B3678/S34678	
-			{ " 2X2", 0x4C48U },		// 2x2						B35/S125		
-			{ " 3-4", 0x3018U },		// 3-4 Life					B34/S34			
-			{ "ACID", 0x2C08U },		// Corrosion of Conformity	B3/S124			
-			{ "CLOT", 0x3D988U },		// Coagulations				B378/S235678	
-			{ "DANC", 0x5018U },		// Dance					B34/S35			
-			{ "DIAM", 0x3C1E8U },		// Diamoeba					B35678/S5678	
-			{ "DIRT", 0x1828U },		// Grounded Life			B35/S23
-			{ " DOT", 0x1A08U },		// DotLife					B3/S023
-			{ "DUPE", 0x154AAU },		// Replicator				B1357/S1357		
-			{ "FLOK", 0xC08U },			// Flock					B3/S12
-			{ "FORT", 0x3D5C8U },		// Castles					B3678/S135678   
-			{ "FREE", 0x204U },			// Live Free or Die			B2/S0			
-			{ "GEMS", 0x2E0B8U },		// Gems						B3457/S4568		
-			{ " GEO", 0x3A9A8U },		// Geology					B3578/S24678	
-			{ "GNRL", 0x402U },			// Gnarl					B1/S1			
-			{ "HUNY", 0x21908U },		// HoneyLife				B38/S238		
-			{ "ICE9", 0x3C1E4U },		// Iceballs					B25678/S5678	
-			{ "LIFE", 0x1808U },		// Conway's Game of Life	B3/S23			
-			{ "LONG", 0x4038U },		// LongLife					B345/S5			
-			{ " LOW", 0x1408U },		// LowLife					B3/S13		
-			{ "MAZE", 0x3C30U },		// Mazectric non Static		B45/S1234 
-			{ "MESS", 0x3D9C8U },		// Stains					B3678/S235678   
-			{ "MOVE", 0x6948U },		// Move / Morley			B368/S245		
-			{ "RUGS", 0x1CU },			// Serviettes				B234/S			
-			{ "SEED", 0x04U },			// Seeds					B2/S			
-			{ "SQRT", 0x6848U },		// Sqrt Replicator			B36/S245		
-			{ "TREK", 0x22A08U },		// Star Trek				B3/S0248		
-			{ "VRUS", 0x5848U },		// Virus					B36/S235
-			{ "WALK", 0x1908U },		// Pedestrian Life			B38/S23
-
+		// Rules from the Hatsya catagolue & LifeWiki.
+		{ "WALK", 0x1908U },			// Pedestrian Life			B38/S23
+		{ "VRUS", 0x5848U },			// Virus					B36/S235
+		{ "TREK", 0x22A08U },			// Star Trek				B3/S0248		
+		{ "SQRT", 0x6848U },			// Sqrt Replicator			B36/S245		
+		{ "SEED", 0x04U },				// Seeds					B2/S			
+		{ "RUGS", 0x1CU },				// Serviettes				B234/S			
+		{ "MOVE", 0x6948U },			// Move / Morley			B368/S245		
+		{ "MESS", 0x3D9C8U },			// Stains					B3678/S235678   
+		{ "MAZE", 0x3C30U },			// Mazectric non Static		B45/S1234 
+		{ " LOW", 0x1408U },			// LowLife					B3/S13		
+		{ "LONG", 0x4038U },			// LongLife					B345/S5			
+		{ "LIFE", 0x1808U },			// Conway's Game of Life	B3/S23			
+		{ "ICE9", 0x3C1E4U },			// Iceballs					B25678/S5678	
+		{ "HUNY", 0x21908U },			// HoneyLife				B38/S238		
+		{ "GNRL", 0x402U },				// Gnarl					B1/S1			
+		{ " GEO", 0x3A9A8U },			// Geology					B3578/S24678	
+		{ "GEMS", 0x2E0B8U },			// Gems						B3457/S4568		
+		{ "FREE", 0x204U },				// Live Free or Die			B2/S0			
+		{ "FORT", 0x3D5C8U },			// Castles					B3678/S135678   
+		{ "FLOK", 0xC08U },				// Flock					B3/S12
+		{ "DUPE", 0x154AAU },			// Replicator				B1357/S1357		
+		{ " DOT", 0x1A08U },			// DotLife					B3/S023
+		{ "DIRT", 0x1828U },			// Grounded Life			B35/S23
+		{ "DIAM", 0x3C1E8U },			// Diamoeba					B35678/S5678	
+		{ "DANC", 0x5018U },			// Dance					B34/S35			
+		{ "CLOT", 0x3D988U },			// Coagulations				B378/S235678	
+		{ "ACID", 0x2C08U },			// Corrosion of Conformity	B3/S124			
+		{ " 3-4", 0x3018U },			// 3-4 Life					B34/S34			
+		{ " 2X2", 0x4C48U },			// 2x2						B35/S125		
+		{ "24/7", 0x3B1C8U },			// Day & Night				B3678/S34678	
 	} };
-	static constexpr int ruleDefault = 18;
+	static constexpr int ruleDefault = 11;
 	int ruleIndex = ruleDefault;
 
 	static constexpr int numSeeds = 30;
 	std::array<Seed, numSeeds> seeds { {
 		// Patterns from the Life Lexicon, Hatsya catagolue & LifeWiki.
-   		// Soup, junk, ash - https://conwaylife.com/wiki/Soup
-		{ "34C3", 0x3C2464140000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
-		{ "34D3", 0x41E140C000000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
-		{ " B&G", 0x30280C000000ULL },		// Block and Glider						Rule: Life
-		{ "BFLY", 0x38740C0C0800ULL },		// Butterfly, 							Rule: Day & Night
-		{ "BORG", 0x40304838380000ULL },	// Xq6_5qqs Spaceship, 					Rule: Star Trek	
-		{ "CHEL", 0x302C0414180000ULL },	// Herschel Descendant					Rule: Life
-		{ "CRWL", 0x850001C0000ULL },		// Crawler,								Rule: 2x2
-		{ "EPST", 0xBA7CEE440000ULL },		// Eppstein's Glider,					Rule: Stains
-		{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8,							Rule: Life 
-		{ "FLYR", 0x382010000000ULL },		// Glider,								Rule: Life, HoneyLife			
-		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole,							Rule: Life  						
-		{ " GSV", 0x10387C38D60010ULL },	// Xq4_gkevekgzx2 Spaceship, 			Rule: Day & Night
-		{ "G-BC", 0x1818000024A56600ULL },	// Glider-block Cycle,					Rule: Life 					
-		{ "HAND", 0xC1634180000ULL },		// Handshake							Rule: Life, HoneyLife
-		{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship,					Rule: Move, Sqrt Replicator
-		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship,				Rule: Life, HoneyLife 
-		{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship, 						Rule: Live Free or Die, Seeds, Iceballs
-		{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship, 					Rule: Virus
-		{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship,				Rule: Life, HoneyLife
-		{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
-		{ " RND", 0x0ULL },					// True Random,							generic seeds as values are dynamic.
-		{ "RND2", 0x0ULL },					// Half Density Random,					...
-		{ "RNDM", 0x0ULL },					// Symmetrical / Mirrored Random,		...
-		{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
-		{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship, 					Rule: LowLife
-		{ "STEP", 0xC1830000000ULL },		// Stairstep Hexomino					Rule: Life, HoneyLife
-		{ "VELP", 0x20700000705000ULL },	// Virus Spaceship, 					Rule: Virus
-		{ "VONG", 0x283C3C343000ULL },		// Castles Spaceship, 					Rule: Castles
-		{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship, 				Rule: LowLife
 		{ "WING", 0x1824140C0000ULL },		// Wing									Rule: Life
+		{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship, 				Rule: LowLife
+		{ "VONG", 0x283C3C343000ULL },		// Castles Spaceship, 					Rule: Castles
+		{ "VELP", 0x20700000705000ULL },	// Virus Spaceship, 					Rule: Virus
+		{ "STEP", 0xC1830000000ULL },		// Stairstep Hexomino					Rule: Life, HoneyLife
+		{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship, 					Rule: LowLife
+		{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
+		{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random,
+		{ "RND2", 0xEFA8EFA474577557ULL },	// Half Density Random,				
+		{ " RND", random::get<uint64_t>() },// True Random,
+		{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
+		{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship,				Rule: Life, HoneyLife
+		{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship, 					Rule: Virus
+		{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship, 						Rule: Live Free or Die, Seeds, Iceballs
+		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship,				Rule: Life, HoneyLife 
+		{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship,					Rule: Move, Sqrt Replicator
+		{ "HAND", 0xC1634180000ULL },		// Handshake							Rule: Life, HoneyLife
+		{ "G-BC", 0x1818000024A56600ULL },	// Glider-block Cycle,					Rule: Life 					
+		{ " GSV", 0x10387C38D60010ULL },	// Xq4_gkevekgzx2 Spaceship, 			Rule: Day & Night
+		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole,							Rule: Life  						
+		{ "FLYR", 0x382010000000ULL },		// Glider,								Rule: Life, HoneyLife			
+		{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8,							Rule: Life 
+		{ "EPST", 0xBA7CEE440000ULL },		// Eppstein's Glider,					Rule: Stains
+		{ "CRWL", 0x850001C0000ULL },		// Crawler,								Rule: 2x2
+		{ "CHEL", 0x302C0414180000ULL },	// Herschel Descendant					Rule: Life
+		{ "BORG", 0x40304838380000ULL },	// Xq6_5qqs Spaceship, 					Rule: Star Trek	
+		{ "BFLY", 0x38740C0C0800ULL },		// Butterfly, 							Rule: Day & Night
+		{ " B&G", 0x30280C000000ULL },		// Block and Glider						Rule: Life
+		{ "34D3", 0x41E140C000000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
+		{ "34C3", 0x3C2464140000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
 	} };
-	static constexpr int seedDefault = 20;
+	static constexpr int seedDefault = 9;
 	int seedIndex = seedDefault;
 
 	int population = 0;
@@ -835,10 +805,10 @@ private:
 	static constexpr float yVoltageScaler = 1.f / UINT64_MAX;
 };
 
-class AlgoithmEngine {
+class AlgoithmDispatcher {
 public:
 	// Algoithm dispatcher.
-	AlgoithmEngine() {
+	AlgoithmDispatcher() {
 		algorithms[0] = &wolf;
 		algorithms[1] = &life;
 
