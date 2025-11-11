@@ -6,6 +6,26 @@
 // TODO: If I want static constexpr need header and cpps for wolfram,
 // might be a good idea
 
+struct Look {
+	char displayName[5];
+	NVGcolor background;
+	NVGcolor primaryAccent;
+	NVGcolor secondaryAccent;
+
+	// NVGcolor led
+	// NVGcolor ledHalo
+};
+
+static constexpr int numLooks = 3;
+std::array<Look, numLooks> looks{ {
+		{ "BFAC", nvgRGB(58, 16, 19), nvgRGB(228, 7, 7),nvgRGB(78, 12, 9) },		// Befaco
+		{ "OLED", nvgRGB(33, 62, 115), nvgRGB(183, 236, 255),nvgRGB(0, 0, 0) },	// Oled
+		{ "RACK", nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(0, 0, 0) },			// VCV Rack
+} };
+static constexpr int lookDefault = 0;
+int lookIndex = lookDefault;
+
+
 class AlgorithmBase {
 public:
 	AlgorithmBase() {}
@@ -44,6 +64,20 @@ public:
 		return outputMatrix; 
 	}
 
+	void DrawTextBackground(NVGcontext* vg, int r, float p, float fs) {
+		// Draws one row of text background.
+		float rectSize = fs - 2.f;
+		nvgFillColor(vg, looks[lookIndex].secondaryAccent);
+
+		for (int col = 0; col < 4; col++) {
+			nvgBeginPath(vg);
+			nvgRoundedRect(vg, (fs * col) + (fs * 0.5f) - (rectSize * 0.5f) + p,
+				(fs * r) + (fs * 0.5f) - (rectSize * 0.5f) + p, rectSize, rectSize, 2.f);
+			nvgFill(vg);
+			nvgClosePath(vg);
+		}
+	}
+	
 	// Algorithm specific functions
 	virtual void OutputMatrixStep() = 0;
 	virtual void OutputMatrixPush(int o) = 0;
@@ -63,9 +97,9 @@ public:
 	virtual bool GetYGate() = 0;
 
 	// Drawing functions
-	virtual void DrawRuleMenu(NVGcontext* vg, float fs) = 0;
-	virtual void DrawSeedMenu(NVGcontext* vg, float fs) = 0;
-	virtual void DrawModeMenu(NVGcontext* vg, float fs) = 0;
+	virtual void DrawRuleMenu(NVGcontext* vg, float p, float fs) = 0;
+	virtual void DrawSeedMenu(NVGcontext* vg, float p, float fs) = 0;
+	virtual void DrawModeMenu(NVGcontext* vg, float p, float fs) = 0;
 
 	// LED function
 	virtual float GetModeLEDValue() = 0;
@@ -253,41 +287,59 @@ public:
 	}
 
 	// Drawing functions
-	void DrawRuleMenu(NVGcontext* vg, float fs) override {
+	void DrawRuleMenu(NVGcontext* vg, float p, float fs) override {
+		DrawTextBackground(vg, 0, p, fs);
+		DrawTextBackground(vg, 1, p, fs);
+
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
 		nvgText(vg, 0, 0, "RULE", nullptr);
 		char ruleString[5];
 		snprintf(ruleString, sizeof(ruleString), "%4.3d", rule);
 		nvgText(vg, 0, fs, ruleString, nullptr);
 	}
 
-	void DrawModeMenu(NVGcontext* vg, float fs) override {
-		nvgText(vg, 0, fs, "MODE", nullptr);
+	void DrawModeMenu(NVGcontext* vg, float p, float fs) override {
+		DrawTextBackground(vg, 1, p, fs);
+		DrawTextBackground(vg, 2, p, fs);
+
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
+		nvgText(vg, p, fs + p, "MODE", nullptr);
 		switch (mode) {
 		case Mode::WRAP: 
-			nvgText(vg, 0, fs * 2, "WRAP", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "WRAP", nullptr);
 			break;
 		case Mode::CLIP: 
-			nvgText(vg, 0, fs * 2, "CLIP", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "CLIP", nullptr);
 			break;
 		case Mode::RANDOM: 
-			nvgText(vg, 0, fs * 2, "RAND", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "RAND", nullptr);
 			break;
 		default: 
 			break;
 		}
 	}
 
-	void DrawSeedMenu(NVGcontext* vg, float fs) override {
-		nvgText(vg, 0, fs, "SEED", nullptr);
+	void DrawSeedMenu(NVGcontext* vg, float p, float fs) override {
+		DrawTextBackground(vg, 1, p, fs);
+		DrawTextBackground(vg, 2, p, fs);
+
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
+		nvgText(vg, p, fs + p, "SEED", nullptr);
 
 		if (randSeed) {
-			nvgText(vg, 0, fs * 2, "RAND", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "RAND", nullptr);
 			return;
 		}
+		// TODO: this will be broken
+		//float padding = 1.f;
 		float cellPos = fs * 0.5f;
 		float cellSize = fs * 0.25f;
 		for (int col = 0; col < 8; col++) {
 			if ((seed >> (7 - col)) & 1) {
+
+				//nvgCircle(vg, (cellGrid * col) + (cellGrid * 0.5f) + padding,
+					//(cellGrid * row) + (cellGrid * 0.5f) + padding, cellSize);
+
 				nvgBeginPath(vg);
 				nvgCircle(vg, (cellPos * col) + cellSize, fs * 2.5f, cellSize);
 				nvgFill(vg);
@@ -633,63 +685,46 @@ public:
 	}
 
 	// Drawing functions
-	void DrawRuleMenu(NVGcontext* vg, float fs) override {
-		nvgText(vg, 0, 0, "RULE", nullptr);
-		nvgText(vg, 0, fs, rules[ruleIndex].displayName, nullptr);
+	void DrawRuleMenu(NVGcontext* vg, float p, float fs) override {
+		DrawTextBackground(vg, 0, p, fs);
+		DrawTextBackground(vg, 1, p, fs);
 
-		/*
-		switch (rule) {
-		case Rule::LIFE:
-			nvgText(vg, 0, fs, "LIFE", nullptr);
-			break;
-		case Rule::HIGH:
-			nvgText(vg, 0, fs, "HIGH", nullptr);
-			break;
-		case Rule::DUPE:
-			nvgText(vg, 0, fs, "DUPE", nullptr);
-			break;
-		case Rule::R2X2:
-			nvgText(vg, 0, fs, " 2X2", nullptr);
-			break;
-		case Rule::R34:
-			nvgText(vg, 0, fs, "  34", nullptr);
-			break;
-		case Rule::WES:
-			nvgText(vg, 0, fs, " WES", nullptr);
-			break;
-		case Rule::SEED:
-			nvgText(vg, 0, fs, "SEED", nullptr);
-			break;
-		default:
-			nvgText(vg, 0, fs, "NOPE", nullptr);
-			break;
-		}
-		*/
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
+		nvgText(vg, p, p, "RULE", nullptr);
+		nvgText(vg, p, fs + p, rules[ruleIndex].displayName, nullptr);
 	}
 
-	void DrawModeMenu(NVGcontext* vg, float fs) override {
-		nvgText(vg, 0, fs, "MODE", nullptr);
+	void DrawModeMenu(NVGcontext* vg, float p, float fs) override {
+		DrawTextBackground(vg, 1, p, fs);
+		DrawTextBackground(vg, 2, p, fs);
+
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
+		nvgText(vg, p, fs + p, "MODE", nullptr);
 		switch (mode) {
 		case Mode::WRAP:
-			nvgText(vg, 0, fs * 2, "WRAP", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "WRAP", nullptr);
 			break;
 		case Mode::KlEIN_BOTTLE:
-			nvgText(vg, 0, fs * 2, "BOTL", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "BOTL", nullptr);
 			break;
 		case Mode::CLIP:
-			nvgText(vg, 0, fs * 2, "CLIP", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "CLIP", nullptr);
 			break;
 		case Mode::RANDOM:
-			nvgText(vg, 0, fs * 2, "RAND", nullptr);
+			nvgText(vg, p, (fs * 2) + p, "RAND", nullptr);
 			break;
 		default:
 			break;
 		}
 	}
 
-	void DrawSeedMenu(NVGcontext* vg, float fs) override {
-		nvgText(vg, 0, fs, "SEED", nullptr);
-		nvgText(vg, 0, fs * 2, seeds[seedIndex].displayName, nullptr);
+	void DrawSeedMenu(NVGcontext* vg, float p, float fs) override {
+		DrawTextBackground(vg, 1, p, fs);
+		DrawTextBackground(vg, 2, p, fs);
+
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
+		nvgText(vg, p, fs + p, "SEED", nullptr);
+		nvgText(vg, p, (fs * 2) + p, seeds[seedIndex].displayName, nullptr);
 	}
 
 	// LED function
@@ -833,14 +868,18 @@ public:
 		activeAlogrithm = algorithms[algorithmIndex];
 	}
 
-	void drawAlgoithmMenu(NVGcontext* vg, float fontSize) {
-		nvgText(vg, 0, fontSize, "ALGO", nullptr);
+	void drawAlgoithmMenu(NVGcontext* vg, float padding, float fontSize) {
+		activeAlogrithm->DrawTextBackground(vg, 1, padding, fontSize);
+		activeAlogrithm->DrawTextBackground(vg, 2, padding, fontSize);
+
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
+		nvgText(vg, padding, fontSize + padding, "ALGO", nullptr);
 		switch (algorithmIndex) {
 		case 0:
-			nvgText(vg, 0, fontSize * 2, "WOLF", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "WOLF", nullptr);
 			break;
 		case 1:
-			nvgText(vg, 0, fontSize * 2, "LIFE", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "LIFE", nullptr);
 			break;
 		default:
 			break;
@@ -852,6 +891,10 @@ public:
 	void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
 	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
 	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
+	void drawTextBackground(NVGcontext* vg, int row, float padding, float fontSize) { 
+		activeAlogrithm->DrawTextBackground(vg, row, padding, fontSize); }
+
+
 
 	// Algoithm specific functions.
 	void outputMatrixStep() { activeAlogrithm->OutputMatrixStep(); }
@@ -870,9 +913,9 @@ public:
 	bool getYGate() { return activeAlogrithm->GetYGate(); }
 
 	// Drawing functions
-	void drawRuleMenu(NVGcontext* vg, float fontSize) { activeAlogrithm->DrawRuleMenu(vg, fontSize); }
-	void drawModeMenu(NVGcontext* vg, float fontSize) { activeAlogrithm->DrawModeMenu(vg, fontSize); }
-	void drawSeedMenu(NVGcontext* vg, float fontSize) { activeAlogrithm->DrawSeedMenu(vg, fontSize); }
+	void drawRuleMenu(NVGcontext* vg, float padding, float fontSize) { activeAlogrithm->DrawRuleMenu(vg, padding, fontSize); }
+	void drawModeMenu(NVGcontext* vg, float padding, float fontSize) { activeAlogrithm->DrawModeMenu(vg, padding, fontSize); }
+	void drawSeedMenu(NVGcontext* vg, float padding, float fontSize) { activeAlogrithm->DrawSeedMenu(vg, padding, fontSize); }
 
 	// LED function
 	float getModeLEDValue() { return activeAlogrithm->GetModeLEDValue(); }

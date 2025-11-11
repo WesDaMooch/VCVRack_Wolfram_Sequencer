@@ -22,25 +22,6 @@
 
 #include "wolfram.hpp"
 
-struct Look {
-	char displayName[5];
-	NVGcolor background;
-	NVGcolor primaryAccent;
-	//NVGcolor secondaryAccent;
-
-	// NVGcolor led
-	// NVGcolor ledHalo
-};
-
-static constexpr int numLooks = 3;
-std::array<Look, numLooks> looks{ {
-		{ "BFAC", nvgRGB(67, 38, 38), nvgRGB(195, 67, 67) },	// Befaco
-		{ "OLED", nvgRGB(33, 62, 115), nvgRGB(183, 236, 255) },	// Oled
-		{ "RACK", nvgRGB(18, 18, 18), SCHEME_YELLOW },			// VCV Rack
-} };
-static constexpr int lookDefault = 0;
-int lookIndex = lookDefault;
-
 enum MenuPages {
 	SEED,
 	MODE,
@@ -562,74 +543,94 @@ struct MatrixDisplay : Widget {
 
 	std::shared_ptr<Font> font;
 	std::string fontPath;
-	// Sort out mm2px stuff, need a rule
-	int matrixCols = 8;
-	int matrixRows = 8;
 
-	float matrixSize = mm2px(32.f);
+	int cols = 8;
+	int rows = 8;
+	
+	float widgetSize = mm2px(32.f);
+	float padding = 1.f;
+	float screenSize = widgetSize - (padding * 2.f);
 
-	float cellPos = matrixSize / matrixCols;
-	float cellSize = cellPos * 0.5f;
-	float fontSize = (matrixSize / matrixCols) * 2.f;
+	float cellSize = 5.f;
+	float cellGrid = screenSize / cols;
+
+	float fontSize = (screenSize / cols) * 2.f;
+
 
 	MatrixDisplay(WolframModule* m) {
 		module = m;	// TODO: does this get used
-		box.pos = Vec(mm2px(30.1) - matrixSize * 0.5, mm2px(26.14) - matrixSize * 0.5);
-		box.size = Vec(matrixSize, matrixSize);
+		//box.pos = Vec(mm2px(30.1) - matrixSizePx * 0.5, mm2px(26.14) - matrixSizePx * 0.5);
+		box.pos = Vec(mm2px(30.1) - widgetSize * 0.5, mm2px(26.14) - widgetSize * 0.5);
+		box.size = Vec(widgetSize, widgetSize);
 		
 		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf5.otf"));
 		font = APP->window->loadFont(fontPath);
 	}
 
 	void drawMenu(NVGcontext* vg, MenuPages Menu) {
-		//nvgFillColor(vg, primaryAccent);
+
+		module->algo.drawTextBackground(vg, 0, padding, fontSize);
+		module->algo.drawTextBackground(vg, 3, padding, fontSize);
+
 		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, 0, 0, "menu", nullptr);
+		nvgText(vg, padding, padding, "menu", nullptr);
+
 		switch (Menu) {
 			case SEED:
-				module->algo.drawSeedMenu(vg, fontSize);
+				module->algo.drawSeedMenu(vg, padding, fontSize);
 				break;
 			case MODE:
-				module->algo.drawModeMenu(vg, fontSize);
+				module->algo.drawModeMenu(vg, padding, fontSize);
 				break;
 			case SYNC:
-				nvgText(vg, 0, fontSize, "SYNC", nullptr);
+				module->algo.drawTextBackground(vg, 1, padding, fontSize);
+				module->algo.drawTextBackground(vg, 2, padding, fontSize);
+
+				nvgFillColor(vg, looks[lookIndex].primaryAccent);
+				nvgText(vg, padding, fontSize + padding, "SYNC", nullptr);
 				if (module->sync)
-					nvgText(vg, 0, fontSize * 2, "LOCK", nullptr);
+					nvgText(vg, padding, (fontSize * 2.f) + padding, "LOCK", nullptr);
 				else
-					nvgText(vg, 0, fontSize * 2, "FREE", nullptr);
+					nvgText(vg, padding, (fontSize * 2.f) + padding, "FREE", nullptr);
 				break;
 			case FUNCTION:
-				nvgText(vg, 0, fontSize, "FUNC", nullptr);
+				module->algo.drawTextBackground(vg, 1, padding, fontSize);
+				module->algo.drawTextBackground(vg, 2, padding, fontSize);
+
+				nvgFillColor(vg, looks[lookIndex].primaryAccent);
+				nvgText(vg, padding, fontSize + padding, "FUNC", nullptr);
 				if (module->vcoMode)
-					nvgText(vg, 0, fontSize * 2, " VCO", nullptr);
+					nvgText(vg, padding, (fontSize * 2.f) + padding, " VCO", nullptr);
 				else
-					nvgText(vg, 0, fontSize * 2, " SEQ", nullptr);
+					nvgText(vg, padding, (fontSize * 2.f) + padding, " SEQ", nullptr);
 				break;
 			case ALGORITHM:
-				module->algo.drawAlgoithmMenu(vg, fontSize);
+				module->algo.drawAlgoithmMenu(vg, padding, fontSize);
 				break;
 			case LOOK:
-				nvgText(vg, 0, fontSize, "LOOK", nullptr);
-				nvgText(vg, 0, fontSize * 2, looks[lookIndex].displayName, nullptr);
-				module->dirty = true;	// TODO: feels bad doing this
+				module->algo.drawTextBackground(vg, 1, padding, fontSize);
+				module->algo.drawTextBackground(vg, 2, padding, fontSize);
+
+				nvgFillColor(vg, looks[lookIndex].primaryAccent);
+
+				nvgText(vg, padding, fontSize + padding, "LOOK", nullptr);
+				nvgText(vg, padding, (fontSize * 2.f) + padding, looks[lookIndex].displayName, nullptr);
+				module->dirty = true;
 				break;
 			default:
 				break;
 		}
-		nvgText(vg, 0, fontSize * 3, "<*+>", nullptr);
+		nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
 	}
 
 	void draw(NVGcontext* vg) override {
-		// Background
+		// Background & border.
 		nvgBeginPath(vg);
-		//nvgRect(vg, 0, 0, matrixSize, matrixSize);
-		nvgRoundedRect(vg, 0.f, 0.f, matrixSize, matrixSize, 2.f);
-		//nvgFillColor(vg, lcdBackground);
+		nvgRoundedRect(vg, padding * 0.5f, padding * 0.5f, 
+			widgetSize - padding, widgetSize - padding, 2.f);
 		nvgFillColor(vg, looks[lookIndex].background);
 		nvgFill(vg);
-		// Border
-		nvgStrokeWidth(vg, 1.f);
+		nvgStrokeWidth(vg, padding);
 		nvgStrokeColor(vg, nvgRGB(16, 16, 16));
 		nvgStroke(vg);
 		nvgClosePath(vg);
@@ -656,25 +657,30 @@ struct MatrixDisplay : Widget {
 
 		int firstRow = 0;
 		if (module->displayRule) {
-			firstRow = matrixRows - 4;
+			firstRow = rows - 4;
 			nvgFillColor(vg, looks[lookIndex].primaryAccent);
-			module->algo.drawRuleMenu(vg, fontSize);
+			module->algo.drawRuleMenu(vg, padding, fontSize);
 		}
 
 		// Requires flipping before drawing.
 		uint64_t matrix = module->algo.getOutputMatrix();
 
-		for (int row = firstRow; row < matrixRows; row++) {
+		for (int row = firstRow; row < rows; row++) {
 			int rowInvert = (row - 7) * -1;
 
-			for (int col = 0; col < matrixCols; col++) {
+			for (int col = 0; col < cols; col++) {
 				int colInvert = 7 - col;
 				int cellIndex = rowInvert * 8 + colInvert;
 				bool cellState = (matrix >> cellIndex) & 1ULL;
 
 				nvgBeginPath(vg);
-				nvgCircle(vg, (cellPos * col) + cellSize, (cellPos * row) + cellSize, cellSize);
-				nvgFillColor(vg, cellState ? looks[lookIndex].primaryAccent : looks[lookIndex].background);
+				nvgCircle(vg, (cellGrid * col) + (cellGrid * 0.5f) + padding,
+					(cellGrid * row) + (cellGrid * 0.5f) + padding, cellSize);
+
+				//nvgRect(vg, (cellGrid * col) + (cellGrid * 0.5f) - (cellSize * 0.5f) + padding,
+					//(cellGrid * row) + (cellGrid * 0.5f) - (cellSize * 0.5f) + padding, cellSize, cellSize);
+
+				nvgFillColor(vg, cellState ? looks[lookIndex].primaryAccent : nvgRGB(78, 12, 9)); 
 				nvgFill(vg);
 			}
 		}
@@ -783,7 +789,7 @@ struct WolframModuleWidget : ModuleWidget {
 
 	WolframModuleWidget(WolframModule* module) {
 		setModule(module);
-		setPanel(createPanel(asset::plugin(pluginInstance, "res/WolframModule.svg")));
+		setPanel(createPanel(asset::plugin(pluginInstance, "res/wolframLight.svg")));
 		// Srews
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
