@@ -72,7 +72,7 @@ public:
 		for (int col = 0; col < 4; col++) {
 			nvgBeginPath(vg);
 			nvgRoundedRect(vg, (fs * col) + (fs * 0.5f) - (rectSize * 0.5f) + p,
-				(fs * r) + (fs * 0.5f) - (rectSize * 0.5f) + p, rectSize, rectSize, 2.f);
+				(fs * r) + (fs * 0.5f) - (rectSize * 0.5f) + p, rectSize, rectSize, 3.f);
 			nvgFill(vg);
 			nvgClosePath(vg);
 		}
@@ -292,10 +292,10 @@ public:
 		DrawTextBackground(vg, 1, p, fs);
 
 		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, 0, 0, "RULE", nullptr);
+		nvgText(vg, p, p, "RULE", nullptr);
 		char ruleString[5];
 		snprintf(ruleString, sizeof(ruleString), "%4.3d", rule);
-		nvgText(vg, 0, fs, ruleString, nullptr);
+		nvgText(vg, p, fs + p, ruleString, nullptr);
 	}
 
 	void DrawModeMenu(NVGcontext* vg, float p, float fs) override {
@@ -321,29 +321,43 @@ public:
 
 	void DrawSeedMenu(NVGcontext* vg, float p, float fs) override {
 		DrawTextBackground(vg, 1, p, fs);
-		DrawTextBackground(vg, 2, p, fs);
 
 		nvgFillColor(vg, looks[lookIndex].primaryAccent);
 		nvgText(vg, p, fs + p, "SEED", nullptr);
 
 		if (randSeed) {
+			DrawTextBackground(vg, 2, p, fs);
+
+			nvgFillColor(vg, looks[lookIndex].primaryAccent);
 			nvgText(vg, p, (fs * 2) + p, "RAND", nullptr);
 			return;
 		}
-		// TODO: this will be broken
-		//float padding = 1.f;
-		float cellPos = fs * 0.5f;
-		float cellSize = fs * 0.25f;
+
+		float halfFontSize = fs * 0.5f;
+		float rectSize = halfFontSize - 2.f;
+
 		for (int col = 0; col < 8; col++) {
-			if ((seed >> (7 - col)) & 1) {
+			bool cellState = (seed >> (7 - col)) & 1;
 
-				//nvgCircle(vg, (cellGrid * col) + (cellGrid * 0.5f) + padding,
-					//(cellGrid * row) + (cellGrid * 0.5f) + padding, cellSize);
+			//nvgFillColor(vg, looks[lookIndex].secondaryAccent);
 
-				nvgBeginPath(vg);
-				nvgCircle(vg, (cellPos * col) + cellSize, fs * 2.5f, cellSize);
-				nvgFill(vg);
-			}
+			//nvgBeginPath(vg);
+			//nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p,
+			//	(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p,
+			//	rectSize, (rectSize * 2.f) + 2.f, 3.f);
+			//nvgFill(vg);
+
+
+			
+			nvgFillColor(vg, cellState ? looks[lookIndex].primaryAccent :
+				looks[lookIndex].secondaryAccent);
+
+			nvgBeginPath(vg);
+			nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p,
+				(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p, 
+				rectSize, (rectSize * 2.f) + 2.f, 3.f);
+			nvgFill(vg);
+			
 		}
 
 	}
@@ -811,7 +825,7 @@ private:
 		{ " RND", random::get<uint64_t>() },// True Random,
 		{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
 		{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship,				Rule: Life, HoneyLife
-		{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship, 					Rule: Virus
+		{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship, 					Rule: Virus									// TODO: move left 1 bit
 		{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship, 						Rule: Live Free or Die, Seeds, Iceballs
 		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship,				Rule: Life, HoneyLife 
 		{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship,					Rule: Move, Sqrt Replicator
@@ -925,7 +939,7 @@ private:
 	LifeAlgoithm life;
 
 	static constexpr int MAX_ALGORITHMS = 2;
-	int algorithmIndex = 1;
+	int algorithmIndex = 0;
 	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
 	AlgorithmBase* activeAlogrithm;
 

@@ -544,23 +544,30 @@ struct MatrixDisplay : Widget {
 	std::shared_ptr<Font> font;
 	std::string fontPath;
 
+	float moduleWidth = mm2px(60.960f);
+	float moduleHeight = mm2px(128.693f);
+
+	float xGrid = moduleWidth / 8.f;
+	float yGrid = moduleHeight / 16.f;
+
 	int cols = 8;
 	int rows = 8;
+	float padding = 1.f;
 	
 	float widgetSize = mm2px(32.f);
-	float padding = 1.f;
 	float screenSize = widgetSize - (padding * 2.f);
 
 	float cellSize = 5.f;
-	float cellGrid = screenSize / cols;
+	float cellSpacing = screenSize / cols;
 
 	float fontSize = (screenSize / cols) * 2.f;
 
 
+
 	MatrixDisplay(WolframModule* m) {
 		module = m;	// TODO: does this get used
-		//box.pos = Vec(mm2px(30.1) - matrixSizePx * 0.5, mm2px(26.14) - matrixSizePx * 0.5);
-		box.pos = Vec(mm2px(30.1) - widgetSize * 0.5, mm2px(26.14) - widgetSize * 0.5);
+		//box.pos = Vec(mm2px(30.1) - (widgetSize * 0.5), mm2px(26.14) - (widgetSize * 0.5));
+		box.pos = Vec((moduleWidth * 0.5f) - (widgetSize * 0.5f), mm2px(26.14) - (widgetSize * 0.5));
 		box.size = Vec(widgetSize, widgetSize);
 		
 		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf5.otf"));
@@ -620,6 +627,8 @@ struct MatrixDisplay : Widget {
 			default:
 				break;
 		}
+
+		nvgFillColor(vg, looks[lookIndex].primaryAccent);
 		nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
 	}
 
@@ -634,9 +643,6 @@ struct MatrixDisplay : Widget {
 		nvgStrokeColor(vg, nvgRGB(16, 16, 16));
 		nvgStroke(vg);
 		nvgClosePath(vg);
-
-		// TODO: improve border
-		// TODO: improve cell look
 
 		if (!module) {
 			// TODO: Draw preview 
@@ -673,14 +679,20 @@ struct MatrixDisplay : Widget {
 				int cellIndex = rowInvert * 8 + colInvert;
 				bool cellState = (matrix >> cellIndex) & 1ULL;
 
+
+				nvgFillColor(vg, cellState ? looks[lookIndex].primaryAccent :
+					looks[lookIndex].secondaryAccent);
+
 				nvgBeginPath(vg);
-				nvgCircle(vg, (cellGrid * col) + (cellGrid * 0.5f) + padding,
-					(cellGrid * row) + (cellGrid * 0.5f) + padding, cellSize);
 
-				//nvgRect(vg, (cellGrid * col) + (cellGrid * 0.5f) - (cellSize * 0.5f) + padding,
-					//(cellGrid * row) + (cellGrid * 0.5f) - (cellSize * 0.5f) + padding, cellSize, cellSize);
-
-				nvgFillColor(vg, cellState ? looks[lookIndex].primaryAccent : nvgRGB(78, 12, 9)); 
+				nvgCircle(vg, (cellSpacing * col) + (cellSpacing * 0.5f) + padding,
+					(cellSpacing * row) + (cellSpacing * 0.5f) + padding, cellSize);
+				
+				// Squares.
+				//float rectCellSize = cellSize * 2.f;
+				//nvgRoundedRect(vg, (cellSpacing * col) + (cellSpacing * 0.5f) - ((cellSize * 2.f) * 0.5f) + padding,
+				//	(cellSpacing * row) + (cellSpacing * 0.5f) - (rectCellSize * 0.5f) + padding,
+				//	rectCellSize, rectCellSize, 1.f);
 				nvgFill(vg);
 			}
 		}
@@ -702,6 +714,13 @@ struct MoochEncoder : RoundBlackKnob {
 
 struct WolframModuleWidget : ModuleWidget {
 		
+	float moduleWidth = mm2px(60.960f);
+	float moduleHeight = mm2px(128.693f);
+
+	float xGrid = moduleWidth / 8.f;
+	float yGrid = moduleHeight / 16.f;
+
+
 	// Should led stuff be out of this widget??
 	
 	// Using Count Modula's custom LED
@@ -790,33 +809,52 @@ struct WolframModuleWidget : ModuleWidget {
 	WolframModuleWidget(WolframModule* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/wolframLight.svg")));
+
+		// x grid 7.62 (width/8)
+
 		// Srews
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		// Buttons
-		addParam(createParamCentered<CKD6>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM));
-		addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
+		//addParam(createParamCentered<CKD6>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM));
+		//addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
+
+		addParam(createParamCentered<CKD6>(mm2px(Vec(7.62f, 10.72442f * 3.5f)), module, WolframModule::MENU_PARAM));	//
+		addParam(createParamCentered<CKD6>(mm2px(Vec(53.34f, 35.03f)), module, WolframModule::MODE_PARAM));	//
+
+		
 		// Dials
-		//addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
-		addParam(createParamCentered<MoochEncoder>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
+		//addParam(createParamCentered<MoochEncoder>(mm2px(Vec(52.8f, 18.5f)), module, WolframModule::SELECT_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(15.24f, 60.f)), module, WolframModule::LENGTH_PARAM));
 		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.72f, 60.f)), module, WolframModule::CHANCE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.f)), module, WolframModule::OFFSET_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16f, 80.f)), module, WolframModule::X_SCALE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.f)), module, WolframModule::Y_SCALE_PARAM));
+		//addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.f)), module, WolframModule::OFFSET_PARAM));
+		//addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16f, 80.f)), module, WolframModule::X_SCALE_PARAM));
+		//addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.f)), module, WolframModule::Y_SCALE_PARAM));
+
+		addParam(createParamCentered<MoochEncoder>(mm2px(Vec(53.34f, 18.5f)), module, WolframModule::SELECT_PARAM));
+
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(25.4f, 80.f)), module, WolframModule::OFFSET_PARAM));		// 
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(7.62f, 80.f)), module, WolframModule::X_SCALE_PARAM));		// 
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(53.34f, 80.f)), module, WolframModule::Y_SCALE_PARAM));		// 
+
 		// Inputs
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.4f, 18.5f)), module, WolframModule::RESET_INPUT));
+		//addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.4f, 18.5f)), module, WolframModule::RESET_INPUT));
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(25.4f, 96.5f)), module, WolframModule::CHANCE_INPUT));
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(35.56f, 96.5f)), module, WolframModule::OFFSET_INPUT));
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(25.4f, 111.5f)), module, WolframModule::TRIG_INPUT));
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(35.56f, 111.5f)), module, WolframModule::INJECT_INPUT));
+
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 10.72442f * 1.5f)), module, WolframModule::RESET_INPUT));	//
+
 		// Outputs
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 96.5f)), module, WolframModule::X_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 111.5f)), module, WolframModule::X_PULSE_OUTPUT));
+		//addOutput(createOutputCentered<PJ301MPort>(Vec(xGrid, mm2px(114.852f)), module, WolframModule::X_PULSE_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 96.5f)), module, WolframModule::Y_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 111.5f)), module, WolframModule::Y_PULSE_OUTPUT));
+		//addOutput(createOutputCentered<PJ301MPort>(Vec(xGrid * 7.f, 327), module, WolframModule::Y_PULSE_OUTPUT));
 		// LEDs
 		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
 		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 96.5f)), module, WolframModule::X_CV_LIGHT));
