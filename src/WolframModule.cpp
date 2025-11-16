@@ -79,7 +79,7 @@ struct WolframModule : Module {
 	static constexpr int PARAM_CONTROL_INTERVAL = 64;
 
 	int sequenceLength = 8;
-	std::array<int, 10> sequenceLengths { 2, 3, 4, 5, 6, 8, 12, 16, 32, 64 };
+	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
 	float chance = 1;
 	int offset = 0;
 	int offsetPending = 0;
@@ -127,7 +127,7 @@ struct WolframModule : Module {
 		//configParam<EncoderParamQuantity>(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
 		//configParam<LengthParamQuantity>(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length");
 		configParam(SELECT_PARAM, -INFINITY, +INFINITY, 0, "Select");
-		configParam(LENGTH_PARAM, 0.f, 9.f, 5.f, "Length");
+		configParam(LENGTH_PARAM, 0.f, 8.f, 4.f, "Length");
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(CHANCE_PARAM, 0.f, 1.f, 1.f, "Chance", "%", 0.f, 100.f);
 		paramQuantities[CHANCE_PARAM]->displayPrecision = 3;
@@ -703,13 +703,22 @@ struct MatrixDisplay : Widget {
 	}
 };
 
-struct MoochKnob : RoundLargeBlackKnob {
+struct LengthKnob : RoundLargeBlackKnob {
 	// Custom behaviour for Select encoder.
-	MoochKnob() {
+	LengthKnob() {
 		minAngle = -0.83f * M_PI;
 		maxAngle = 0.5f * M_PI;
 	}
 };
+
+struct ChanceKnob : RoundLargeBlackKnob {
+	// Custom behaviour for Select encoder.
+	ChanceKnob() {
+		minAngle = -0.5f * M_PI;
+		maxAngle = 0.83f * M_PI;
+	}
+};
+
 
 struct MoochEncoder : RoundBlackKnob { 
 	// Custom behaviour for Select encoder.
@@ -845,7 +854,8 @@ struct WolframModuleWidget : ModuleWidget {
 		//addParam(createParamCentered<CKD6>(mm2px(Vec(7.4f, 35.03f)), module, WolframModule::MENU_PARAM));
 		//addParam(createParamCentered<CKD6>(mm2px(Vec(52.8f, 35.03f)), module, WolframModule::MODE_PARAM));
 
-		// 
+		// dY + dGrid * 3.5f
+		//38.14f  18.14f  47.767f
 
 		addParam(createParamCentered<CKD6>(mm2px(Vec(7.62f, 38.14f)), module, WolframModule::MENU_PARAM));
 		addParam(createParamCentered<CKD6>(mm2px(Vec(53.34f, 38.14f)), module, WolframModule::MODE_PARAM));
@@ -859,21 +869,22 @@ struct WolframModuleWidget : ModuleWidget {
 		//addParam(createParamCentered<Trimpot>(mm2px(Vec(10.16f, 80.f)), module, WolframModule::X_SCALE_PARAM));
 		//addParam(createParamCentered<Trimpot>(mm2px(Vec(50.8f, 80.f)), module, WolframModule::Y_SCALE_PARAM));
 
-		addParam(createParamCentered<MoochEncoder>(mm2px(Vec(53.34f, 18.14f)), module, WolframModule::SELECT_PARAM)); //
+		// dY + dGrid
+		addParam(createParamCentered<MoochEncoder>(mm2px(Vec(53.34f, 18.14f)), module, WolframModule::SELECT_PARAM));
 
 		//addParam(createParamCentered<MoochKnob>(mm2px(Vec(15.24f, 60.144f)), module, WolframModule::LENGTH_PARAM)); //
 		//addParam(createParamCentered<MoochKnob>(mm2px(Vec(45.72f, 60.144f)), module, WolframModule::CHANCE_PARAM)); //
 
-		addParam(createParamCentered<MoochKnob>(mm2px(Vec(15.24f, 60.f)), module, WolframModule::LENGTH_PARAM)); //
-		addParam(createParamCentered<MoochKnob>(mm2px(Vec(45.72f, 60.f)), module, WolframModule::CHANCE_PARAM)); //
+		addParam(createParamCentered<LengthKnob>(mm2px(Vec(15.24f, 61.369f)), module, WolframModule::LENGTH_PARAM));
+		addParam(createParamCentered<ChanceKnob>(mm2px(Vec(45.72f, 61.369f)), module, WolframModule::CHANCE_PARAM));
 
 		//addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 78.148f)), module, WolframModule::OFFSET_PARAM));		// *
 		//addParam(createParamCentered<Trimpot>(mm2px(Vec(7.62f, 78.148f)), module, WolframModule::X_SCALE_PARAM));		// *
 		//addParam(createParamCentered<Trimpot>(mm2px(Vec(53.34f, 78.148f)), module, WolframModule::Y_SCALE_PARAM));		// *
 
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.597f)), module, WolframModule::OFFSET_PARAM));		// *
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(7.62f, 80.597f)), module, WolframModule::X_SCALE_PARAM));		// *
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(53.34f, 80.597f)), module, WolframModule::Y_SCALE_PARAM));		// *
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.597f)), module, WolframModule::OFFSET_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(7.62f, 80.597f)), module, WolframModule::X_SCALE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(53.34f, 80.597f)), module, WolframModule::Y_SCALE_PARAM));
 
 		// Inputs
 		//addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.4f, 18.5f)), module, WolframModule::RESET_INPUT));
@@ -892,19 +903,19 @@ struct WolframModuleWidget : ModuleWidget {
 		//addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56f, 96.5f)), module, WolframModule::OFFSET_CV_INPUT));	//
 
 
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 99.852f)), module, WolframModule::OFFSET_CV_INPUT));	//
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 114.852f)), module, WolframModule::CHANCE_CV_INPUT));	//
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 99.852f)), module, WolframModule::OFFSET_CV_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 114.852f)), module, WolframModule::CHANCE_CV_INPUT));
 
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(41.91f, 114.852f)), module, WolframModule::RULE_CV_INPUT));	//
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(53.34f, 114.852f)), module, WolframModule::ALGO_CV_INPUT));	//
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(41.91f, 114.852f)), module, WolframModule::RULE_CV_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(53.34f, 114.852f)), module, WolframModule::ALGO_CV_INPUT));
 
 		//addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.4f, 114.852f)), module, WolframModule::TRIG_INPUT));	//
 		//addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.56f, 114.852f)), module, WolframModule::INJECT_INPUT)); //
 
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 114.852f)), module, WolframModule::TRIG_INPUT));	//
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(19.05f, 114.852f)), module, WolframModule::INJECT_INPUT)); //
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 114.852f)), module, WolframModule::TRIG_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(19.05f, 114.852f)), module, WolframModule::INJECT_INPUT));
 
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 18.14f)), module, WolframModule::RESET_INPUT));	//	
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 18.14f)), module, WolframModule::RESET_INPUT));
 
 		// Outputs
 		//addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 96.5f)), module, WolframModule::X_CV_OUTPUT));
@@ -912,17 +923,17 @@ struct WolframModuleWidget : ModuleWidget {
 		//addOutput(createOutputCentered<PJ301MPort>(Vec(xGrid, mm2px(114.852f)), module, WolframModule::X_PULSE_OUTPUT));
 		//addOutput(createOutputCentered<PJ301MPort>(Vec(xGrid * 7.f, 327), module, WolframModule::Y_PULSE_OUTPUT));
 		
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 99.852f)), module, WolframModule::X_CV_OUTPUT));					//
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.05f, 99.852f)), module, WolframModule::X_PULSE_OUTPUT));			//
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 99.852f)), module, WolframModule::Y_CV_OUTPUT));	//
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, WolframModule::Y_PULSE_OUTPUT));				//
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 99.852f)), module, WolframModule::X_CV_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.05f, 99.852f)), module, WolframModule::X_PULSE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 99.852f)), module, WolframModule::Y_CV_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, WolframModule::Y_PULSE_OUTPUT));
 
 		//addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 114.852f)), module, WolframModule::X_PULSE_OUTPUT));	//
 		//addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 114.852f)), module, WolframModule::Y_PULSE_OUTPUT));	//
 
 
 		// LEDs
-		//addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(52.8f, 45.67f)), module, WolframModule::MODE_LIGHT));
+		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(52.8f, 47.767f)), module, WolframModule::MODE_LIGHT)); //**
 		//addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 96.5f)), module, WolframModule::X_CV_LIGHT));
 		//addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(16.51f, 111.5f)), module, WolframModule::X_GATE_LIGHT));
 		//addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(44.45f, 96.5f)), module, WolframModule::Y_CV_LIGHT));
@@ -933,8 +944,6 @@ struct WolframModuleWidget : ModuleWidget {
 		// addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(44.45f, 96.5f)), module, WolframModule::Y_CV_LIGHT));		//
 		// addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(44.45f, 114.852f)), module, WolframModule::Y_GATE_LIGHT));	//
 
-
-		addChild(createLightCentered<RectangleLightDiagonal<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 47.767f)), module, WolframModule::MODE_LIGHT)); //
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		//
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(19.05f, 90.225f)), module, WolframModule::X_GATE_LIGHT));	//
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		//
