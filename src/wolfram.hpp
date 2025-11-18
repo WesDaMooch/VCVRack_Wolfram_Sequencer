@@ -2,29 +2,53 @@
 #include "plugin.hpp"
 #include <array>
 
-// TODO: stop using virtuals, use Function pointer instead?
-// TODO: If I want static constexpr need header and cpps for wolfram,
-// might be a good idea
 
-struct Look {
-	char displayName[5];
-	NVGcolor background;
-	NVGcolor primaryAccent;
-	NVGcolor secondaryAccent;
 
-	// NVGcolor led
-	// NVGcolor ledHalo
+class LookAndFeel {
+public:
+	// Setters
+	void setLook(int i) {
+		lookIndex = i;
+	}
+
+	// Getters
+	int getLookIndex() {
+		return lookIndex;
+	}
+
+
+	NVGcolor* getBackground() {
+		return &looks[lookIndex].background;
+	}
+
+	NVGcolor* getPrimaryAccent() {
+		return &looks[lookIndex].primaryAccent;
+	}
+
+	NVGcolor* getSecondaryAccent() {
+		return &looks[lookIndex].secondaryAccent;
+	}
+
+protected:
+	struct Look {
+		NVGcolor background;
+		NVGcolor primaryAccent;
+		NVGcolor secondaryAccent;
+
+		// NVGcolor led
+		// NVGcolor ledHalo
+	};
+
+	static constexpr int numLooks = 3;
+	static constexpr int defaultLook = 0;
+	int lookIndex = defaultLook;
+
+	std::array<Look, numLooks> looks{ {
+			{ nvgRGB(58, 16, 19), nvgRGB(228, 7, 7), nvgRGB(78, 12, 9) },		// Default
+			{ nvgRGB(37, 59, 99), nvgRGB(205, 254, 254), nvgRGB(39, 70, 153) },	// Oled
+			{ nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(0, 0, 0) },				// VCV Rack
+	} };
 };
-
-static constexpr int numLooks = 3;
-std::array<Look, numLooks> looks{ {
-		{ "BFAC", nvgRGB(58, 16, 19), nvgRGB(228, 7, 7),nvgRGB(78, 12, 9) },		// Befaco
-		{ "OLED", nvgRGB(33, 62, 115), nvgRGB(183, 236, 255),nvgRGB(0, 0, 0) },	// Oled
-		{ "RACK", nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(0, 0, 0) },			// VCV Rack
-} };
-static constexpr int lookDefault = 0;
-int lookIndex = lookDefault;
-
 
 class AlgorithmBase {
 public:
@@ -64,15 +88,24 @@ public:
 		return outputMatrix; 
 	}
 
-	void DrawTextBackground(NVGcontext* vg, int r, float p, float fs) {
+	// Common drawing functions
+	void SetDrawParams(LookAndFeel* l, float p, float fs) {
+		lookAndFeel = l;
+		padding = p;
+		fontSize = fs;
+	}
+
+	void DrawTextBackground(NVGcontext* vg, int r) {
 		// Draws one row of text background.
-		float rectSize = fs - 2.f;
-		nvgFillColor(vg, looks[lookIndex].secondaryAccent);
+		float rectSize = fontSize - 2.f;
+
+		nvgFillColor(vg, *lookAndFeel->getSecondaryAccent());
 
 		for (int col = 0; col < 4; col++) {
 			nvgBeginPath(vg);
-			nvgRoundedRect(vg, (fs * col) + (fs * 0.5f) - (rectSize * 0.5f) + p,
-				(fs * r) + (fs * 0.5f) - (rectSize * 0.5f) + p, rectSize, rectSize, 3.f);
+			nvgRoundedRect(vg, (fontSize * col) + (fontSize * 0.5f) - (rectSize * 0.5f) + padding,
+				(fontSize * r) + (fontSize * 0.5f) - (rectSize * 0.5f) + padding,
+				rectSize, rectSize, 3.f);
 			nvgFill(vg);
 			nvgClosePath(vg);
 		}
@@ -97,9 +130,9 @@ public:
 	virtual bool GetYGate() = 0;
 
 	// Drawing functions
-	virtual void DrawRuleMenu(NVGcontext* vg, float p, float fs) = 0;
-	virtual void DrawSeedMenu(NVGcontext* vg, float p, float fs) = 0;
-	virtual void DrawModeMenu(NVGcontext* vg, float p, float fs) = 0;
+	virtual void DrawRuleMenu(NVGcontext* vg) = 0;
+	virtual void DrawSeedMenu(NVGcontext* vg) = 0;
+	virtual void DrawModeMenu(NVGcontext* vg) = 0;
 
 	// LED function
 	virtual float GetModeLEDValue() = 0;
@@ -113,6 +146,11 @@ protected:
 
 	int readHead = 0;
 	int writeHead = 1;
+
+	// Drawing
+	LookAndFeel* lookAndFeel;
+	float padding = 0;
+	float fontSize = 0;
 };
 
 class WolfAlgoithm : public AlgorithmBase {
@@ -287,74 +325,64 @@ public:
 	}
 
 	// Drawing functions
-	void DrawRuleMenu(NVGcontext* vg, float p, float fs) override {
-		DrawTextBackground(vg, 0, p, fs);
-		DrawTextBackground(vg, 1, p, fs);
+	void DrawRuleMenu(NVGcontext* vg) override {
+		DrawTextBackground(vg, 0);
+		DrawTextBackground(vg, 1);
 
-		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, p, p, "RULE", nullptr);
+		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgText(vg, padding, padding, "RULE", nullptr);
 		char ruleString[5];
 		snprintf(ruleString, sizeof(ruleString), "%4.3d", rule);
-		nvgText(vg, p, fs + p, ruleString, nullptr);
+		nvgText(vg, padding, fontSize + padding, ruleString, nullptr);
 	}
 
-	void DrawModeMenu(NVGcontext* vg, float p, float fs) override {
-		DrawTextBackground(vg, 1, p, fs);
-		DrawTextBackground(vg, 2, p, fs);
+	void DrawModeMenu(NVGcontext* vg) override {
+		DrawTextBackground(vg, 1);
+		DrawTextBackground(vg, 2);
 
-		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, p, fs + p, "MODE", nullptr);
+		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgText(vg, padding, fontSize + padding, "MODE", nullptr);
 		switch (mode) {
 		case Mode::WRAP: 
-			nvgText(vg, p, (fs * 2) + p, "WRAP", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "WRAP", nullptr);
 			break;
 		case Mode::CLIP: 
-			nvgText(vg, p, (fs * 2) + p, "CLIP", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "CLIP", nullptr);
 			break;
 		case Mode::RANDOM: 
-			nvgText(vg, p, (fs * 2) + p, "RAND", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "RAND", nullptr);
 			break;
 		default: 
 			break;
 		}
 	}
 
-	void DrawSeedMenu(NVGcontext* vg, float p, float fs) override {
-		DrawTextBackground(vg, 1, p, fs);
+	void DrawSeedMenu(NVGcontext* vg) override {
+		DrawTextBackground(vg, 1);
 
-		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, p, fs + p, "SEED", nullptr);
+		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgText(vg, padding, fontSize + padding, "SEED", nullptr);
 
 		if (randSeed) {
-			DrawTextBackground(vg, 2, p, fs);
+			DrawTextBackground(vg, 2);
 
-			nvgFillColor(vg, looks[lookIndex].primaryAccent);
-			nvgText(vg, p, (fs * 2) + p, "RAND", nullptr);
+			nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+			nvgText(vg, padding, (fontSize * 2) + padding, "RAND", nullptr);
 			return;
 		}
 
-		float halfFontSize = fs * 0.5f;
+		float halfFontSize = fontSize * 0.5f;
 		float rectSize = halfFontSize - 2.f;
 
 		for (int col = 0; col < 8; col++) {
 			bool cellState = (seed >> (7 - col)) & 1;
 
-			//nvgFillColor(vg, looks[lookIndex].secondaryAccent);
-
-			//nvgBeginPath(vg);
-			//nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p,
-			//	(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p,
-			//	rectSize, (rectSize * 2.f) + 2.f, 3.f);
-			//nvgFill(vg);
-
-
-			
-			nvgFillColor(vg, cellState ? looks[lookIndex].primaryAccent :
-				looks[lookIndex].secondaryAccent);
+			nvgFillColor(vg, cellState ? *lookAndFeel->getPrimaryAccent() :
+				*lookAndFeel->getSecondaryAccent());
 
 			nvgBeginPath(vg);
-			nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p,
-				(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + p, 
+			nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
+				(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding, 
 				rectSize, (rectSize * 2.f) + 2.f, 3.f);
 			nvgFill(vg);
 			
@@ -699,46 +727,46 @@ public:
 	}
 
 	// Drawing functions
-	void DrawRuleMenu(NVGcontext* vg, float p, float fs) override {
-		DrawTextBackground(vg, 0, p, fs);
-		DrawTextBackground(vg, 1, p, fs);
+	void DrawRuleMenu(NVGcontext* vg) override {
+		DrawTextBackground(vg, 0);
+		DrawTextBackground(vg, 1);
 
-		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, p, p, "RULE", nullptr);
-		nvgText(vg, p, fs + p, rules[ruleIndex].displayName, nullptr);
+		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgText(vg, padding, padding, "RULE", nullptr);
+		nvgText(vg, padding, fontSize + padding, rules[ruleIndex].displayName, nullptr);
 	}
 
-	void DrawModeMenu(NVGcontext* vg, float p, float fs) override {
-		DrawTextBackground(vg, 1, p, fs);
-		DrawTextBackground(vg, 2, p, fs);
+	void DrawModeMenu(NVGcontext* vg) override {
+		DrawTextBackground(vg, 1);
+		DrawTextBackground(vg, 2);
 
-		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, p, fs + p, "MODE", nullptr);
+		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgText(vg, padding, fontSize + padding, "MODE", nullptr);
 		switch (mode) {
 		case Mode::WRAP:
-			nvgText(vg, p, (fs * 2) + p, "WRAP", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "WRAP", nullptr);
 			break;
 		case Mode::KlEIN_BOTTLE:
-			nvgText(vg, p, (fs * 2) + p, "BOTL", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "BOTL", nullptr);
 			break;
 		case Mode::CLIP:
-			nvgText(vg, p, (fs * 2) + p, "CLIP", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "CLIP", nullptr);
 			break;
 		case Mode::RANDOM:
-			nvgText(vg, p, (fs * 2) + p, "RAND", nullptr);
+			nvgText(vg, padding, (fontSize * 2) + padding, "RAND", nullptr);
 			break;
 		default:
 			break;
 		}
 	}
 
-	void DrawSeedMenu(NVGcontext* vg, float p, float fs) override {
-		DrawTextBackground(vg, 1, p, fs);
-		DrawTextBackground(vg, 2, p, fs);
+	void DrawSeedMenu(NVGcontext* vg) override {
+		DrawTextBackground(vg, 1);
+		DrawTextBackground(vg, 2);
 
-		nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgText(vg, p, fs + p, "SEED", nullptr);
-		nvgText(vg, p, (fs * 2) + p, seeds[seedIndex].displayName, nullptr);
+		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgText(vg, padding, fontSize + padding, "SEED", nullptr);
+		nvgText(vg, padding, (fontSize * 2) + padding, seeds[seedIndex].displayName, nullptr);
 	}
 
 	// LED function
@@ -877,16 +905,42 @@ public:
 			algorithmIndex = 0;
 		}
 		else {
-			algorithmIndex = (algorithmIndex + delta + MAX_ALGORITHMS) % MAX_ALGORITHMS;
+			algorithmIndex = (algorithmIndex + delta + NUM_ALGORITHMS) % NUM_ALGORITHMS;
 		}
 		activeAlogrithm = algorithms[algorithmIndex];
 	}
 
-	void drawAlgoithmMenu(NVGcontext* vg, float padding, float fontSize) {
-		activeAlogrithm->DrawTextBackground(vg, 1, padding, fontSize);
-		activeAlogrithm->DrawTextBackground(vg, 2, padding, fontSize);
 
-		nvgFillColor(vg, looks[lookIndex].primaryAccent);
+
+	// Common algoithm specific functions.
+	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
+	void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
+	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
+	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
+
+
+	// Drawing functions
+	void setDrawParams(LookAndFeel* l, float p, float fs) {
+		lookAndFeel = l;
+
+		padding = p;
+		fontSize = fs;
+
+		for (int i = 0; i <= NUM_ALGORITHMS; i++) {
+			algorithms[i]->SetDrawParams(lookAndFeel, padding, fontSize);
+		}
+	}
+
+	void drawTextBackground(NVGcontext* vg, int row) {
+		activeAlogrithm->DrawTextBackground(vg, row);
+	}
+
+	void drawAlgoithmMenu(NVGcontext* vg) {
+		drawTextBackground(vg, 1);
+		drawTextBackground(vg, 2);
+
+		//nvgFillColor(vg, looks[lookIndex].primaryAccent);
+		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
 		nvgText(vg, padding, fontSize + padding, "ALGO", nullptr);
 		switch (algorithmIndex) {
 		case 0:
@@ -897,18 +951,8 @@ public:
 			break;
 		default:
 			break;
-		}		
+		}
 	}
-
-	// Common algoithm specific functions.
-	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
-	void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
-	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
-	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
-	void drawTextBackground(NVGcontext* vg, int row, float padding, float fontSize) { 
-		activeAlogrithm->DrawTextBackground(vg, row, padding, fontSize); }
-
-
 
 	// Algoithm specific functions.
 	void outputMatrixStep() { activeAlogrithm->OutputMatrixStep(); }
@@ -927,9 +971,9 @@ public:
 	bool getYGate() { return activeAlogrithm->GetYGate(); }
 
 	// Drawing functions
-	void drawRuleMenu(NVGcontext* vg, float padding, float fontSize) { activeAlogrithm->DrawRuleMenu(vg, padding, fontSize); }
-	void drawModeMenu(NVGcontext* vg, float padding, float fontSize) { activeAlogrithm->DrawModeMenu(vg, padding, fontSize); }
-	void drawSeedMenu(NVGcontext* vg, float padding, float fontSize) { activeAlogrithm->DrawSeedMenu(vg, padding, fontSize); }
+	void drawRuleMenu(NVGcontext* vg) { activeAlogrithm->DrawRuleMenu(vg); }
+	void drawModeMenu(NVGcontext* vg) { activeAlogrithm->DrawModeMenu(vg); }
+	void drawSeedMenu(NVGcontext* vg) { activeAlogrithm->DrawSeedMenu(vg); }
 
 	// LED function
 	float getModeLEDValue() { return activeAlogrithm->GetModeLEDValue(); }
@@ -938,10 +982,16 @@ private:
 	WolfAlgoithm wolf;
 	LifeAlgoithm life;
 
-	static constexpr int MAX_ALGORITHMS = 2;
+	static constexpr int NUM_ALGORITHMS = 2;
 	int algorithmIndex = 0;
-	std::array<AlgorithmBase*, MAX_ALGORITHMS> algorithms;
+	std::array<AlgorithmBase*, NUM_ALGORITHMS> algorithms;
 	AlgorithmBase* activeAlogrithm;
 
 	int offset = 0;
+
+	// Drawing 
+	float padding = 0;
+	float fontSize = 0;
+
+	LookAndFeel* lookAndFeel;
 };
