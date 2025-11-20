@@ -64,11 +64,9 @@ public:
 	~AlgorithmBase() {}
 
 	// Common functions
-
 	void SetReadHead(int r) { readHead = r; }
 	void SetWriteHead(int w) { writeHead = w; }
-	void Ticker() { displayMatrixUpdated = false; }
-
+	void Tick() { displayMatrixUpdated = false; }
 	void AdvanceHeads(int s) {
 		// Advance read and write heads
 		// TODO: could use if, would be quicker?
@@ -89,9 +87,7 @@ public:
 		return r;
 	}
 
-	uint64_t GetOutputMatrix() { 
-		return outputMatrix; 
-	}
+	uint64_t GetDisplayMatrix() { return displayMatrix; }
 
 	// Common drawing functions
 	void SetDrawParams(LookAndFeel* l, float p, float fs) {
@@ -118,7 +114,7 @@ public:
 	
 	// Algorithm specific functions
 	virtual void Step(int s) = 0;
-	virtual void OutputMatrixPush(int o) = 0;
+	virtual void Update(int o) = 0;
 	virtual void Generate() = 0;
 	virtual void SeedReset(bool w) = 0;
 	virtual void Inject(bool a, bool w) = 0;
@@ -142,12 +138,14 @@ public:
 	// LED function
 	virtual float GetModeLEDValue() = 0;
 
+	virtual std::string GetRuleString() = 0;
+
 protected:
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
 	std::array<uint8_t, MAX_SEQUENCE_LENGTH> rowBuffer{};
 	std::array<uint64_t, MAX_SEQUENCE_LENGTH> matrixBuffer{};
 
-	uint64_t outputMatrix = 0;
+	uint64_t displayMatrix = 0;
 	bool displayMatrixUpdated = false;
 
 	int readHead = 0;
@@ -168,28 +166,25 @@ public:
 
 	void Step(int s) override {
 		AdvanceHeads(s);
-
-		// Shift matrix along (up).
-		outputMatrix <<= 8;
+		displayMatrix <<= 8;	// Shift matrix along (up).
 	}
 
-	void OutputMatrixPush(int o) override {
+	void Update(int o) override {
 		displayMatrixUpdated = true;
 
 		// Apply lastest offset.
 		int offsetDifference = o - prevOffset;
-		// TODO: could be all in ApplyOffset(matrix, offset)
 		uint64_t tempMatrix = 0;
 		for (int i = 1; i < 8; i++) {
-			uint8_t row = (outputMatrix >> (i * 8)) & 0xFF;
+			uint8_t row = (displayMatrix >> (i * 8)) & 0xFF;
 			tempMatrix |= uint64_t(ApplyOffset(row, offsetDifference)) << (i * 8);
 		}
-		outputMatrix = tempMatrix;
+		displayMatrix = tempMatrix;
 		prevOffset = o;
 
 		// Push latest row.
-		outputMatrix &= ~0xFFULL;	
-		outputMatrix |= static_cast<uint64_t>(ApplyOffset(rowBuffer[readHead], o));
+		displayMatrix &= ~0xFFULL;	
+		displayMatrix |= static_cast<uint64_t>(ApplyOffset(rowBuffer[readHead], o));
 	}
 
 	void Generate() override {
@@ -310,7 +305,7 @@ public:
 
 	float GetXVoltage() override {
 		// Returns bottom row of Ouput Matrix as 'voltage' (0-1V).		
-		uint8_t firstRow = outputMatrix & 0xFFULL;
+		uint8_t firstRow = displayMatrix & 0xFFULL;
 		return firstRow * voltageScaler;
 	}
 
@@ -318,7 +313,7 @@ public:
 		// Returns right column of ouput matrix as 'voltage' (0-1V).
 		// Output matrix is flipped when drawn (right -> left, left <- right),
 		uint64_t yMask = 0x0101010101010101ULL;
-		uint64_t column = outputMatrix & yMask;
+		uint64_t column = displayMatrix & yMask;
 		uint8_t yColumn = static_cast<uint8_t>((column * 0x8040201008040201ULL) >> 56);
 		return yColumn * voltageScaler;
 	}
@@ -326,7 +321,7 @@ public:
 	bool GetXPulse() override {
 		// Returns true if bottom left cell state
 		// of displayMatrix is alive.
-		bool bottonLeftCellState = ((outputMatrix & 0xFFULL) >> 7) & 1;
+		bool bottonLeftCellState = ((displayMatrix & 0xFFULL) >> 7) & 1;
 		bool xPulse = false;
 
 		if (displayMatrixUpdated && bottonLeftCellState)
@@ -338,7 +333,7 @@ public:
 	bool GetYPulse() override {
 		// Returns true if top right cell state
 		// of displayMatrix is alive.
-		bool topRightCellState = ((outputMatrix >> 56) & 0xFFULL) & 1;
+		bool topRightCellState = ((displayMatrix >> 56) & 0xFFULL) & 1;
 		bool yPulse = false;
 
 		if (displayMatrixUpdated && topRightCellState)
@@ -419,6 +414,11 @@ public:
 		return static_cast<float>(modeIndex) * numModesScaler;
 	}
 
+	std::string GetRuleString() override {
+		std::string ruleString = std::to_string(static_cast<unsigned>(rule));
+		return ruleString;
+	}
+
 private:
 	enum class Mode {
 		CLIP,
@@ -497,7 +497,7 @@ public:
 		AdvanceHeads(s);
 	}
 
-	void OutputMatrixPush(int o) override {
+	void Update(int o) override {
 		displayMatrixUpdated = true;
 
 		// Push current matrix to output matrix.
@@ -506,10 +506,10 @@ public:
 			uint8_t row = (matrixBuffer[readHead] >> (i * 8)) & 0xFFULL;
 			tempMatrix |= uint64_t(ApplyOffset(row, o)) << (i * 8);
 		}
-		outputMatrix = tempMatrix;
+		displayMatrix = tempMatrix;
 
 		// Count the current number of living cells.
-		population = __builtin_popcountll(outputMatrix);
+		population = __builtin_popcountll(displayMatrix);
 	}
 
 	void Generate() override {
@@ -738,7 +738,7 @@ public:
 
 	float GetYVoltage() override {
 		// Returns the 64-bit number output matrix as voltage (0-1V).
-		return outputMatrix * yVoltageScaler;
+		return displayMatrix * yVoltageScaler;
 	}
 
 	bool GetXPulse() override {
@@ -755,12 +755,14 @@ public:
 	bool GetYPulse() override {
 		// True if life becomes stagnant (no change occurs),
 		// also true if output repeats while looping.
+
+		// TODO: stangant = no change for 2 generations??
 		bool yPulse = false;
 
-		if (displayMatrixUpdated && (outputMatrix == prevOutputMatrix))
+		if (displayMatrixUpdated && (displayMatrix == prevOutputMatrix))
 			yPulse = true;
 
-		prevOutputMatrix = outputMatrix;
+		prevOutputMatrix = displayMatrix;
 		return yPulse;
 	}
 
@@ -811,6 +813,11 @@ public:
 	float GetModeLEDValue() override {
 		const int modeIndex = static_cast<int>(mode);
 		return static_cast<float>(modeIndex) * numModesScaler;
+	}
+
+	std::string GetRuleString() override {
+		std::string ruleString(rules[ruleIndex].displayName, 4);
+		return ruleString;
 	}
 
 private:
@@ -932,7 +939,7 @@ public:
 		// Default alogrithm.
 		activeAlogrithm = algorithms[algorithmIndex];
 
-		outputMatrixPush();
+		update();
 	}
 
 	// Common functions
@@ -953,9 +960,8 @@ public:
 	// Common algoithm specific functions.
 	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
 	void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
-	void ticker() { activeAlogrithm->Ticker(); }
-	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
-	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
+	void tick() { activeAlogrithm->Tick(); }
+	uint64_t getDisplayMatrix() { return activeAlogrithm->GetDisplayMatrix(); }
 
 	// Drawing functions
 	void setDrawParams(LookAndFeel* l, float p, float fs) {
@@ -994,7 +1000,7 @@ public:
 
 	// Algoithm specific functions.
 	void step(int sequenceLength) { activeAlogrithm->Step(sequenceLength); }
-	void outputMatrixPush() { activeAlogrithm->OutputMatrixPush(offset); }
+	void update() { activeAlogrithm->Update(offset); }
 	void generate() { activeAlogrithm->Generate(); }
 	void seedReset(bool write = false) { activeAlogrithm->SeedReset(write); }
 	void inject(bool add, bool write = false) { activeAlogrithm->Inject(add, write); }
@@ -1015,6 +1021,9 @@ public:
 
 	// LED function
 	float getModeLEDValue() { return activeAlogrithm->GetModeLEDValue(); }
+
+	//
+	std::string getRuleString() { return activeAlogrithm->GetRuleString(); }
 
 private:
 	WolfAlgoithm wolf;
