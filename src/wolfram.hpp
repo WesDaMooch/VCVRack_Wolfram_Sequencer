@@ -2,52 +2,60 @@
 #include "plugin.hpp"
 #include <array>
 
-
-
 class LookAndFeel {
 public:
 	// Setters
-	void setLook(int i) {
-		lookIndex = i;
-	}
+	void setLookIndex(int i) { lookIndex = i; }
+	void setFeelIndex(int i) { feelIndex = i; }
 
-	// Getters
-	int getLookIndex() {
-		return lookIndex;
-	}
+	// Look getters
+	int getLookIndex() { return lookIndex; }
+	int getFeelIndex() { return feelIndex; }
 
+	NVGcolor* getBackgroundColour() { return &looks[lookIndex][0]; }
+	NVGcolor* getPrimaryColour() { return &looks[lookIndex][1]; }
+	NVGcolor* getSecondaryColour() { return &looks[lookIndex][2]; }
 
-	NVGcolor* getBackground() {
-		return &looks[lookIndex].background;
-	}
+	// Draw cell
+	void drawCell(NVGcontext* vg, int row, int col, bool state, float padding, float spacing) {
+		nvgFillColor(vg, state ? *getPrimaryColour() : *getSecondaryColour());
 
-	NVGcolor* getPrimaryAccent() {
-		return &looks[lookIndex].primaryAccent;
-	}
-
-	NVGcolor* getSecondaryAccent() {
-		return &looks[lookIndex].secondaryAccent;
+		switch (feelIndex) {
+		case 0:
+			// Circles
+			nvgCircle(vg, (spacing * col) + (spacing * 0.5f) + padding,
+				(spacing * row) + (spacing * 0.5f) + padding, circleSize);
+			break;
+		case 1:
+			// Squares
+			nvgRoundedRect(vg, (spacing * col) + (spacing * 0.5f) - (squareSize * 0.5f) + padding,
+				(spacing * row) + (spacing * 0.5f) - (squareSize * 0.5f) + padding,
+				squareSize, squareSize, squareBevel);
+			break;
+		default:
+			break;
+		}
 	}
 
 protected:
-	struct Look {
-		NVGcolor background;
-		NVGcolor primaryAccent;
-		NVGcolor secondaryAccent;
-
-		// NVGcolor led
-		// NVGcolor ledHalo
-	};
-
+	// Look
+	static constexpr int numColours = 3;
 	static constexpr int numLooks = 3;
-	static constexpr int defaultLook = 0;
-	int lookIndex = defaultLook;
+	std::array<std::array<NVGcolor, numColours>, numLooks> looks { {
 
-	std::array<Look, numLooks> looks{ {
-			{ nvgRGB(58, 16, 19), nvgRGB(228, 7, 7), nvgRGB(78, 12, 9) },		// Default
-			{ nvgRGB(37, 59, 99), nvgRGB(205, 254, 254), nvgRGB(39, 70, 153) },	// Oled
-			{ nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(0, 0, 0) },				// VCV Rack
+		{ nvgRGB(58, 16, 19), nvgRGB(228, 7, 7), nvgRGB(78, 12, 9) },		// Default
+		{ nvgRGB(37, 59, 99), nvgRGB(205, 254, 254), nvgRGB(39, 70, 153) },	// Oled
+		{ nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(0, 0, 0) },				// VCV Rack
+
 	} };
+	int lookIndex = 0;
+
+	// Feel
+	int feelIndex = 0;
+
+	float circleSize = 5.f;
+	float squareSize = 10.f;
+	float squareBevel = 1.f;
 };
 
 class AlgorithmBase {
@@ -56,13 +64,10 @@ public:
 	~AlgorithmBase() {}
 
 	// Common functions
-	void SetReadHead(int r) {
-		readHead = r;
-	}
 
-	void SetWriteHead(int w) {
-		writeHead = w;
-	}
+	void SetReadHead(int r) { readHead = r; }
+	void SetWriteHead(int w) { writeHead = w; }
+	void Ticker() { displayMatrixUpdated = false; }
 
 	void AdvanceHeads(int s) {
 		// Advance read and write heads
@@ -99,7 +104,7 @@ public:
 		// Draws one row of text background.
 		float rectSize = fontSize - 2.f;
 
-		nvgFillColor(vg, *lookAndFeel->getSecondaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getSecondaryColour());
 
 		for (int col = 0; col < 4; col++) {
 			nvgBeginPath(vg);
@@ -112,7 +117,7 @@ public:
 	}
 	
 	// Algorithm specific functions
-	virtual void OutputMatrixStep() = 0;
+	virtual void Step(int s) = 0;
 	virtual void OutputMatrixPush(int o) = 0;
 	virtual void Generate() = 0;
 	virtual void SeedReset(bool w) = 0;
@@ -126,8 +131,8 @@ public:
 	// Output functions
 	virtual float GetXVoltage() = 0;
 	virtual float GetYVoltage() = 0;
-	virtual bool GetXGate() = 0;
-	virtual bool GetYGate() = 0;
+	virtual bool GetXPulse() = 0;
+	virtual bool GetYPulse() = 0;
 
 	// Drawing functions
 	virtual void DrawRuleMenu(NVGcontext* vg) = 0;
@@ -143,6 +148,7 @@ protected:
 	std::array<uint64_t, MAX_SEQUENCE_LENGTH> matrixBuffer{};
 
 	uint64_t outputMatrix = 0;
+	bool displayMatrixUpdated = false;
 
 	int readHead = 0;
 	int writeHead = 1;
@@ -160,14 +166,19 @@ public:
 		rowBuffer[readHead] = seed;
 	}
 
-	void OutputMatrixStep() override {
-		// Shift matrix along
+	void Step(int s) override {
+		AdvanceHeads(s);
+
+		// Shift matrix along (up).
 		outputMatrix <<= 8;
 	}
 
 	void OutputMatrixPush(int o) override {
-		// Apply lastest offset
+		displayMatrixUpdated = true;
+
+		// Apply lastest offset.
 		int offsetDifference = o - prevOffset;
+		// TODO: could be all in ApplyOffset(matrix, offset)
 		uint64_t tempMatrix = 0;
 		for (int i = 1; i < 8; i++) {
 			uint8_t row = (outputMatrix >> (i * 8)) & 0xFF;
@@ -176,9 +187,9 @@ public:
 		outputMatrix = tempMatrix;
 		prevOffset = o;
 
-		// Push latest row
+		// Push latest row.
 		outputMatrix &= ~0xFFULL;	
-		outputMatrix |= static_cast<uint64_t>(ApplyOffset(rowBuffer[readHead], o));	
+		outputMatrix |= static_cast<uint64_t>(ApplyOffset(rowBuffer[readHead], o));
 	}
 
 	void Generate() override {
@@ -312,16 +323,28 @@ public:
 		return yColumn * voltageScaler;
 	}
 
-	bool GetXGate() override {
-		// Returns bottom left cell state of ouput matrix.
-		uint8_t firstRow = outputMatrix & 0xFFULL;
-		return (firstRow >> 7) & 1;
+	bool GetXPulse() override {
+		// Returns true if bottom left cell state
+		// of displayMatrix is alive.
+		bool bottonLeftCellState = ((outputMatrix & 0xFFULL) >> 7) & 1;
+		bool xPulse = false;
+
+		if (displayMatrixUpdated && bottonLeftCellState)
+			xPulse = true;
+
+		return xPulse;
 	}
 
-	bool GetYGate() override {
-		// Returns top right cell state of ouput matrix.
-		uint8_t lastRow = (outputMatrix >> 56) & 0xFFULL;
-		return lastRow & 1;
+	bool GetYPulse() override {
+		// Returns true if top right cell state
+		// of displayMatrix is alive.
+		bool topRightCellState = ((outputMatrix >> 56) & 0xFFULL) & 1;
+		bool yPulse = false;
+
+		if (displayMatrixUpdated && topRightCellState)
+			yPulse = true;
+
+		return yPulse;
 	}
 
 	// Drawing functions
@@ -329,7 +352,7 @@ public:
 		DrawTextBackground(vg, 0);
 		DrawTextBackground(vg, 1);
 
-		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 		nvgText(vg, padding, padding, "RULE", nullptr);
 		char ruleString[5];
 		snprintf(ruleString, sizeof(ruleString), "%4.3d", rule);
@@ -340,7 +363,7 @@ public:
 		DrawTextBackground(vg, 1);
 		DrawTextBackground(vg, 2);
 
-		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 		nvgText(vg, padding, fontSize + padding, "MODE", nullptr);
 		switch (mode) {
 		case Mode::WRAP: 
@@ -360,13 +383,13 @@ public:
 	void DrawSeedMenu(NVGcontext* vg) override {
 		DrawTextBackground(vg, 1);
 
-		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 		nvgText(vg, padding, fontSize + padding, "SEED", nullptr);
 
 		if (randSeed) {
 			DrawTextBackground(vg, 2);
 
-			nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+			nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 			nvgText(vg, padding, (fontSize * 2) + padding, "RAND", nullptr);
 			return;
 		}
@@ -377,8 +400,8 @@ public:
 		for (int col = 0; col < 8; col++) {
 			bool cellState = (seed >> (7 - col)) & 1;
 
-			nvgFillColor(vg, cellState ? *lookAndFeel->getPrimaryAccent() :
-				*lookAndFeel->getSecondaryAccent());
+			nvgFillColor(vg, cellState ? *lookAndFeel->getPrimaryColour() :
+				*lookAndFeel->getSecondaryColour());
 
 			nvgBeginPath(vg);
 			nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
@@ -415,12 +438,16 @@ private:
 
 	int prevOffset = 0;
 
+	bool prevXbit = false;
+	bool prevYbit = false;
+
 	static constexpr float voltageScaler = 1.f / UINT8_MAX;
 };
 
 class LifeAlgoithm : public AlgorithmBase {
 public:
 	LifeAlgoithm() {
+		// Init seed.
 		matrixBuffer[readHead] = seeds[seedIndex].seedInt;
 	}
 
@@ -466,11 +493,13 @@ public:
 	}
 	
 	// Algoithm specific functions.
-	void OutputMatrixStep() override {
-		// Suppress behaviour.
+	void Step(int s) override {
+		AdvanceHeads(s);
 	}
 
 	void OutputMatrixPush(int o) override {
+		displayMatrixUpdated = true;
+
 		// Push current matrix to output matrix.
 		uint64_t tempMatrix = 0;
 		for (int i = 0; i < 8; i++) {
@@ -712,18 +741,27 @@ public:
 		return outputMatrix * yVoltageScaler;
 	}
 
-	bool GetXGate() override {
+	bool GetXPulse() override {
 		// True if population (number of alive cells) has grown.
-		bool growth = false;
-		if (population > prevPopulation)
-			growth = true;
+		bool xPulse = false;
+
+		if (displayMatrixUpdated && (population > prevPopulation))
+			xPulse = true;
+
 		prevPopulation = population;
-		return growth;
+		return xPulse;
 	}
 
-	bool GetYGate() override {
-		// TODO: Think what this out should be
-		return false;
+	bool GetYPulse() override {
+		// True if life becomes stagnant (no change occurs),
+		// also true if output repeats while looping.
+		bool yPulse = false;
+
+		if (displayMatrixUpdated && (outputMatrix == prevOutputMatrix))
+			yPulse = true;
+
+		prevOutputMatrix = outputMatrix;
+		return yPulse;
 	}
 
 	// Drawing functions
@@ -731,7 +769,7 @@ public:
 		DrawTextBackground(vg, 0);
 		DrawTextBackground(vg, 1);
 
-		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 		nvgText(vg, padding, padding, "RULE", nullptr);
 		nvgText(vg, padding, fontSize + padding, rules[ruleIndex].displayName, nullptr);
 	}
@@ -740,7 +778,7 @@ public:
 		DrawTextBackground(vg, 1);
 		DrawTextBackground(vg, 2);
 
-		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 		nvgText(vg, padding, fontSize + padding, "MODE", nullptr);
 		switch (mode) {
 		case Mode::WRAP:
@@ -764,7 +802,7 @@ public:
 		DrawTextBackground(vg, 1);
 		DrawTextBackground(vg, 2);
 
-		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 		nvgText(vg, padding, fontSize + padding, "SEED", nullptr);
 		nvgText(vg, padding, (fontSize * 2) + padding, seeds[seedIndex].displayName, nullptr);
 	}
@@ -877,6 +915,8 @@ private:
 
 	int population = 0;
 	int prevPopulation = 0;
+	uint64_t prevOutputMatrix = 0;
+	bool prevYbit = false;
 
 	static constexpr float xVoltageScaler = 1.f / 64.f;
 	static constexpr float yVoltageScaler = 1.f / UINT64_MAX;
@@ -910,14 +950,12 @@ public:
 		activeAlogrithm = algorithms[algorithmIndex];
 	}
 
-
-
 	// Common algoithm specific functions.
 	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
 	void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
+	void ticker() { activeAlogrithm->Ticker(); }
 	void advanceHeads(int sequenceLength) { activeAlogrithm->AdvanceHeads(sequenceLength); }
 	uint64_t getOutputMatrix() { return activeAlogrithm->GetOutputMatrix(); }
-
 
 	// Drawing functions
 	void setDrawParams(LookAndFeel* l, float p, float fs) {
@@ -940,7 +978,7 @@ public:
 		drawTextBackground(vg, 2);
 
 		//nvgFillColor(vg, looks[lookIndex].primaryAccent);
-		nvgFillColor(vg, *lookAndFeel->getPrimaryAccent());
+		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
 		nvgText(vg, padding, fontSize + padding, "ALGO", nullptr);
 		switch (algorithmIndex) {
 		case 0:
@@ -955,7 +993,7 @@ public:
 	}
 
 	// Algoithm specific functions.
-	void outputMatrixStep() { activeAlogrithm->OutputMatrixStep(); }
+	void step(int sequenceLength) { activeAlogrithm->Step(sequenceLength); }
 	void outputMatrixPush() { activeAlogrithm->OutputMatrixPush(offset); }
 	void generate() { activeAlogrithm->Generate(); }
 	void seedReset(bool write = false) { activeAlogrithm->SeedReset(write); }
@@ -967,8 +1005,8 @@ public:
 
 	float getXVoltage() { return activeAlogrithm->GetXVoltage(); }
 	float getYVoltage() { return activeAlogrithm->GetYVoltage(); }
-	bool getXGate() { return activeAlogrithm->GetXGate(); }
-	bool getYGate() { return activeAlogrithm->GetYGate(); }
+	bool getXPulse() { return activeAlogrithm->GetXPulse(); }
+	bool getYPulse() { return activeAlogrithm->GetYPulse(); }
 
 	// Drawing functions
 	void drawRuleMenu(NVGcontext* vg) { activeAlogrithm->DrawRuleMenu(vg); }
