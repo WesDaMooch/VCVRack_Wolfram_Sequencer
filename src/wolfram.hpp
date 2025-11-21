@@ -8,7 +8,7 @@ public:
 	void setLookIndex(int i) { lookIndex = i; }
 	void setFeelIndex(int i) { feelIndex = i; }
 
-	// Look getters
+	// Getters
 	int getLookIndex() { return lookIndex; }
 	int getFeelIndex() { return feelIndex; }
 
@@ -39,20 +39,19 @@ public:
 
 protected:
 	// Look
-	static constexpr int numColours = 3;
-	static constexpr int numLooks = 3;
-	std::array<std::array<NVGcolor, numColours>, numLooks> looks { {
+	static constexpr int NUM_COLOURS = 3;
+	static constexpr int NUM_LOOKS = 3;
+	int lookIndex = 0;
+	std::array<std::array<NVGcolor, NUM_COLOURS>, NUM_LOOKS> looks { {
 
 		{ nvgRGB(58, 16, 19), nvgRGB(228, 7, 7), nvgRGB(78, 12, 9) },		// Default
 		{ nvgRGB(37, 59, 99), nvgRGB(205, 254, 254), nvgRGB(39, 70, 153) },	// Oled
 		{ nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(0, 0, 0) },				// VCV Rack
 
 	} };
-	int lookIndex = 0;
 
 	// Feel
 	int feelIndex = 0;
-
 	float circleSize = 5.f;
 	float squareSize = 10.f;
 	float squareBevel = 1.f;
@@ -1009,8 +1008,8 @@ public:
 	void seedUpdate(int delta, bool reset) { activeAlogrithm->SeedUpdate(delta, reset); }
 	void modeUpdate(int delta, bool reset) { activeAlogrithm->ModeUpdate(delta, reset); }
 
-	float getXVoltage() { return activeAlogrithm->GetXVoltage(); }
-	float getYVoltage() { return activeAlogrithm->GetYVoltage(); }
+	float getXVoltage() { return clamp(activeAlogrithm->GetXVoltage(), 0.f, 1.f); }
+	float getYVoltage() { return clamp(activeAlogrithm->GetYVoltage(), 0.f, 1.f); }
 	bool getXPulse() { return activeAlogrithm->GetXPulse(); }
 	bool getYPulse() { return activeAlogrithm->GetYPulse(); }
 
