@@ -41,7 +41,6 @@ struct SlewLimiter {
 	}
 };
 
-
 enum MenuPages {
 	SEED,
 	SLEW,
@@ -104,8 +103,9 @@ struct WolframModule : Module {
 	dsp::BooleanTrigger menuTrigger;
 	dsp::BooleanTrigger modeTrigger;
 	dsp::Timer ruleDisplayTimer;
-	dsp::RCFilter dcFilter[2];	// DC blocking filter.
-	SlewLimiter slewLimiter;
+	dsp::RCFilter dcFilter[2];
+
+	SlewLimiter slewLimiter[2];
 
 	int sequenceLength = 8;
 	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
@@ -118,16 +118,14 @@ struct WolframModule : Module {
 	bool gen = false;
 	bool genPending = false;
 	float lastTrigVoltage = 0.f;
+	float sr = 0;
 
 	int slewParam = 0;
-	float slewAmount = 0;
+	//float slewAmount = 0;
 	bool sync = false;
 	bool menu = false;
 	bool vcoMode = false;
-
-	float sr = 48000;
 	
-
 	// Encoder
 	static constexpr float encoderIndent = 1.f / 20.f;
 	float prevEncoderValue = 0.f;
@@ -206,7 +204,10 @@ struct WolframModule : Module {
 		// set DC blocker to ~10Hz.
 		for (int i = 0; i < 2; i++) {
 			dcFilter[i].setCutoffFreq(10.f / sr);
+			slewLimiter[i].setSlewAmountMs(vcoMode ? (slewParam * 0.075f) : (slewParam * 10.f), sr);
 		}
+
+		
 	}
 
 	void processEncoder() {
@@ -238,15 +239,18 @@ struct WolframModule : Module {
 				sync = !sync;
 				break;
 
-			case SLEW: 
+			case SLEW: {
 				slewParam = clamp(slewParam + delta, 0, 100);
 				if (encoderReset)
 					slewParam = 0;
-		
-				// Convert slewParam (0 - 100) to ms (0, 1000)
-				slewLimiter.setSlewAmountMs(slewParam * 10.f, sr);
+				// Convert slewParam (0 - 100) to ms (0, 1000),
+				// or (0 - 10) if vcoMode is true.
+				float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
+				for (int i = 0; i < 2; i++) {
+					slewLimiter[i].setSlewAmountMs(slew, sr);
+				}
 				break;
-
+			}
 			case ALGORITHM:
 				algo.algoithmUpdate(delta, encoderReset);
 				algo.update();
@@ -279,10 +283,21 @@ struct WolframModule : Module {
 	}
 
 	void process(const ProcessArgs& args) override {
+		// KNOBS & INPUTS
+		// Algoithm CV input.
+		algo.setAlgoithmCV(inputs[ALGO_CV_INPUT].getVoltage());
 
-		// BUTTONS & ENCODER
-		processEncoder();
+		// Rule CV input.
+		algo.setRuleCV(inputs[RULE_CV_INPUT].getVoltage());
 
+		// Length knob.
+		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
+
+		// Prob knob & CV input.
+		float probCV = clamp(inputs[PROB_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
+		prob = clamp(params[PROB_PARAM].getValue() + probCV, 0.f, 1.f);
+
+		// BUTTONS
 		if (menuTrigger.process(params[MENU_PARAM].getValue())) {
 			menu = !menu;
 		}
@@ -300,11 +315,10 @@ struct WolframModule : Module {
 			}
 		}
 
-		// DIALS & INPUTS
-		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
+		// SELECT ENCODER
+		processEncoder();
 
-		float probCv = clamp(inputs[PROB_CV_INPUT].getVoltage(), 0.f, 10.f) * 0.1f;
-		prob = clamp(params[PROB_PARAM].getValue() + probCv, 0.f, 1.f); // TODO: Used the min max thing here too, see offset
+
 
 		float offsetCv = clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
 		int newOffset = std::min(std::max(fastRoundInt(params[OFFSET_PARAM].getValue() + offsetCv), -4), 4);
@@ -419,6 +433,10 @@ struct WolframModule : Module {
 		// OUTPUT
 		float xCv = algo.getXVoltage();
 		float yCv = algo.getYVoltage();
+
+		xCv = slewLimiter[0].process(xCv);
+		yCv = slewLimiter[1].process(yCv);
+
 		if (vcoMode) {
 			// TODO should be processing all the time?
 			// Or call reset when vcoMode is changed?
@@ -430,9 +448,6 @@ struct WolframModule : Module {
 			dcFilter[1].process(yCv);
 			yCv = dcFilter[1].highpass();
 		}
-
-		xCv = slewLimiter.process(xCv);
-
 
 		// Cv outputs -  0V to 10V or -5V to 5V (10Vpp).
 		xCv = xCv * params[X_SCALE_PARAM].getValue() * 10.f;
@@ -459,169 +474,205 @@ struct WolframModule : Module {
 		lights[Y_PULSE_LIGHT].setBrightnessSmooth(yGate, args.sampleTime);
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
 		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject | negativeInject, args.sampleTime);
+		
+		// Hide rule display.
+		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f)
+			displayRule = false;
 
 		algo.tick();
 	}
 };
 
+struct DisplayFramebuffer : FramebufferWidget {
+	WolframModule* module;
+	uint64_t prevMatrix = 0;
+
+	DisplayFramebuffer(WolframModule* m) {
+		module = m;
+	}
+
+	void step() override {
+		uint64_t matrix = module ? module->algo.getDisplayMatrix() : 0;
+
+		//if (module && (matrix != prevMatrix))
+		bool b = false;
+		if (b)
+			FramebufferWidget::dirty = true;
+
+		prevMatrix = matrix;
+
+		FramebufferWidget::step();
+	}
+};
+
+//struct Display : TransparentWidget {
+struct Display : TransformWidget {
+	WolframModule* module;
+	LookAndFeel* lookAndFeel;
+
+	std::shared_ptr<Font> font;
+	std::string fontPath;
+
+	int cols = 8;
+	int rows = 8;
+	float padding = 1.f;
+	float cellSize = 5.f;
+
+	float widgetSize = 0;
+	float screenSize = 0;
+	float cellSpacing = 0;
+	float fontSize = 0;
+
+	NVGcolor primaryColour = nvgRGB(0, 0, 0);
+	NVGcolor secondaryColour = nvgRGB(0, 0, 0);
+
+	uint64_t matrix = 0;
+
+	Display(WolframModule* m, float y, float w, float s) {
+		module = m;
+
+		// Params
+		widgetSize = s;
+		screenSize = widgetSize - (padding * 2.f);
+		cellSpacing = screenSize / cols;
+		fontSize = (screenSize / cols) * 2.f;
+
+		// Widget size
+		box.pos = Vec((w * 0.5f) - (widgetSize * 0.5f), y);
+		box.size = Vec(widgetSize, widgetSize);
+
+		// Load font
+		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf5.otf"));
+		font = APP->window->loadFont(fontPath);
+
+		if (!module)
+			return;
+
+		lookAndFeel = &module->lookAndFeel;
+		module->algo.setDrawParams(lookAndFeel, padding, fontSize);
+	}
+
+	void drawMenu(NVGcontext* vg, MenuPages Menu, NVGcolor* c) {
+
+		module->algo.drawTextBackground(vg, 0);
+		module->algo.drawTextBackground(vg, 3);
+
+		nvgFillColor(vg, *c);
+		nvgText(vg, padding, padding, "menu", nullptr);
+
+		switch (Menu) {
+		case SEED:
+			module->algo.drawSeedMenu(vg);
+			break;
+		case MODE:
+			module->algo.drawModeMenu(vg);
+			break;
+		case SYNC:
+			module->algo.drawTextBackground(vg, 1);
+			module->algo.drawTextBackground(vg, 2);
+
+			nvgFillColor(vg, *c);
+			nvgText(vg, padding, fontSize + padding, "SYNC", nullptr);
+			if (module->sync)
+				nvgText(vg, padding, (fontSize * 2.f) + padding, "LOCK", nullptr);
+			else
+				nvgText(vg, padding, (fontSize * 2.f) + padding, "FREE", nullptr);
+			break;
+		case SLEW:
+			module->algo.drawTextBackground(vg, 1);
+			module->algo.drawTextBackground(vg, 2);
+
+			nvgFillColor(vg, *c);
+			nvgText(vg, padding, fontSize + padding, "SLEW", nullptr);
+
+			char slewString[5];
+			snprintf(slewString, sizeof(slewString), "%4.3d", module->slewParam);
+			nvgText(vg, padding, (fontSize * 2.f) + padding, slewString, nullptr);
+			break;
+		case ALGORITHM:
+			module->algo.drawAlgoithmMenu(vg);
+			break;
+		default:
+			break;
+		}
+
+		nvgFillColor(vg, *c);
+		nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
+	}
+
+	void draw(const DrawArgs& args) override {
+		NVGcolor backgroundColour = module ? *lookAndFeel->getBackgroundColour() : nvgRGB(58, 16, 19);
+
+		// Draw background & border.
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, padding * 0.5f, padding * 0.5f,
+			widgetSize - padding, widgetSize - padding, 2.f);
+		nvgFillColor(args.vg, backgroundColour);
+		nvgFill(args.vg);
+		nvgStrokeWidth(args.vg, padding);
+		nvgStrokeColor(args.vg, nvgRGB(16, 16, 16));
+		nvgStroke(args.vg);
+		nvgClosePath(args.vg);
+
+		// Draw dead cells & menu background,
+		// setup drawing alive cells and text on the self-illuminating layer.
+		primaryColour = module ? *lookAndFeel->getPrimaryColour() : nvgRGB(228, 7, 7);
+		secondaryColour = module ? *lookAndFeel->getSecondaryColour() : nvgRGB(78, 12, 9);
+
+		nvgFontSize(args.vg, fontSize);
+		nvgFontFaceId(args.vg, font->handle);
+		nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+
+		// Requires flipping.
+		matrix = module ? module->algo.getDisplayMatrix() : 8;
+
+
+		
+	}
+
+	void drawLayer(const DrawArgs& args, int layer) override {
+		if (layer != 1)
+			return;
+
+		if (module && module->menu) {
+			drawMenu(args.vg, module->menuPages, &primaryColour);
+			return;
+		}
+
+		int firstRow = 0;
+		if (module && module->displayRule) {
+			firstRow = rows - 4;
+			nvgFillColor(args.vg, primaryColour);
+			module->algo.drawRuleMenu(args.vg);
+		}
+
+
+		// TODO: this is slow
+		for (int row = firstRow; row < rows; row++) {
+			int rowInvert = (row - 7) * -1;
+
+			for (int col = 0; col < cols; col++) {
+				int colInvert = 7 - col;
+				int cellIndex = rowInvert * 8 + colInvert;
+				bool cellState = (matrix >> cellIndex) & 1ULL;
+
+				nvgBeginPath(args.vg);
+				if (module) {
+					lookAndFeel->drawCell(args.vg, row, col, cellState, padding, cellSpacing);
+				}
+				else {
+					nvgFillColor(args.vg, cellState ? primaryColour : secondaryColour);
+					nvgCircle(args.vg, (cellSpacing * col) + (cellSpacing * 0.5f) + padding,
+						(cellSpacing * row) + (cellSpacing * 0.5f) + padding, 5.f);
+				}
+				nvgFill(args.vg);
+			}
+		}
+		Widget::drawLayer(args, layer);
+	}
+};
+
 struct WolframModuleWidget : ModuleWidget {
-
-	struct WolframDisplay : TransparentWidget {
-		WolframModule* module;
-		LookAndFeel* lookAndFeel;
-
-		std::shared_ptr<Font> font;
-		std::string fontPath;
-
-		int cols = 8;
-		int rows = 8;
-		float padding = 1.f;
-		float cellSize = 5.f;
-
-		float widgetSize = 0;
-		float screenSize = 0;
-		float cellSpacing = 0;
-		float fontSize = 0;
-
-		WolframDisplay(WolframModule* m, float y, float w, float s) {
-			module = m;
-
-			// Params
-			widgetSize = s;
-			screenSize = widgetSize - (padding * 2.f);
-			cellSpacing = screenSize / cols;
-			fontSize = (screenSize / cols) * 2.f;
-
-			// Widget size
-			box.pos = Vec((w * 0.5f) - (widgetSize * 0.5f), y);
-			box.size = Vec(widgetSize, widgetSize);
-
-			// Get font
-			fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf5.otf"));
-			font = APP->window->loadFont(fontPath);
-
-			if (!module)
-				return;
-
-			lookAndFeel = &module->lookAndFeel;
-			module->algo.setDrawParams(lookAndFeel, padding, fontSize);
-		}
-
-		void drawMenu(NVGcontext* vg, MenuPages Menu, NVGcolor* c) {
-
-			module->algo.drawTextBackground(vg, 0);
-			module->algo.drawTextBackground(vg, 3);
-
-			nvgFillColor(vg, *c);
-			nvgText(vg, padding, padding, "menu", nullptr);
-
-			switch (Menu) {
-			case SEED:
-				module->algo.drawSeedMenu(vg);
-				break;
-			case MODE:
-				module->algo.drawModeMenu(vg);
-				break;
-			case SYNC:
-				module->algo.drawTextBackground(vg, 1);
-				module->algo.drawTextBackground(vg, 2);
-
-				nvgFillColor(vg, *c);
-				nvgText(vg, padding, fontSize + padding, "SYNC", nullptr);
-				if (module->sync)
-					nvgText(vg, padding, (fontSize * 2.f) + padding, "LOCK", nullptr);
-				else
-					nvgText(vg, padding, (fontSize * 2.f) + padding, "FREE", nullptr);
-				break;
-			case SLEW:
-				module->algo.drawTextBackground(vg, 1);
-				module->algo.drawTextBackground(vg, 2);
-
-				nvgFillColor(vg, *c);
-				nvgText(vg, padding, fontSize + padding, "SLEW", nullptr);
-
-				char slewString[5];
-				snprintf(slewString, sizeof(slewString), "%4.3d", module->slewParam);
-				nvgText(vg, padding, (fontSize * 2.f) + padding, slewString, nullptr);
-				break;
-			case ALGORITHM:
-				module->algo.drawAlgoithmMenu(vg);
-				break;
-			default:
-				break;
-			}
-
-			nvgFillColor(vg, *c);
-			nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
-		}
-
-		void draw(const DrawArgs& args) override {
-			NVGcolor backgroundColour = module ? *lookAndFeel->getBackgroundColour() : nvgRGB(58, 16, 19);
-
-			// Draw background & border.
-			nvgBeginPath(args.vg);
-			nvgRoundedRect(args.vg, padding * 0.5f, padding * 0.5f,
-				widgetSize - padding, widgetSize - padding, 2.f);
-			nvgFillColor(args.vg, backgroundColour);
-			nvgFill(args.vg);
-			nvgStrokeWidth(args.vg, padding);
-			nvgStrokeColor(args.vg, nvgRGB(16, 16, 16));
-			nvgStroke(args.vg);
-			nvgClosePath(args.vg);
-		}
-
-		void drawLayer(const DrawArgs& args, int layer) override {
-			if (layer == 1) {
-				// Draw cells & menu.
-				NVGcolor primaryColour = module ? *lookAndFeel->getPrimaryColour() : nvgRGB(228, 7, 7);
-				NVGcolor secondaryColour = module ? *lookAndFeel->getSecondaryColour() : nvgRGB(78, 12, 9);
-
-				nvgFontSize(args.vg, fontSize);
-				nvgFontFaceId(args.vg, font->handle);
-				nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
-
-				if (module && module->menu) {
-					drawMenu(args.vg, module->menuPages, &primaryColour);
-					return;
-				}
-
-				int firstRow = 0;
-				if (module && module->displayRule) {
-					firstRow = rows - 4;
-					nvgFillColor(args.vg, primaryColour);
-					module->algo.drawRuleMenu(args.vg);
-				}
-
-
-				// Requires flipping before drawing
-				uint64_t matrix = module ? module->algo.getDisplayMatrix() : 8;
-
-				// TODO: this is slow
-				for (int row = firstRow; row < rows; row++) {
-					int rowInvert = (row - 7) * -1;
-
-					for (int col = 0; col < cols; col++) {
-						int colInvert = 7 - col;
-						int cellIndex = rowInvert * 8 + colInvert;
-						bool cellState = (matrix >> cellIndex) & 1ULL;
-
-						nvgBeginPath(args.vg);
-						if (module) {
-							lookAndFeel->drawCell(args.vg, row, col, cellState, padding, cellSpacing);
-						}
-						else {
-							nvgFillColor(args.vg, cellState ? primaryColour : secondaryColour);
-							nvgCircle(args.vg, (cellSpacing * col) + (cellSpacing * 0.5f) + padding,
-								(cellSpacing * row) + (cellSpacing * 0.5f) + padding, 5.f);
-						}
-						nvgFill(args.vg);
-					}
-				}
-				
-			}
-			Widget::drawLayer(args, layer);
-		}
-	};
 
 	// Custom knobs & dials.
 	struct LengthKnob : RoundLargeBlackKnob {
@@ -773,8 +824,13 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		
 
-		WolframDisplay* display = new WolframDisplay(module, mm2px(10.14f), box.size.x, mm2px(32.f));
-		addChild(display);
+		DisplayFramebuffer* displayFb = new DisplayFramebuffer(module);
+		addChild(displayFb);
+
+		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
+		//Display* display = createWidget<Display>(Vec(mm2px(10.14f), box.size.x));
+		//display->init(module, mm2px(10.14f), box.size.x, mm2px(32.f));
+		displayFb->addChild(display);
 	}
 
 	void appendContextMenu(Menu* menu) override {

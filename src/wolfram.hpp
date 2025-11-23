@@ -65,7 +65,6 @@ public:
 	// Common functions
 	void SetReadHead(int r) { readHead = r; }
 	void SetWriteHead(int w) { writeHead = w; }
-	void Tick() { displayMatrixUpdated = false; }
 	void AdvanceHeads(int s) {
 		// Advance read and write heads
 		// TODO: could use if, would be quicker?
@@ -112,6 +111,7 @@ public:
 	}
 	
 	// Algorithm specific functions
+	virtual void Tick() = 0;
 	virtual void Step(int s) = 0;
 	virtual void Update(int o) = 0;
 	virtual void Generate() = 0;
@@ -119,6 +119,7 @@ public:
 	virtual void Inject(bool a, bool w) = 0;
 
 	// Update functions
+	virtual void SetRuleCV(float cv) = 0;
 	virtual void RuleUpdate(int d, bool r) = 0;
 	virtual void SeedUpdate(int d, bool r) = 0;
 	virtual void ModeUpdate(int d, bool r) = 0;
@@ -159,8 +160,14 @@ protected:
 class WolfAlgoithm : public AlgorithmBase {
 public:
 	WolfAlgoithm() {
-		// Init seed
+		// Init seed.
 		rowBuffer[readHead] = seed;
+	}
+
+	void Tick() override { 
+		// Set rule.
+		rule = static_cast<uint8_t>(clamp(ruleSelect + ruleCV, 0, UINT8_MAX));
+		displayMatrixUpdated = false; 
 	}
 
 	void Step(int s) override {
@@ -260,13 +267,17 @@ public:
 		rowBuffer[head] = row;
 	}
 
+	void SetRuleCV(float cv) override {
+		// Input (0 to 1) -> -256 to 256.
+		ruleCV = std::round(cv * 256);
+	}
+
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
-			rule = 30;
+			ruleSelect = 30;
 			return;
 		}
-		// TODO: is the wrapped because of the cast, is this a good way to do things
-		rule = static_cast<uint8_t>(rule + d);
+		ruleSelect = static_cast<uint8_t>(ruleSelect + d);
 	}
 
 	void SeedUpdate(int d, bool r) override {
@@ -430,7 +441,10 @@ private:
 	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
 	static constexpr float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
 
-	uint8_t rule = 30;
+	uint8_t ruleSelect = 30;
+	int ruleCV = 0;
+	uint8_t rule = 0;
+	
 	uint8_t seed = 0x08;
 	int seedSelect = seed;
 	bool randSeed = false;
@@ -492,6 +506,11 @@ public:
 	}
 	
 	// Algoithm specific functions.
+	void Tick() override {
+		ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1);
+		displayMatrixUpdated = false;
+	}
+
 	void Step(int s) override {
 		AdvanceHeads(s);
 	}
@@ -702,13 +721,16 @@ public:
 		matrixBuffer[head] = matrix;
 	}
 
+	void SetRuleCV(float cv) override {
+		ruleCV = std::round(cv * NUM_RULES);
+	}
+
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
-			//rule = Rule::LIFE;
-			ruleIndex = ruleDefault;
+			ruleSelect = ruleDefault;
 			return;
 		}
-		ruleIndex = (ruleIndex + d + numRules) % numRules;
+		ruleSelect = (ruleSelect + d + NUM_RULES) % NUM_RULES;
 	}
 
 	void SeedUpdate(int d, bool r) override {
@@ -716,7 +738,7 @@ public:
 			seedIndex = seedDefault;
 			return;
 		}
-		seedIndex = (seedIndex + d + numSeeds) % numSeeds;
+		seedIndex = (seedIndex + d + NUM_SEEDS) % NUM_SEEDS;
 	}
 
 	void ModeUpdate(int d, bool r) override {
@@ -726,7 +748,7 @@ public:
 		}
 			
 		int modeIndex = static_cast<int>(mode);
-		modeIndex = (modeIndex + d + numModes) % numModes;
+		modeIndex = (modeIndex + d + NUM_MODES) % NUM_MODES;
 		mode = static_cast<Mode>(modeIndex);
 	}
 
@@ -811,7 +833,7 @@ public:
 	// LED function
 	float GetModeLEDValue() override {
 		const int modeIndex = static_cast<int>(mode);
-		return static_cast<float>(modeIndex) * numModesScaler;
+		return static_cast<float>(modeIndex) * modesScaler;
 	}
 
 	std::string GetRuleString() override {
@@ -842,11 +864,11 @@ private:
 	};
 
 	Mode mode = Mode::WRAP;
-	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
-	static constexpr float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
+	static constexpr int NUM_MODES = static_cast<int>(Mode::MODE_LEN);
+	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
-	static constexpr int numRules = 30;
-	std::array<Rule, numRules> rules{ {
+	static constexpr int NUM_RULES = 30;
+	std::array<Rule, NUM_RULES> rules{ {
 		// Rules from the Hatsya catagolue & LifeWiki.
 		{ "WALK", 0x1908U },			// Pedestrian Life			B38/S23
 		{ "VRUS", 0x5848U },			// Virus					B36/S235
@@ -880,10 +902,12 @@ private:
 		{ "24/7", 0x3B1C8U },			// Day & Night				B3678/S34678	
 	} };
 	static constexpr int ruleDefault = 11;
-	int ruleIndex = ruleDefault;
+	int ruleSelect = ruleDefault;
+	int ruleCV = 0;
+	int ruleIndex = 0;
 
-	static constexpr int numSeeds = 30;
-	std::array<Seed, numSeeds> seeds { {
+	static constexpr int NUM_SEEDS = 30;
+	std::array<Seed, NUM_SEEDS> seeds { {
 		// Patterns from the Life Lexicon, Hatsya catagolue & LifeWiki.
 		{ "WING", 0x1824140C0000ULL },		// Wing									Rule: Life
 		{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship, 				Rule: LowLife
@@ -930,7 +954,6 @@ private:
 
 class AlgoithmDispatcher {
 public:
-	// Algoithm dispatcher.
 	AlgoithmDispatcher() {
 		algorithms[0] = &wolf;
 		algorithms[1] = &life;
@@ -946,20 +969,28 @@ public:
 		offset = newOffset;
 	}
 
+	void setAlgoithmCV(float cv) { 
+		algorithmCV = std::round(clamp(cv * 0.1f, -1.f, 1.f) * (NUM_ALGORITHMS - 1));
+	}
+
 	void algoithmUpdate(int delta, bool reset) {
 		if (reset) {
-			algorithmIndex = 0;
+			algorithmSelect = 0;
 		}
 		else {
-			algorithmIndex = (algorithmIndex + delta + NUM_ALGORITHMS) % NUM_ALGORITHMS;
+			algorithmSelect = (algorithmSelect + delta + NUM_ALGORITHMS) % NUM_ALGORITHMS;
 		}
+	}
+
+	void tick() {
+		algorithmIndex = clamp(algorithmSelect + algorithmCV, 0, (NUM_ALGORITHMS - 1));
 		activeAlogrithm = algorithms[algorithmIndex];
+		activeAlogrithm->Tick();
 	}
 
 	// Common algoithm specific functions.
 	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
 	void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
-	void tick() { activeAlogrithm->Tick(); }
 	uint64_t getDisplayMatrix() { return activeAlogrithm->GetDisplayMatrix(); }
 
 	// Drawing functions
@@ -1004,6 +1035,7 @@ public:
 	void seedReset(bool write = false) { activeAlogrithm->SeedReset(write); }
 	void inject(bool add, bool write = false) { activeAlogrithm->Inject(add, write); }
 
+	void setRuleCV(float cv) { activeAlogrithm->SetRuleCV(clamp(cv * 0.1f, -1.f, 1.f)); }
 	void ruleUpdate(int delta, bool reset) { activeAlogrithm->RuleUpdate(delta, reset); }
 	void seedUpdate(int delta, bool reset) { activeAlogrithm->SeedUpdate(delta, reset); }
 	void modeUpdate(int delta, bool reset) { activeAlogrithm->ModeUpdate(delta, reset); }
@@ -1029,15 +1061,17 @@ private:
 	LifeAlgoithm life;
 
 	static constexpr int NUM_ALGORITHMS = 2;
-	int algorithmIndex = 0;
-	std::array<AlgorithmBase*, NUM_ALGORITHMS> algorithms;
+	std::array<AlgorithmBase*, NUM_ALGORITHMS> algorithms {};
 	AlgorithmBase* activeAlogrithm;
+	int algorithmIndex = 0;
+	int algorithmSelect = 0;
+	int algorithmCV = 0;
 
 	int offset = 0;
 
 	// Drawing 
+	LookAndFeel* lookAndFeel;
+
 	float padding = 0;
 	float fontSize = 0;
-
-	LookAndFeel* lookAndFeel;
 };
