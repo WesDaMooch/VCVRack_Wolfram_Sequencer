@@ -598,17 +598,30 @@ struct DisplayFramebuffer : FramebufferWidget {
 		bool displayRule = module ? module->displayRule : false;
 		MenuPages page = module ? module->menuPages : MenuPages::SEED;
 
-		// TODO: sort this out
-		if (menu) {
-			if ((page != prevPage) || (menu != prevMenu))
-				dirty = true;
-		}
-		else {
-			if ((matrix != prevMatrix) || (displayRule != prevDisplayRule))
-				dirty = true;
-		}
 
-		//dirty = true;
+		// Naah this is all drawn on layer 1???
+		// encoderReset
+		// encdoer
+
+		// menu Button
+		// modeButton
+		// look and feel
+
+
+		// TODO: sort this out
+		if (menu != prevMenu)
+			dirty = true;
+
+		if (menu && (page != prevPage))
+			dirty = true;
+
+		if (!menu && (displayRule != prevDisplayRule))
+			dirty = true;
+
+		if (!menu && (matrix != prevMatrix))
+			dirty = true;
+
+		dirty = true;
 
 		prevMatrix = matrix;
 		prevMenu = menu;
@@ -637,21 +650,20 @@ struct Display : TransparentWidget {
 	float cellSize = 5.f;
 
 	float widgetSize = 0;
-	float screenSize = 0;
-	float cellSpacing = 0;
 	float fontSize = 0;
 
 	// std pair for col and row?
-	std::vector<Vec> aliveCellPos{};
+	std::vector<Vec> aliveCellCord{};
 
 	Display(WolframModule* m, float y, float w, float s) {
 		module = m;
 
 		// Params
 		widgetSize = s;
-		screenSize = widgetSize - (padding * 2.f);
-		cellSpacing = screenSize / cols;
+		float screenSize = widgetSize - (padding * 2.f);
 		fontSize = (screenSize / cols) * 2.f;
+
+		float cellPadding = (screenSize / cols);
 
 		// Widget size
 		box.pos = Vec((w * 0.5f) - (widgetSize * 0.5f), y);
@@ -665,7 +677,7 @@ struct Display : TransparentWidget {
 			return;
 
 		lookAndFeel = &module->lookAndFeel;
-		lookAndFeel->setDrawingParams(padding, fontSize);
+		lookAndFeel->setDrawingParams(padding, fontSize, cellPadding);
 	}
 
 	/*
@@ -880,7 +892,7 @@ struct Display : TransparentWidget {
 
 		// Draw dead cells & menu background,
 		// setup drawing alive cells and text on the self-illuminating layer.
-		aliveCellPos.clear();
+		aliveCellCord.clear();
 
 		int firstRow = 0;
 		if (module) {
@@ -894,7 +906,6 @@ struct Display : TransparentWidget {
 		}
 
 		// Requires flipping.
-		//uint64_t matrix = module ? module->algo.getDisplayMatrix() : 8;
 		uint64_t matrix = module ? module->activeAlogrithm->GetDisplayMatrix() : 8;
 
 		// Calculate and store cell 
@@ -905,18 +916,14 @@ struct Display : TransparentWidget {
 				int colInvert = 7 - col;
 				int cellIndex = rowInvert * 8 + colInvert;
 
-				float x, y;
-				x = (cellSpacing * col) + (cellSpacing * 0.5f) + padding;
-				y = (cellSpacing * row) + (cellSpacing * 0.5f) + padding;
-
 				if ((matrix >> cellIndex) & 1ULL) {
-					// Store alive cells float x = coordinates
-					aliveCellPos.emplace_back(Vec(x, y));
+					// Store alive cell coordinates.
+					aliveCellCord.emplace_back(Vec(col, row));
 				}
 				else {
 					// Draw dead cells.
 					if (module)
-						lookAndFeel->drawCell3(args.vg, x, y, false);
+						lookAndFeel->drawCell(args.vg, col, row, false);
 				}
 			}
 		}
@@ -938,39 +945,17 @@ struct Display : TransparentWidget {
 		if (module && (module->menu || module->displayRule))
 			drawMenuText(args.vg, module->menuPages, module->displayRule);
 
+		// Draw alive cells.
 		nvgBeginPath(args.vg);
-		for (const Vec& pos : aliveCellPos) {
-			float x = pos.x;
-			float y = pos.y;
+		for (const Vec& pos : aliveCellCord) {
+			int col = pos.x;
+			int row = pos.y;
 			if (module) {
-				lookAndFeel->drawCell3(args.vg, x, y, true);
+				lookAndFeel->drawCell(args.vg, col, row, true);
 			}
 		}
 		nvgFill(args.vg);
 
-		// TODO: this is slow
-		/*
-		for (int row = firstRow; row < rows; row++) {
-			int rowInvert = (row - 7) * -1;
-
-			for (int col = 0; col < cols; col++) {
-				int colInvert = 7 - col;
-				int cellIndex = rowInvert * 8 + colInvert;
-				bool cellState = (matrix >> cellIndex) & 1ULL;
-
-				nvgBeginPath(args.vg);
-				if (module) {
-					lookAndFeel->drawCell(args.vg, row, col, cellState, padding, cellSpacing);
-				}
-				else {
-					nvgFillColor(args.vg, cellState ? primaryColour : secondaryColour);
-					nvgCircle(args.vg, (cellSpacing * col) + (cellSpacing * 0.5f) + padding,
-						(cellSpacing * row) + (cellSpacing * 0.5f) + padding, 5.f);
-				}
-				nvgFill(args.vg);
-			}
-		}
-		*/
 		Widget::drawLayer(args, layer);
 	}
 };
@@ -1092,11 +1077,9 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-
 		// Buttons
 		addParam(createParamCentered<CKD6>(mm2px(Vec(7.62f, 38.14f)), module, WolframModule::MENU_PARAM));
 		addParam(createParamCentered<CKD6>(mm2px(Vec(53.34f, 38.14f)), module, WolframModule::MODE_PARAM));
-
 		// Dials
 		addParam(createParamCentered<SelectEncoder>(mm2px(Vec(53.34f, 22.14f)), module, WolframModule::SELECT_PARAM));
 		addParam(createParamCentered<LengthKnob>(mm2px(Vec(15.24f, 61.369f)), module, WolframModule::LENGTH_PARAM));
@@ -1104,7 +1087,6 @@ struct WolframModuleWidget : ModuleWidget {
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.597f)), module, WolframModule::OFFSET_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(7.62f, 80.597f)), module, WolframModule::X_SCALE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(53.34f, 80.597f)), module, WolframModule::Y_SCALE_PARAM));
-
 		// Inputs
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 22.14f)), module, WolframModule::RESET_INPUT));
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 99.852f)), module, WolframModule::OFFSET_CV_INPUT));
@@ -1113,13 +1095,11 @@ struct WolframModuleWidget : ModuleWidget {
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(53.34f, 114.852f)), module, WolframModule::ALGO_CV_INPUT));
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 114.852f)), module, WolframModule::TRIG_INPUT));
 		addInput(createInputCentered<BananutBlack>(mm2px(Vec(19.05f, 114.852f)), module, WolframModule::INJECT_INPUT));
-
 		// Outputs
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 99.852f)), module, WolframModule::X_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.05f, 99.852f)), module, WolframModule::X_PULSE_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 99.852f)), module, WolframModule::Y_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, WolframModule::Y_PULSE_OUTPUT));
-
 		// LEDs
 		addChild(createLightCentered<RectangleLedDiagonal<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 47.767f)), module, WolframModule::MODE_LIGHT)); 
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		
@@ -1128,14 +1108,9 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		
 
 		DisplayFramebuffer* displayFb = new DisplayFramebuffer(module);
-		addChild(displayFb);
-
 		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
-		//Display* display = createWidget<Display>(Vec(mm2px(10.14f), box.size.x));
-		//display->init(module, mm2px(10.14f), box.size.x, mm2px(32.f));
 		displayFb->addChild(display);
-
-		//addChild(display);
+		addChild(displayFb);
 	}
 
 	void appendContextMenu(Menu* menu) override {

@@ -16,14 +16,44 @@ public:
 	// Setters
 	//void setDrawingContext(NVGcontext* context) { vg = context; }
 
-	void setDrawingParams(float p, float fs) { 
-		padding = p;
-		fontSize = fs;
+	void setDrawingParams(float p, float fs, float cp) { 
 
-		for (int r = 0; r < 4; r++) {
-			textPos[r].x = padding;
-			textPos[r].y = padding + (fontSize * r);
+		padding = p;
+		cellSpacing = cp;
+		
+		fontSize = fs;
+		textBgSize = fontSize - 2.f;
+		textBgPadding = (fontSize * 0.5f) - (textBgSize * 0.5f) + padding;
+
+		// Text positions. 
+		for (int i = 0; i < 4; i++) {
+			textPos[i].x = padding;
+			textPos[i].y = padding + (fontSize * i);
 		}
+
+		// Text background positions. 
+		for (int r = 0; r < 4; r++) {
+			for (int c = 0; c < 4; c++) {
+
+				int i = r * 4 + c;
+				textBgPos[i].x = (fontSize * c) + textBgPadding;
+				textBgPos[i].y = (fontSize * r) + textBgPadding;
+			}
+		}
+
+		// Cell positions.
+		for (int c = 0; c < 8; c++) {
+			for (int r = 0; r < 8; r++) {
+
+				int i = r * 8 + c;
+				cellCirclePos[i].x = (cellSpacing * c) + (cellSpacing * 0.5f) + padding;
+				cellCirclePos[i].y = (cellSpacing * r) + (cellSpacing * 0.5f) + padding;
+
+				cellSquarePos[i].x = (cellSpacing * c) + (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
+				cellSquarePos[i].y = (cellSpacing * r) + (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
+			}
+		}
+
 	};
 
 	void setLookIndex(int i) { lookIndex = i; }
@@ -46,55 +76,73 @@ public:
 
 	void drawTextBackground(NVGcontext* vg, const int row) {
 		// Draw one row of four square backgrounds for text.
-		float rectSize = fontSize - 2.f;
-		float fontPadding = (fontSize * 0.5f) - (rectSize * 0.5f) + padding; // TODO: compute somewhere else
 
+		float textBgBevel = 3.f;
 		nvgFillColor(vg, *getSecondaryColour());
-		//nvgBeginPath(vg);
+
+		nvgBeginPath(vg);
 		for (int col = 0; col < 4; col++) {
+
+			int i = row * 4 + col;
+			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y, 
+				textBgSize, textBgSize, textBgBevel);
+		}
+		nvgFill(vg);
+	}
+
+	void drawSeedRect(NVGcontext* vg, const int row, const bool state, const uint8_t seed) {
+
+		if (state) {
+			// Draw ON seed rectangles.
+			float halfFontSize = fontSize * 0.5f;
+			float rectSize = halfFontSize - 2.f;
+
+			nvgFillColor(vg, *getPrimaryColour());
 			nvgBeginPath(vg);
-			nvgRoundedRect(vg, (fontSize * col) + fontPadding, 
-				(fontSize * row) + fontPadding, rectSize, rectSize, 3.f);
+			for (int col = 0; col < 8; col++) {
+				bool cell = (seed >> (7 - col)) & 1;
+				if (cell) {
+					nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
+						(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
+						rectSize, (rectSize * 2.f) + 2.f, 3.f);
+				}
+
+			}
 			nvgFill(vg);
 		}
-		//nvgFill(vg);
-		//nvgClosePath(vg);
+		else {
+			// Draw seed rectangle backgrounds.
+			float halfFontSize = fontSize * 0.5f;
+			float rectSize = halfFontSize - 2.f;
+
+			nvgFillColor(vg, *getSecondaryColour());
+			nvgBeginPath(vg);
+			for (int col = 0; col < 8; col++) {
+				bool cell = (seed >> (7 - col)) & 1;
+				if (!cell) {
+					nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
+						(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
+						rectSize, (rectSize * 2.f) + 2.f, 3.f);
+				}
+
+			}
+			nvgFill(vg);
+		}
 	}
 
-	void drawCell3(NVGcontext* vg, float x, float y, bool state) {
-		// TODO: pass col, row?? 
-		nvgFillColor(vg, state ? *getPrimaryColour() : *getSecondaryColour());
-
-		// Circles
-		nvgCircle(vg, x, y, circleSize);
-	}
-
-
-	///
-	void drawCell2(NVGcontext* vg, float x, float y, bool state) {
-		nvgFillColor(vg, state ? *getPrimaryColour() : *getSecondaryColour());
-
-		// Circles
-		nvgCircle(vg, x, y, circleSize);
-	}
-
-
-	void drawCell(NVGcontext* vg, int row, int col, bool state, float padding, float spacing) {
+	void drawCell(NVGcontext* vg, float col, float row, bool state) {
+		// Draw cell.
+		int i = row * 8 + col;
 		nvgFillColor(vg, state ? *getPrimaryColour() : *getSecondaryColour());
 
 		switch (feelIndex) {
-		case 0:
-			// Circles
-			nvgCircle(vg, (spacing * col) + (spacing * 0.5f) + padding,
-				(spacing * row) + (spacing * 0.5f) + padding, circleSize);
+		case 1:	// Square.
+			nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
+				squareCellSize, squareCellSize, squareCellBevel);
 			break;
-		case 1:
-			// Squares
-			nvgRoundedRect(vg, (spacing * col) + (spacing * 0.5f) - (squareSize * 0.5f) + padding,
-				(spacing * row) + (spacing * 0.5f) - (squareSize * 0.5f) + padding,
-				squareSize, squareSize, squareBevel);
-			break;
-		default:
+
+		default:	// Circle.
+			nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
 			break;
 		}
 	}
@@ -104,9 +152,20 @@ protected:
 	//NVGcontext* vg;
 	float padding = 0;
 
+	// Text.
 	float fontSize = 0;
+	float textBgSize = 0;
+	float textBgPadding = 0;
 	std::array<Vec, 4> textPos{};
-	std::array<Vec, 4> textBackgroundPos{};
+	std::array<Vec, 16> textBgPos{};
+
+	// Cell.
+	float cellSpacing = 0;
+	std::array<Vec, 64> cellCirclePos{};
+	std::array<Vec, 64> cellSquarePos{};
+
+	// Wolfram 
+	
 
 	// Looks
 	static constexpr int NUM_COLOURS = 3;
@@ -122,9 +181,9 @@ protected:
 
 	// Feels
 	int feelIndex = 0;
-	float circleSize = 5.f;
-	float squareSize = 10.f;
-	float squareBevel = 1.f;
+	float circleCellSize = 5.f;
+	float squareCellSize = 10.f;
+	float squareCellBevel = 1.f;
 };
 
 
@@ -196,15 +255,6 @@ public:
 			lookAndFeel->drawTextBackground(vg, r);
 		}
 	}
-
-	//virtual void DrawMenuBackground(NVGcontext* vg, int r) {
-	//	DrawTextBackground(vg, r);
-	//	DrawTextBackground(vg, r + 1);
-	//}
-
-	//virtual void DrawRuleMenuText(NVGcontext* vg) = 0;
-	//virtual void DrawModeMenuText(NVGcontext* vg) = 0;
-	//virtual void DrawSeedMenuText(NVGcontext* vg) = 0;
 
 	// LED function
 	virtual float GetModeLEDValue() = 0;
@@ -424,13 +474,15 @@ public:
 
 	// Drawing functions
 	void DrawMenuBackground(NVGcontext* vg, MenuPages p, bool rule) override {
-		// TODO: dont draw if seed!
 		int rows = 4;
 		if (rule)
 			rows = 2;
 
 		for (int r = 0; r < rows; r++) {
-			lookAndFeel->drawTextBackground(vg, r);
+			if (!randSeed && (p == MenuPages::SEED) && (r == 2))
+				lookAndFeel->drawSeedRect(vg, r, false, seed);
+			else
+				lookAndFeel->drawTextBackground(vg, r);
 		}
 	}
 	
@@ -452,7 +504,7 @@ public:
 				lookAndFeel->drawText(vg, "RAND", 2);
 				break;
 			}
-
+			lookAndFeel->drawSeedRect(vg, 2, true, seed);
 			// TODO: draw seed stuff
 			break;
 
