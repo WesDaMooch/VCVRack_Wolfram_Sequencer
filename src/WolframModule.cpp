@@ -22,6 +22,7 @@
 // TODO: Looks change Led colour
 
 #include "wolfram.hpp"
+#include <vector>
 
 struct SlewLimiter {
 	float y = 0.f;
@@ -39,15 +40,6 @@ struct SlewLimiter {
 	void reset() {
 		y = 0;
 	}
-};
-
-enum MenuPages {
-	SEED,
-	SLEW,
-	MODE,
-	SYNC,
-	ALGORITHM,
-	MENU_LEN
 };
 
 struct WolframModule : Module {
@@ -90,10 +82,30 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
-	AlgoithmDispatcher algo; 
+	//AlgoithmDispatcher algo; 
 	LookAndFeel lookAndFeel;
 	MenuPages menuPages = MenuPages::SEED;
 
+	WolfAlgoithm wolf;
+	LifeAlgoithm life;
+
+	static constexpr int NUM_ALGORITHMS = 2;
+	std::array<AlgorithmBase*, NUM_ALGORITHMS> algorithms{};
+	AlgorithmBase* activeAlogrithm;
+	int algorithmIndex = 0;
+	int algorithmSelect = 0;
+	int algorithmCV = 0;
+
+	//int offset = 0;
+
+	// Drawing 
+	//LookAndFeel lookAndFeel;
+	//LookAndFeel* lookAndFeel;
+
+	//float padding = 0;
+	//float fontSize = 0;
+
+	// 
 	dsp::PulseGenerator xPulse;
 	dsp::PulseGenerator yPulse;
 	dsp::SchmittTrigger trigTrigger;
@@ -139,6 +151,40 @@ struct WolframModule : Module {
 		return static_cast<int>(value + (value >= 0.f ? 0.5f : -0.5f));
 	}
 
+
+	// 
+
+	void setAlgoithmCV(float cv) {
+		algorithmCV = std::round(cv * (NUM_ALGORITHMS - 1));
+	}
+
+	void algoithmUpdate(int delta, bool reset) {
+		if (reset) {
+			algorithmSelect = 0;
+		}
+		else {
+			algorithmSelect = (algorithmSelect + delta + NUM_ALGORITHMS) % NUM_ALGORITHMS;
+		}
+	}
+
+	void tick() {
+		algorithmIndex = clamp(algorithmSelect + algorithmCV, 0, (NUM_ALGORITHMS - 1));
+		activeAlogrithm = algorithms[algorithmIndex];
+		activeAlogrithm->Tick();
+	}
+
+	// Common algoithm specific functions.
+	//void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
+	//void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
+	//uint64_t getDisplayMatrix() { return activeAlogrithm->GetDisplayMatrix(); }
+
+	//void setLookAndFeel(LookAndFeel* l) {
+	//	//lookAndFeel = l;
+	//	//for (int i = 0; i < NUM_ALGORITHMS; i++) {
+	//	//	algorithms[i]->SetLookAndFeel(lookAndFeel);
+	//	//}
+	//}
+
 	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
@@ -173,6 +219,19 @@ struct WolframModule : Module {
 		configLight(TRIG_LIGHT, "Trigger");
 		configLight(INJECT_LIGHT, "Inject");
 
+		// Alogrithms.
+		algorithms[0] = &wolf;
+		algorithms[1] = &life;
+
+		// Set default alogrithm.
+		activeAlogrithm = algorithms[algorithmIndex];
+
+		// Set alogrithm's Look and Feel.
+		for (int i = 0; i < NUM_ALGORITHMS; i++) {
+			algorithms[i]->SetLookAndFeel(&lookAndFeel);
+		}
+
+		activeAlogrithm->Update(offset);
 		onSampleRateChange();
 	}
 
@@ -180,7 +239,9 @@ struct WolframModule : Module {
 		// Custom behaviour to display rule when hovering over Select encoder.
 		std::string getDisplayValueString() override {
 			auto* m = dynamic_cast<WolframModule*>(module);
-			return m ? m->algo.getRuleString() : "30";
+			//return m ? m->algo.getRuleString() : "30";
+
+			return m ? m->activeAlogrithm->GetRuleString() : "30";
 		}
 
 		// Suppress behaviour.
@@ -224,11 +285,13 @@ struct WolframModule : Module {
 		if (menu) {
 			switch (menuPages) {
 			case SEED:
-				algo.seedUpdate(delta, encoderReset);
+				//algo.seedUpdate(delta, encoderReset);
+				activeAlogrithm->SeedUpdate(delta, encoderReset);
 				break;
 
 			case MODE:
-				algo.modeUpdate(delta, encoderReset);
+				//algo.modeUpdate(delta, encoderReset);
+				activeAlogrithm->ModeUpdate(delta, encoderReset);
 				break;
 
 			case SYNC:
@@ -252,8 +315,10 @@ struct WolframModule : Module {
 				break;
 			}
 			case ALGORITHM:
-				algo.algoithmUpdate(delta, encoderReset);
-				algo.update();
+				//algo.algoithmUpdate(delta, encoderReset);
+				algoithmUpdate(delta, encoderReset);
+				activeAlogrithm->Update(offset);
+				//algo.update();
 				break;
 
 			default:
@@ -261,8 +326,8 @@ struct WolframModule : Module {
 			}
 		}
 		else {
-			algo.ruleUpdate(delta, encoderReset);
-
+			//algo.ruleUpdate(delta, encoderReset);
+			activeAlogrithm->RuleUpdate(delta, encoderReset);
 			if (sync) {
 				ruleResetPending = true;
 			}
@@ -271,8 +336,10 @@ struct WolframModule : Module {
 				genPending = true;
 				ruleResetPending = false;
 				if (gen) {
-					algo.seedReset();
-					algo.update();
+					//algo.seedReset();
+					//algo.update();
+					activeAlogrithm->SeedReset(false);
+					activeAlogrithm->Update(offset);
 				}
 			}
 			displayRule = true;
@@ -285,13 +352,15 @@ struct WolframModule : Module {
 	void process(const ProcessArgs& args) override {
 		// KNOBS & INPUTS
 		// Algoithm CV input.
-		algo.setAlgoithmCV(inputs[ALGO_CV_INPUT].getVoltage());
+		//algo.setAlgoithmCV(inputs[ALGO_CV_INPUT].getVoltage());
+		setAlgoithmCV(clamp(inputs[ALGO_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
 		// Rule CV input.
-		algo.setRuleCV(inputs[RULE_CV_INPUT].getVoltage());
+		//algo.setRuleCV(inputs[RULE_CV_INPUT].getVoltage());
+		activeAlogrithm->SetRuleCV(clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
 		// Length knob.
-		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
+		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())]; // TODO: round?
 
 		// Prob knob & CV input.
 		float probCV = clamp(inputs[PROB_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
@@ -311,13 +380,13 @@ struct WolframModule : Module {
 				menuPages = static_cast<MenuPages>(menuIndex);
 			}
 			else {
-				algo.modeUpdate(1, false);
+				//algo.modeUpdate(1, false);
+				activeAlogrithm->ModeUpdate(1, false);
 			}
 		}
 
 		// SELECT ENCODER
 		processEncoder();
-
 
 
 		float offsetCv = clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
@@ -327,8 +396,9 @@ struct WolframModule : Module {
 		}
 		else if (offset != newOffset) {
 			offset = newOffset;
-			algo.setOffset(newOffset);
-			algo.update();
+			//algo.setOffset(newOffset);
+			//algo.update();
+			activeAlogrithm->Update(offset);
 		}
 
 		bool positiveInject = posInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
@@ -343,8 +413,10 @@ struct WolframModule : Module {
 				}
 			}
 			else {
-				algo.inject(positiveInject ? true : false);
-				algo.update();
+				//algo.inject(positiveInject ? true : false);
+				//algo.update();
+				activeAlogrithm->Inject(positiveInject ? true : false, false);
+				activeAlogrithm->Update(offset);
 				injectPendingState = 0;
 			}
 		}
@@ -358,13 +430,17 @@ struct WolframModule : Module {
 				genPending = true;
 				resetPending = false;
 				if (gen) {
-					algo.seedReset();
+					//algo.seedReset();
+					activeAlogrithm->SeedReset(false);
 				}
 				else {
-					algo.setReadHead(0);
-					algo.setWriteHead(1);
+					//algo.setReadHead(0);
+					//algo.setWriteHead(1);
+					activeAlogrithm->SetReadHead(0);
+					activeAlogrithm->SetWriteHead(1);
 				}
-				algo.update();
+				//algo.update();
+				activeAlogrithm->Update(offset);
 			}
 		}
 
@@ -390,17 +466,22 @@ struct WolframModule : Module {
 
 			// Synced offset
 			if (sync) {
-				algo.setOffset(offsetPending);
+				//algo.setOffset(offsetPending);
+				offset = offsetPending; //TODO: this right?
 			}
 
 			// Synced inject
 			switch (injectPendingState) {
 			case 1:
-				algo.inject(true, true);
+				//algo.inject(true, true);
+				activeAlogrithm->Inject(true, true);
 				break;
+
 			case 2:
-				algo.inject(false, true);
+				activeAlogrithm->Inject(false, true);
+				//algo.inject(false, true);
 				break;
+
 			default: 
 				break;
 			}
@@ -408,19 +489,25 @@ struct WolframModule : Module {
 			// Synced reset
 			if (resetPending || ruleResetPending) {
 				if (gen) {
-					algo.seedReset(true);
+					//algo.seedReset(true);
+					activeAlogrithm->SeedReset(true);
 				}
 				else if (!ruleResetPending) {
-					algo.setWriteHead(0);
+					//algo.setWriteHead(0);
+					activeAlogrithm->SetWriteHead(0);
 				}
 			}
 
 			if (gen && !resetPending && !ruleResetPending && !injectPendingState) {
-				algo.generate();
+				//algo.generate();
+				activeAlogrithm->Generate();
 			}
 
-			algo.step(sequenceLength);
-			algo.update();
+			//algo.step(sequenceLength);
+			//algo.update();
+
+			activeAlogrithm->Step(sequenceLength);
+			activeAlogrithm->Update(offset);
 
 			// Reset gen and sync penders
 			gen = false;
@@ -431,8 +518,11 @@ struct WolframModule : Module {
 		}
 
 		// OUTPUT
-		float xCv = algo.getXVoltage();
-		float yCv = algo.getYVoltage();
+		//float xCv = algo.getXVoltage();
+		//float yCv = algo.getYVoltage();
+
+		float xCv = activeAlogrithm->GetXVoltage();
+		float yCv = activeAlogrithm->GetYVoltage();
 
 		xCv = slewLimiter[0].process(xCv);
 		yCv = slewLimiter[1].process(yCv);
@@ -456,9 +546,12 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
 		// Pulse outputs - 0V to 10V.
-		if(algo.getXPulse())
+		//if(algo.getXPulse())
+		if (activeAlogrithm->GetXPulse())
 			xPulse.trigger(1e-3f);
-		if (algo.getYPulse())
+
+		//if (algo.getYPulse())
+		if (activeAlogrithm->GetYPulse())
 			yPulse.trigger(1e-3f);
 
 		bool xGate = xPulse.process(args.sampleTime);
@@ -467,7 +560,8 @@ struct WolframModule : Module {
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// LIGHTS
-		lights[MODE_LIGHT].setBrightnessSmooth(algo.getModeLEDValue(), args.sampleTime); 
+		//lights[MODE_LIGHT].setBrightnessSmooth(algo.getModeLEDValue(), args.sampleTime); 
+		lights[MODE_LIGHT].setBrightnessSmooth(activeAlogrithm->GetModeLEDValue(), args.sampleTime);
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
@@ -479,34 +573,58 @@ struct WolframModule : Module {
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f)
 			displayRule = false;
 
-		algo.tick();
+		//algo.tick();
+		tick();
 	}
 };
 
 struct DisplayFramebuffer : FramebufferWidget {
 	WolframModule* module;
+
+	bool dirty = false;
+
 	uint64_t prevMatrix = 0;
+	bool prevMenu = false;
+	bool prevDisplayRule = false;
+	MenuPages prevPage = MenuPages::SEED;
 
 	DisplayFramebuffer(WolframModule* m) {
 		module = m;
 	}
 
 	void step() override {
-		uint64_t matrix = module ? module->algo.getDisplayMatrix() : 0;
+		uint64_t matrix = module ? module->activeAlogrithm->GetDisplayMatrix() : 0;
+		bool menu = module ? module->menu : false;
+		bool displayRule = module ? module->displayRule : false;
+		MenuPages page = module ? module->menuPages : MenuPages::SEED;
 
-		//if (module && (matrix != prevMatrix))
-		bool b = false;
-		if (b)
-			FramebufferWidget::dirty = true;
+		// TODO: sort this out
+		if (menu) {
+			if ((page != prevPage) || (menu != prevMenu))
+				dirty = true;
+		}
+		else {
+			if ((matrix != prevMatrix) || (displayRule != prevDisplayRule))
+				dirty = true;
+		}
+
+		//dirty = true;
 
 		prevMatrix = matrix;
+		prevMenu = menu;
+		prevPage = page;
+		prevDisplayRule = displayRule;
 
+		if (dirty) {
+			FramebufferWidget::dirty = true;
+			dirty = false;
+		}
 		FramebufferWidget::step();
 	}
 };
 
 //struct Display : TransparentWidget {
-struct Display : TransformWidget {
+struct Display : TransparentWidget {
 	WolframModule* module;
 	LookAndFeel* lookAndFeel;
 
@@ -523,10 +641,8 @@ struct Display : TransformWidget {
 	float cellSpacing = 0;
 	float fontSize = 0;
 
-	NVGcolor primaryColour = nvgRGB(0, 0, 0);
-	NVGcolor secondaryColour = nvgRGB(0, 0, 0);
-
-	uint64_t matrix = 0;
+	// std pair for col and row?
+	std::vector<Vec> aliveCellPos{};
 
 	Display(WolframModule* m, float y, float w, float s) {
 		module = m;
@@ -549,9 +665,10 @@ struct Display : TransformWidget {
 			return;
 
 		lookAndFeel = &module->lookAndFeel;
-		module->algo.setDrawParams(lookAndFeel, padding, fontSize);
+		lookAndFeel->setDrawingParams(padding, fontSize);
 	}
 
+	/*
 	void drawMenu(NVGcontext* vg, MenuPages Menu, NVGcolor* c) {
 
 		module->algo.drawTextBackground(vg, 0);
@@ -562,10 +679,10 @@ struct Display : TransformWidget {
 
 		switch (Menu) {
 		case SEED:
-			module->algo.drawSeedMenu(vg);
+			module->algo.drawSeedMenuText(vg);
 			break;
 		case MODE:
-			module->algo.drawModeMenu(vg);
+			module->algo.drawModeMenuText(vg);
 			break;
 		case SYNC:
 			module->algo.drawTextBackground(vg, 1);
@@ -590,7 +707,7 @@ struct Display : TransformWidget {
 			nvgText(vg, padding, (fontSize * 2.f) + padding, slewString, nullptr);
 			break;
 		case ALGORITHM:
-			module->algo.drawAlgoithmMenu(vg);
+			module->algo.drawAlgoithmMenuText(vg);
 			break;
 		default:
 			break;
@@ -600,15 +717,162 @@ struct Display : TransformWidget {
 		nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
 	}
 
+	void drawMenuBackground(NVGcontext* vg, MenuPages Menu) {
+
+		module->algo.drawTextBackground(vg, 0);
+		module->algo.drawTextBackground(vg, 3);
+
+		switch (Menu) {
+		case SEED:
+			module->algo.drawMenuBackground(vg);
+			break;
+		case MODE:
+			module->algo.drawMenuBackground(vg);
+			break;
+		case SYNC:
+			module->algo.drawTextBackground(vg, 1);
+			module->algo.drawTextBackground(vg, 2);
+			break;
+		case SLEW:
+			module->algo.drawTextBackground(vg, 1);
+			module->algo.drawTextBackground(vg, 2);
+			break;
+		case ALGORITHM:
+			module->algo.drawMenuBackground(vg);
+			break;
+		default:
+			break;
+		}
+	}
+	
+	void drawMenuText(NVGcontext* vg, MenuPages Menu) {
+		nvgFillColor(vg, primaryColour);
+		nvgText(vg, padding, padding, "menu", nullptr);
+
+		switch (Menu) {
+		case SEED:
+			module->algo.drawSeedMenuText(vg);
+			break;
+
+		case MODE:
+			module->algo.drawModeMenuText(vg);
+			break;
+
+		case SYNC:
+			nvgFillColor(vg, primaryColour);
+			nvgText(vg, padding, fontSize + padding, "SYNC", nullptr);
+			if (module->sync)
+				nvgText(vg, padding, (fontSize * 2.f) + padding, "LOCK", nullptr);
+			else
+				nvgText(vg, padding, (fontSize * 2.f) + padding, "FREE", nullptr);
+			break;
+
+		case SLEW:
+			nvgFillColor(vg, primaryColour);
+			nvgText(vg, padding, fontSize + padding, "SLEW", nullptr);
+
+			char slewString[5];
+			snprintf(slewString, sizeof(slewString), "%4.3d", module->slewParam);
+			nvgText(vg, padding, (fontSize * 2.f) + padding, slewString, nullptr);
+			break;
+
+		case ALGORITHM:
+			module->algo.drawAlgoithmMenuText(vg);
+			break;
+		default:
+			break;
+		}
+
+		nvgFillColor(vg, primaryColour);
+		nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
+	}
+	*/
+
+	void drawMenuBackgroud(NVGcontext* vg, MenuPages page, bool rule) {
+
+		// Rule.
+		if (rule) {
+			lookAndFeel->drawTextBackground(vg, 0);
+			lookAndFeel->drawTextBackground(vg, 1);
+			return;
+		}
+		
+		// Menu.
+		lookAndFeel->drawTextBackground(vg, 0);
+		lookAndFeel->drawTextBackground(vg, 3);
+
+		if ((page == MenuPages::SEED) || (page == MenuPages::MODE)) {
+			module->activeAlogrithm->DrawMenuBackground(vg, page, false);
+			return;
+		}
+
+		// Slew, Sync, Algo.
+		lookAndFeel->drawTextBackground(vg, 1);
+		lookAndFeel->drawTextBackground(vg, 2);	
+	}
+
+	void drawMenuText(NVGcontext* vg, MenuPages page, bool rule) {
+		// Rule.
+		if (rule) {
+			module->activeAlogrithm->DrawMenuText(vg, page, rule);
+			return;
+		}
+
+		// Menu.
+		lookAndFeel->drawText(vg, "menu", 0);
+		lookAndFeel->drawText(vg, "<#@>", 3);
+
+		switch (page) {
+		case SLEW: {
+			char t[5];
+			snprintf(t, sizeof(t), "%4.3d", module->slewParam);
+			lookAndFeel->drawText(vg, "SLEW", 1);
+			lookAndFeel->drawText(vg, t, 2);
+			break;
+		}
+		case SYNC: {
+			lookAndFeel->drawText(vg, "SYNC", 1);
+			if (module->sync)
+				lookAndFeel->drawText(vg, "LOCK", 2);
+			else
+				lookAndFeel->drawText(vg, "FREE", 2);
+			break;
+		}
+		case ALGORITHM: {
+			lookAndFeel->drawText(vg, "ALGO", 1);
+			switch (module->algorithmIndex) {
+			case 0:
+				lookAndFeel->drawText(vg, "WOLF", 2);
+				break;
+
+			case 1:
+				lookAndFeel->drawText(vg, "LIFE", 2);
+				break;
+
+			default:
+				break;
+			}
+			break;
+		}
+		default:	// SEED & MODE.
+			module->activeAlogrithm->DrawMenuText(vg, page, rule);
+			break;
+		}
+	}
+
 	void draw(const DrawArgs& args) override {
-		NVGcolor backgroundColour = module ? *lookAndFeel->getBackgroundColour() : nvgRGB(58, 16, 19);
+		
+		//lookAndFeel->setDrawingContext(args.vg);
 
 		// Draw background & border.
+		NVGcolor backgroundColour = module ? *lookAndFeel->getBackgroundColour() : nvgRGB(58, 16, 19);
+
 		nvgBeginPath(args.vg);
 		nvgRoundedRect(args.vg, padding * 0.5f, padding * 0.5f,
 			widgetSize - padding, widgetSize - padding, 2.f);
 		nvgFillColor(args.vg, backgroundColour);
 		nvgFill(args.vg);
+
 		nvgStrokeWidth(args.vg, padding);
 		nvgStrokeColor(args.vg, nvgRGB(16, 16, 16));
 		nvgStroke(args.vg);
@@ -616,38 +880,76 @@ struct Display : TransformWidget {
 
 		// Draw dead cells & menu background,
 		// setup drawing alive cells and text on the self-illuminating layer.
-		primaryColour = module ? *lookAndFeel->getPrimaryColour() : nvgRGB(228, 7, 7);
-		secondaryColour = module ? *lookAndFeel->getSecondaryColour() : nvgRGB(78, 12, 9);
+		aliveCellPos.clear();
 
-		nvgFontSize(args.vg, fontSize);
-		nvgFontFaceId(args.vg, font->handle);
-		nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+		int firstRow = 0;
+		if (module) {
+			if (module->menu || module->displayRule)
+				drawMenuBackgroud(args.vg, module->menuPages, module->displayRule);
+
+			if (module->menu)
+				return;
+
+			firstRow = module->displayRule ? (rows - 4) : 0;
+		}
 
 		// Requires flipping.
-		matrix = module ? module->algo.getDisplayMatrix() : 8;
+		//uint64_t matrix = module ? module->algo.getDisplayMatrix() : 8;
+		uint64_t matrix = module ? module->activeAlogrithm->GetDisplayMatrix() : 8;
 
+		// Calculate and store cell 
+		nvgBeginPath(args.vg);
+		for (int row = firstRow; row < rows; row++) {
+			int rowInvert = (row - 7) * -1;
+			for (int col = 0; col < cols; col++) {
+				int colInvert = 7 - col;
+				int cellIndex = rowInvert * 8 + colInvert;
 
-		
+				float x, y;
+				x = (cellSpacing * col) + (cellSpacing * 0.5f) + padding;
+				y = (cellSpacing * row) + (cellSpacing * 0.5f) + padding;
+
+				if ((matrix >> cellIndex) & 1ULL) {
+					// Store alive cells float x = coordinates
+					aliveCellPos.emplace_back(Vec(x, y));
+				}
+				else {
+					// Draw dead cells.
+					if (module)
+						lookAndFeel->drawCell3(args.vg, x, y, false);
+				}
+			}
+		}
+		nvgFill(args.vg);
+
 	}
 
 	void drawLayer(const DrawArgs& args, int layer) override {
 		if (layer != 1)
 			return;
 
-		if (module && module->menu) {
-			drawMenu(args.vg, module->menuPages, &primaryColour);
-			return;
-		}
+		//if (module)
+		//	lookAndFeel->setDrawingContext(args.vg);
 
-		int firstRow = 0;
-		if (module && module->displayRule) {
-			firstRow = rows - 4;
-			nvgFillColor(args.vg, primaryColour);
-			module->algo.drawRuleMenu(args.vg);
-		}
+		nvgFontSize(args.vg, fontSize);
+		nvgFontFaceId(args.vg, font->handle);
+		nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
+		if (module && (module->menu || module->displayRule))
+			drawMenuText(args.vg, module->menuPages, module->displayRule);
+
+		nvgBeginPath(args.vg);
+		for (const Vec& pos : aliveCellPos) {
+			float x = pos.x;
+			float y = pos.y;
+			if (module) {
+				lookAndFeel->drawCell3(args.vg, x, y, true);
+			}
+		}
+		nvgFill(args.vg);
 
 		// TODO: this is slow
+		/*
 		for (int row = firstRow; row < rows; row++) {
 			int rowInvert = (row - 7) * -1;
 
@@ -668,6 +970,7 @@ struct Display : TransformWidget {
 				nvgFill(args.vg);
 			}
 		}
+		*/
 		Widget::drawLayer(args, layer);
 	}
 };
@@ -831,6 +1134,8 @@ struct WolframModuleWidget : ModuleWidget {
 		//Display* display = createWidget<Display>(Vec(mm2px(10.14f), box.size.x));
 		//display->init(module, mm2px(10.14f), box.size.x, mm2px(32.f));
 		displayFb->addChild(display);
+
+		//addChild(display);
 	}
 
 	void appendContextMenu(Menu* menu) override {
