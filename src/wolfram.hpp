@@ -2,19 +2,10 @@
 #include "plugin.hpp"
 #include <array>
 
-enum MenuPages {
-	SEED,
-	SLEW,
-	MODE,
-	SYNC,
-	ALGORITHM,
-	MENU_LEN
-};
-
 class LookAndFeel {
 public:
 	// Setters
-	//void setDrawingContext(NVGcontext* context) { vg = context; }
+	void setDrawingContext(NVGcontext* context) { vg2 = context; }
 
 	void setDrawingParams(float p, float fs, float cp) { 
 
@@ -68,101 +59,126 @@ public:
 	NVGcolor* getSecondaryColour() { return &looks[lookIndex][2]; }
 
 	// Drawing
-	void drawText(NVGcontext* vg, const char text[5], const int row) {
-		// Draw for character row of text
-		nvgFillColor(vg, *getPrimaryColour());
-		nvgText(vg, textPos[row].x, textPos[row].y, text, nullptr);
+	
+	void drawText(const char text[5], const int row) {
+		// Draw four character row of text
+		nvgFillColor(vg2, *getPrimaryColour());
+		nvgText(vg2, textPos[row].x, textPos[row].y, text, nullptr);
 	}
 
-	void drawTextBackground(NVGcontext* vg, const int row) {
-		// Draw one row of four square backgrounds for text.
+	std::string formatIntForText(const int value) {
+		char t[5];
+		snprintf(t, sizeof(t), "%4.3d", value);
+		return std::string(t);
+	}
+
+	void drawText2(const std::string& str, const int row) {
+		// Draw four character row of text.
+		std::string outputStr;
+
+		if (str.size() >= 4) {
+			outputStr = str.substr(str.size() - 4);
+		}
+		else {
+			outputStr = std::string(4 - str.size(), ' ') + str;
+		}
+
+		nvgFillColor(vg2, *getPrimaryColour());
+		nvgText(vg2, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
+	}
+
+	void drawTextBackground(const int row) {
+		// Draw one row of four square text character backgrounds.
 
 		float textBgBevel = 3.f;
-		nvgFillColor(vg, *getSecondaryColour());
+		nvgFillColor(vg2, *getSecondaryColour());
 
-		nvgBeginPath(vg);
+		nvgBeginPath(vg2);
 		for (int col = 0; col < 4; col++) {
 
 			int i = row * 4 + col;
-			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y, 
+			nvgRoundedRect(vg2, textBgPos[i].x, textBgPos[i].y, 
 				textBgSize, textBgSize, textBgBevel);
 		}
-		nvgFill(vg);
+		nvgFill(vg2);
 	}
 
-	void drawSeedRect(NVGcontext* vg, const int row, const bool state, const uint8_t seed) {
+	void drawSeedRect(const int row, const bool state, const uint8_t seed) {
 
 		if (state) {
 			// Draw ON seed rectangles.
 			float halfFontSize = fontSize * 0.5f;
 			float rectSize = halfFontSize - 2.f;
 
-			nvgFillColor(vg, *getPrimaryColour());
-			nvgBeginPath(vg);
+			nvgFillColor(vg2, *getPrimaryColour());
+			nvgBeginPath(vg2);
 			for (int col = 0; col < 8; col++) {
 				bool cell = (seed >> (7 - col)) & 1;
 				if (cell) {
-					nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
+					nvgRoundedRect(vg2, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
 						(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
 						rectSize, (rectSize * 2.f) + 2.f, 3.f);
 				}
 
 			}
-			nvgFill(vg);
+			nvgFill(vg2);
 		}
 		else {
 			// Draw seed rectangle backgrounds.
 			float halfFontSize = fontSize * 0.5f;
 			float rectSize = halfFontSize - 2.f;
 
-			nvgFillColor(vg, *getSecondaryColour());
-			nvgBeginPath(vg);
+			nvgFillColor(vg2, *getSecondaryColour());
+			nvgBeginPath(vg2);
 			for (int col = 0; col < 8; col++) {
 				bool cell = (seed >> (7 - col)) & 1;
 				if (!cell) {
-					nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
+					nvgRoundedRect(vg2, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
 						(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
 						rectSize, (rectSize * 2.f) + 2.f, 3.f);
 				}
 
 			}
-			nvgFill(vg);
+			nvgFill(vg2);
 		}
 	}
 
-	void drawCell(NVGcontext* vg, float col, float row, bool state) {
+	void drawCell(float col, float row, bool state) {
 		// Draw cell.
 		int i = row * 8 + col;
-		nvgFillColor(vg, state ? *getPrimaryColour() : *getSecondaryColour());
+		nvgFillColor(vg2, state ? *getPrimaryColour() : *getSecondaryColour());
 
 		switch (feelIndex) {
-		case 1:	// Square.
-			nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
+		case 1: {
+			// Square.
+			nvgRoundedRect(vg2, cellSquarePos[i].x, cellSquarePos[i].y,
 				squareCellSize, squareCellSize, squareCellBevel);
 			break;
+		}
 
-		default:	// Circle.
-			nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
+		default:	
+			// Circle.
+			nvgCircle(vg2, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
 			break;
 		}
 	}
 
 protected:
 	// Params
-	//NVGcontext* vg;
+	NVGcontext* vg2;
 	float padding = 0;
 
-	// Text.
+	// Cell
+	float cellSpacing = 0;
+	std::array<Vec, 64> cellCirclePos{};
+	std::array<Vec, 64> cellSquarePos{};
+
+	// Text
 	float fontSize = 0;
 	float textBgSize = 0;
 	float textBgPadding = 0;
 	std::array<Vec, 4> textPos{};
 	std::array<Vec, 16> textBgPos{};
-
-	// Cell.
-	float cellSpacing = 0;
-	std::array<Vec, 64> cellCirclePos{};
-	std::array<Vec, 64> cellSquarePos{};
 
 	// Wolfram 
 	
@@ -217,15 +233,12 @@ public:
 		return r;
 	}
 
-	// Common drawing functions
+	// Common drawing functions.
+	void SetLookAndFeel(LookAndFeel* l) { lookAndFeel = l; }
 	
-	void SetLookAndFeel(LookAndFeel* l) {
-		lookAndFeel = l;
-	}
-	
-	// Algorithm specific functions
+	// Algorithm specific functions.
 	virtual void Tick() = 0;
-	virtual void Step(int s) = 0;
+	virtual void Step(int s) { AdvanceHeads(s); };
 	virtual void Update(int o) = 0;
 	virtual void Generate() = 0;
 	virtual void SeedReset(bool w) = 0;
@@ -244,15 +257,15 @@ public:
 	virtual bool GetYPulse() = 0;
 
 	// Drawing functions
-	virtual void DrawMenuText(NVGcontext* vg, MenuPages p, bool displayRule) = 0;
+	virtual void DrawMenuText(int page, bool displayRule) = 0;
 
-	virtual void DrawMenuBackground(NVGcontext* vg, MenuPages p, bool displayRule) {
+	virtual void DrawMenuBackground(int page, bool displayRule) {
 		int rows = 4;
 		if (displayRule)
 			rows = 2;
 
-		for (int r = 0; r < rows; r++) {
-			lookAndFeel->drawTextBackground(vg, r);
+		for (int row = 0; row < rows; row++) {
+			lookAndFeel->drawTextBackground(row);
 		}
 	}
 
@@ -318,21 +331,28 @@ public:
 		uint8_t readRow = rowBuffer[readHead];
 		uint8_t writeRow = 0;
 		
-		// Clip
+		// Clip.
 		// TODO: this is different from life!
 		uint8_t west = readRow >> 1;
 		uint8_t east = readRow << 1;
-		switch (mode) {
-		case Mode::WRAP:
 
+		switch (modeIndex) {
+		case 1: {
+			// Wrap.
 			west = (readRow >> 1) | (readRow << 7);
 			east = (readRow << 1) | (readRow >> 7);
 			break;
-		case Mode::RANDOM:
+		}
+
+		case 2: {
+			// Random.
 			west |= random::get<bool>() << 7;
 			east |= random::get<bool>();
 			break;
+		}
+
 		default:
+			// Clip.
 			break;
 		}
 
@@ -387,14 +407,11 @@ public:
 		rowBuffer[head] = row;
 	}
 
-	void SetRuleCV(float cv) override {
-		// Input (0 to 1) -> -256 to 256.
-		ruleCV = std::round(cv * 256);
-	}
+	void SetRuleCV(float cv) override { ruleCV = std::round(cv * 256); }
 
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
-			ruleSelect = 30;
+			ruleSelect = defaultRule;
 			return;
 		}
 		ruleSelect = static_cast<uint8_t>(ruleSelect + d);
@@ -402,7 +419,7 @@ public:
 
 	void SeedUpdate(int d, bool r) override {
 		if (r) {
-			seed = 8;
+			seed = defaultSeed;
 			seedSelect = seed;
 			randSeed = false;
 			return;
@@ -424,13 +441,10 @@ public:
 
 	void ModeUpdate(int d, bool r) override {
 		if (r) {
-			mode = Mode::WRAP;
+			modeIndex = modeDefault;
 			return;
 		}
-
-		int modeIndex = static_cast<int>(mode);
-		modeIndex = (modeIndex + d + numModes) % numModes;
-		mode = static_cast<Mode>(modeIndex);
+		modeIndex = (modeIndex + d + NUM_MODES) % NUM_MODES;
 	}
 
 	float GetXVoltage() override {
@@ -473,191 +487,82 @@ public:
 	}
 
 	// Drawing functions
-	void DrawMenuBackground(NVGcontext* vg, MenuPages p, bool rule) override {
+	void DrawMenuBackground(int page, bool displayRule) override {
 		int rows = 4;
-		if (rule)
+		if (displayRule)
 			rows = 2;
 
-		for (int r = 0; r < rows; r++) {
-			if (!randSeed && (p == MenuPages::SEED) && (r == 2))
-				lookAndFeel->drawSeedRect(vg, r, false, seed);
+		for (int row = 0; row < rows; row++) {
+			if (!randSeed && (page == 0) && (row == 2))
+				// Seed
+				lookAndFeel->drawSeedRect(row, false, seed);
 			else
-				lookAndFeel->drawTextBackground(vg, r);
+				lookAndFeel->drawTextBackground(row);
 		}
 	}
 	
-
-	void DrawMenuText(NVGcontext* vg, MenuPages p, bool displayRule) override {
-		
+	void DrawMenuText(int page, bool displayRule) override {
 		if (displayRule) {
-			char t[5];
-			snprintf(t, sizeof(t), "%4.3d", rule);
-			lookAndFeel->drawText(vg, "RULE", 0);
-			lookAndFeel->drawText(vg, t, 1);
+			lookAndFeel->drawText2("RULE", 0);
+			lookAndFeel->drawText2(lookAndFeel->formatIntForText(rule), 1);
 			return;
 		}
 
-		switch (p) {
-		case SEED:
-			lookAndFeel->drawText(vg, "SEED", 1);
+		std::string pageName;
+		std::string pageData;
+
+		switch (page) {
+		case 0: {
+			pageName = "SEED";
 			if (randSeed) {
-				lookAndFeel->drawText(vg, "RAND", 2);
+				pageData = "RAND";
 				break;
 			}
-			lookAndFeel->drawSeedRect(vg, 2, true, seed);
-			// TODO: draw seed stuff
+			lookAndFeel->drawSeedRect(2, true, seed);
 			break;
+		}
 
-		case MODE:
-			lookAndFeel->drawText(vg, "MODE", 1);
-			// TODO: mode struct with menuName
-			// lookAndFeel->drawHalfRect(row);
+		case 2: {
+			pageName = "MODE";
+			pageData = modeName[modeIndex];
 			break;
-		
+		}
+
 		default:
 			break;
 		}
+
+		lookAndFeel->drawText2(pageName, 1);
+		lookAndFeel->drawText2(pageData, 2);
 	}
-
-
-	/*
-	void DrawRuleMenuText(NVGcontext* vg) override {
-		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
-		nvgText(vg, padding, padding, "RULE", nullptr);
-		char ruleString[5];
-		snprintf(ruleString, sizeof(ruleString), "%4.3d", rule);
-		nvgText(vg, padding, fontSize + padding, ruleString, nullptr);
-	}
-
-	void DrawModeMenuText(NVGcontext* vg) override {
-		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
-		nvgText(vg, padding, fontSize + padding, "MODE", nullptr);
-		switch (mode) {
-		case Mode::WRAP: 
-			nvgText(vg, padding, (fontSize * 2) + padding, "WRAP", nullptr);
-			break;
-		case Mode::CLIP: 
-			nvgText(vg, padding, (fontSize * 2) + padding, "CLIP", nullptr);
-			break;
-		case Mode::RANDOM: 
-			nvgText(vg, padding, (fontSize * 2) + padding, "RAND", nullptr);
-			break;
-		default: 
-			break;
-		}
-	}
-
-	void DrawSeedMenuRect(NVGcontext* vg, bool state) {
-		// Helper for DrawSeedMenuText & DrawSeedMenuBackground.
-
-		float halfFontSize = fontSize * 0.5f;
-		float rectSize = halfFontSize - 2.f;
-
-		nvgBeginPath(vg);
-		for (int col = 0; col < 8; col++) {
-			bool cellState = (seed >> (7 - col)) & 1;
-
-			//nvgFillColor(vg, cellState ? *lookAndFeel->getPrimaryColour() :
-			//	*lookAndFeel->getSecondaryColour());
-
-			if (cellState) {
-				nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
-
-				nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-					(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-					rectSize, (rectSize * 2.f) + 2.f, 3.f);
-			}
-
-		}
-		nvgFill(vg);
-	}
-
-	void DrawSeedMenuText(NVGcontext* vg) override {
-		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
-		nvgText(vg, padding, fontSize + padding, "SEED", nullptr);
-
-		if (randSeed) {
-			nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
-			nvgText(vg, padding, (fontSize * 2) + padding, "RAND", nullptr);
-			return;
-		}
-
-		float halfFontSize = fontSize * 0.5f;
-		float rectSize = halfFontSize - 2.f;
-
-		nvgBeginPath(vg);
-		for (int col = 0; col < 8; col++) {
-			bool cellState = (seed >> (7 - col)) & 1;
-
-			if (cellState) {
-				nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
-
-				nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-					(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-					rectSize, (rectSize * 2.f) + 2.f, 3.f);	
-			}
-			
-		}
-		nvgFill(vg);
-
-	}
-
-	void DrawMenuBackground(NVGcontext* vg, int r) override {
-		DrawTextBackground(vg, r);
-
-		if (randSeed) {
-			DrawTextBackground(vg, r + 1);
-			return;
-		}
-
-		float halfFontSize = fontSize * 0.5f;
-		float rectSize = halfFontSize - 2.f;
-
-		nvgBeginPath(vg);
-		for (int col = 0; col < 8; col++) {
-			bool cellState = (seed >> (7 - col)) & 1;
-
-			if (!cellState) {
-				nvgFillColor(vg, *lookAndFeel->getSecondaryColour());
-
-				nvgRoundedRect(vg, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-					(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-					rectSize, (rectSize * 2.f) + 2.f, 3.f);
-			}
-		}
-		nvgFill(vg);
-
-	}
-	*/
 
 	// LED function
 	float GetModeLEDValue() override {
-		int modeIndex = static_cast<int>(mode);
-		return static_cast<float>(modeIndex) * numModesScaler;
+		return static_cast<float>(modeIndex) * modeScaler;
 	}
 
 	std::string GetRuleString() override {
-		std::string ruleString = std::to_string(static_cast<unsigned>(rule));
+		std::string ruleString = std::to_string(rule);
 		return ruleString;
 	}
 
 private:
-	enum class Mode {
-		CLIP,
-		WRAP,
-		RANDOM,
-		MODE_LEN
+	static constexpr int NUM_MODES = 3;
+	static constexpr int modeDefault = 1;
+	int modeIndex = modeDefault;
+	std::array<std::string, NUM_MODES> modeName{
+		"CLIP",
+		"WRAP",
+		"RAND"
 	};
 
-	Mode mode = Mode::WRAP;
-	static constexpr int numModes = static_cast<int>(Mode::MODE_LEN);
-	static constexpr float numModesScaler = 1.f / (static_cast<float>(numModes) - 1.f);
-
-	uint8_t ruleSelect = 30;
+	uint8_t defaultRule = 30;
+	uint8_t ruleSelect = defaultRule;
 	int ruleCV = 0;
 	uint8_t rule = 0;
 	
-	uint8_t seed = 0x08;
+	uint8_t defaultSeed = 0x08;
+	uint8_t seed = defaultSeed;
 	int seedSelect = seed;
 	bool randSeed = false;
 
@@ -667,13 +572,14 @@ private:
 	bool prevYbit = false;
 
 	static constexpr float voltageScaler = 1.f / UINT8_MAX;
+	static constexpr float modeScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 };
 
 class LifeAlgoithm : public AlgorithmBase {
 public:
 	LifeAlgoithm() {
 		// Init seed.
-		matrixBuffer[readHead] = seeds[seedIndex].seedInt;
+		matrixBuffer[readHead] = seeds[seedIndex].value;
 	}
 
 	// Helper functions
@@ -701,15 +607,22 @@ public:
 	}
 
 	void getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& east) {
-		switch (mode) {
-		case Mode::CLIP:
-			west = row >> 1;  
-			east = row << 1;  
+
+		switch (modeIndex) {
+		case 0: {
+			// Clip.
+			west = row >> 1;
+			east = row << 1;
 			break;
-		case Mode::RANDOM:
-			west = (row >> 1) | (random::get<bool>() << 7);     
+		}
+
+		case 3: {
+			// Random.
+			west = (row >> 1) | (random::get<bool>() << 7);
 			east = (row << 1) | random::get<bool>();
 			break;
+		}
+
 		default: // Wrap & klein bottle
 			west = (row >> 1) | (row << 7);
 			east = (row << 1) | (row >> 7);
@@ -717,20 +630,16 @@ public:
 		}
 	}
 	
-	// Algoithm specific functions.
+	// Algoithm specific functions
 	void Tick() override {
 		ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1);
 		displayMatrixUpdated = false;
 	}
 
-	void Step(int s) override {
-		AdvanceHeads(s);
-	}
-
 	void Update(int o) override {
 		displayMatrixUpdated = true;
 
-		// Push current matrix to output matrix.
+		// Push current matrix to output matrix
 		uint64_t tempMatrix = 0;
 		for (int i = 0; i < 8; i++) {
 			uint8_t row = (matrixBuffer[readHead] >> (i * 8)) & 0xFFULL;
@@ -738,7 +647,7 @@ public:
 		}
 		displayMatrix = tempMatrix;
 
-		// Count the current number of living cells.
+		// Count current living cells
 		population = __builtin_popcountll(displayMatrix);
 	}
 
@@ -752,27 +661,36 @@ public:
 		uint64_t readMatrix = matrixBuffer[readHead];
 		uint64_t writeMatrix = 0;
 
-		// Eight matrix rows + top & bottom padding.
+		// Eight matrix rows + top & bottom padding
 		std::array<uint8_t, 10> row{};
 
-		// Fill rows from current matrix.
+		// Fill rows from current matrix
 		for (int i = 1; i < 9; i++)
 			row[i] = (readMatrix >> ((i - 1) * 8)) & 0xFFULL;
 
-		// Fill top & bottom padding rows.
-		switch (mode) {
-		case Mode::CLIP:
+		// Fill top & bottom padding rows
+		switch (modeIndex) {
+		case 0: {
+			// Clip
 			row[0] = 0;
 			row[9] = 0;
 			break;
-		case Mode::KlEIN_BOTTLE:
+		}
+
+		case 2: {
+			// Klein bottle
 			row[0] = reverseRow(row[8]);
 			row[9] = reverseRow(row[1]);
 			break;
-		case Mode::RANDOM:
+		}
+
+		case 3: {
+			// Random
 			row[0] = random::get<uint8_t>();
 			row[9] = random::get<uint8_t>();
 			break;
+		}
+
 		default:
 			// Wrap
 			row[0] = row[8];
@@ -782,7 +700,7 @@ public:
 
 		for (int i = 1; i < 9; i++) {
 			// Current row  - C,
- 			// 8 neighbours - NW, N, NE, W, E, SW, S, SE.
+ 			// 8 neighbours - NW, N, NE, W, E, SW, S, SE
 			uint8_t n = row[i - 1];
 			uint8_t c = row[i];
 			uint8_t s = row[i + 1];
@@ -792,8 +710,8 @@ public:
 			getHorizontalNeighbours(c, w, e);
 			getHorizontalNeighbours(s, sw, se);
 
-			// Parallel bitwise addition.
-			// What the helly.
+			// Parallel bitwise addition
+			// What the helly
 
 			// Sum north row
 			uint8_t Nbit0 = 0, Nbit1 = 0;
@@ -823,7 +741,7 @@ public:
 			uint8_t NCSbit2 = 0, NCSbit3 = 0;
 			fulladder(NCbit2, 0, carry3, NCSbit2, NCSbit3);
 
-			// MSB <- -> LSB.
+			// MSB <- -> LSB
 			std::array<uint8_t, 9> alive{};
 			alive[0] = static_cast<uint8_t>(~NCSbit3 & ~NCSbit2 & ~NCSbit1 & ~NCSbit0);	// 0 0000
 			alive[1] = static_cast<uint8_t>(~NCSbit3 & ~NCSbit2 & ~NCSbit1 & NCSbit0);	// 1 0001
@@ -835,7 +753,7 @@ public:
 			alive[7] = static_cast<uint8_t>(~NCSbit3 & NCSbit2 & NCSbit1 & NCSbit0);	// 7 0111
 			alive[8] = static_cast<uint8_t>(NCSbit3 & ~NCSbit2 & ~NCSbit1 & ~NCSbit0);	// 8 1000
 
-			// Apply rule.
+			// Apply rule
 			uint8_t birth = 0;	
 			uint8_t survival = 0;	
 
@@ -843,15 +761,15 @@ public:
 				int birthIndex = k;
 				int survivalIndex = k + 9;
 
-				if (rules[ruleIndex].ruleInt & (1 << birthIndex))
+				if (rules[ruleIndex].value & (1 << birthIndex))
 					birth |= alive[k];
 
-				if (rules[ruleIndex].ruleInt & (1 << survivalIndex))
+				if (rules[ruleIndex].value & (1 << survivalIndex))
 					survival |= alive[k];
 			}
 			uint8_t nextRow = (c & survival) | ((~c) & birth);
 
-			// Update.
+			// Update
 			writeMatrix |= static_cast<uint64_t>(nextRow) << ((i - 1) * 8);
 		}
 		matrixBuffer[writeHead] = writeMatrix;
@@ -862,7 +780,7 @@ public:
 		if (w)
 			head = writeHead;
 
-		uint64_t resetMatrix = seeds[seedIndex].seedInt;
+		uint64_t resetMatrix = seeds[seedIndex].value;
 
 		// Dynamic random seeds.
 		switch (seedIndex) {
@@ -933,9 +851,7 @@ public:
 		matrixBuffer[head] = matrix;
 	}
 
-	void SetRuleCV(float cv) override {
-		ruleCV = std::round(cv * NUM_RULES);
-	}
+	void SetRuleCV(float cv) override { ruleCV = std::round(cv * NUM_RULES); }
 
 	void RuleUpdate(int d, bool r) override {
 		if (r) {
@@ -955,13 +871,10 @@ public:
 
 	void ModeUpdate(int d, bool r) override {
 		if (r) {
-			mode = Mode::WRAP;
+			modeIndex = modeDefault;
 			return;
 		}
-			
-		int modeIndex = static_cast<int>(mode);
 		modeIndex = (modeIndex + d + NUM_MODES) % NUM_MODES;
-		mode = static_cast<Mode>(modeIndex);
 	}
 
 	float GetXVoltage() override {
@@ -999,90 +912,72 @@ public:
 		return yPulse;
 	}
 
-
 	// Drawing functions
-	void DrawMenuText(NVGcontext* vg, MenuPages p, bool displayRule) override {
+	void DrawMenuText(int page, bool displayRule) override {
 		if (displayRule) {
-			lookAndFeel->drawText(vg, "RULE", 0);
-			lookAndFeel->drawText(vg, rules[ruleIndex].displayName, 1);
+			lookAndFeel->drawText2("RULE", 0);
+			lookAndFeel->drawText2(rules[ruleIndex].name, 1);
 			return;
 		}
 
-		switch (p) {
-		case SEED:
-			lookAndFeel->drawText(vg, "SEED", 1);
-			lookAndFeel->drawText(vg, seeds[seedIndex].displayName, 2);
+		std::string pageName;
+		std::string pageData;
+
+		switch (page) {
+		case 0: {
+			pageName = "SEED";
+			pageData = seeds[seedIndex].name;
 			break;
+		}
 
-		case MODE:
-			lookAndFeel->drawText(vg, "MODE", 1);
-			switch (mode) {
-			case Mode::WRAP:
-				lookAndFeel->drawText(vg, "WRAP", 2);
-				break;
-
-			case Mode::KlEIN_BOTTLE:
-				lookAndFeel->drawText(vg, "BOTL", 2);
-				break;
-
-			case Mode::CLIP:
-				lookAndFeel->drawText(vg, "CLIP", 2);
-				break;
-
-			case Mode::RANDOM:
-				lookAndFeel->drawText(vg, "RAND", 2);
-				break;
-
-			default:
-				break;
-			}
+		case 2: {
+			pageName = "MODE";
+			pageData = modeName[modeIndex];
 			break;
+		}
 
 		default:
 			break;
 		}
+
+		lookAndFeel->drawText2(pageName, 1);
+		lookAndFeel->drawText2(pageData, 2);
 	}
 
 	// LED function
 	float GetModeLEDValue() override {
-		const int modeIndex = static_cast<int>(mode);
 		return static_cast<float>(modeIndex) * modesScaler;
 	}
 
 	std::string GetRuleString() override {
-		std::string ruleString(rules[ruleIndex].displayName, 4);
-		return ruleString;
+		return rules[ruleIndex].name;
 	}
 
 private:
 	struct Rule {
-		char displayName[5];
-		uint32_t ruleInt;
+		std::string name;
+		uint32_t value;
 	};
 
 	struct Seed {
-		char displayName[5];
-		uint64_t seedInt;
+		std::string name;
+		uint64_t value;
 	};
 
-	enum class Mode {
-		CLIP,			// A plane bounded by 0s.
-		WRAP,			// Donut-shaped torus.
-		KlEIN_BOTTLE,	// If one pair of opposite edges are reversed.	
-		RANDOM,			// Plane is bounded by randomness. 
-		MODE_LEN
-		// TODO: More modes to add from Golly
-		// Cross surface - if both pairs of opposite edges are reversed.
-		// Sphere - if adjacent edges are joined rather than opposite edges.
-	};
-
-	Mode mode = Mode::WRAP;
-	static constexpr int NUM_MODES = static_cast<int>(Mode::MODE_LEN);
+	static constexpr int NUM_MODES = 4;
 	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
+	int modeDefault = 1;
+	int modeIndex = modeDefault;
+	std::array<std::string, NUM_MODES> modeName{
+		"CLIP",	// A plane bounded by 0s.
+		"WRAP",	// Donut-shaped torus.
+		"BOTL",	// Klein bottle - If one pair of opposite edges are reversed.
+		"RAND"	// Plane is bounded by randomness. 
+	};
 
 	static constexpr int NUM_RULES = 30;
 	std::array<Rule, NUM_RULES> rules{ {
-		// Rules from the Hatsya catagolue & LifeWiki.
+		// Rules from the Hatsya catagolue & LifeWiki
 		{ "WALK", 0x1908U },			// Pedestrian Life			B38/S23
 		{ "VRUS", 0x5848U },			// Virus					B36/S235
 		{ "TREK", 0x22A08U },			// Star Trek				B3/S0248		
@@ -1121,7 +1016,7 @@ private:
 
 	static constexpr int NUM_SEEDS = 30;
 	std::array<Seed, NUM_SEEDS> seeds { {
-		// Patterns from the Life Lexicon, Hatsya catagolue & LifeWiki.
+		// Seeds from the Life Lexicon, Hatsya catagolue & LifeWiki
 		{ "WING", 0x1824140C0000ULL },		// Wing									Rule: Life
 		{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship, 				Rule: LowLife
 		{ "VONG", 0x283C3C343000ULL },		// Castles Spaceship, 					Rule: Castles
@@ -1130,7 +1025,7 @@ private:
 		{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship, 					Rule: LowLife
 		{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
 		{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random,
-		{ "RND2", 0xEFA8EFA474577557ULL },	// Half Density Random,				
+		{ "RNDH", 0xEFA8EFA474577557ULL },	// Half Density Random,				
 		{ " RND", random::get<uint64_t>() },// True Random,
 		{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
 		{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship,				Rule: Life, HoneyLife
@@ -1164,156 +1059,3 @@ private:
 	static constexpr float xVoltageScaler = 1.f / 64.f;
 	static constexpr float yVoltageScaler = 1.f / UINT64_MAX;
 };
-
-
-/*
-
-class AlgoithmDispatcher {
-public:
-	AlgoithmDispatcher() {
-		algorithms[0] = &wolf;
-		algorithms[1] = &life;
-
-		// Default alogrithm.
-		activeAlogrithm = algorithms[algorithmIndex];
-
-		update();
-	}
-
-	// Common functions
-	void setOffset(int newOffset) { 
-		offset = newOffset;
-	}
-
-	void setAlgoithmCV(float cv) { 
-		algorithmCV = std::round(clamp(cv * 0.1f, -1.f, 1.f) * (NUM_ALGORITHMS - 1));
-	}
-
-	void algoithmUpdate(int delta, bool reset) {
-		if (reset) {
-			algorithmSelect = 0;
-		}
-		else {
-			algorithmSelect = (algorithmSelect + delta + NUM_ALGORITHMS) % NUM_ALGORITHMS;
-		}
-	}
-
-	void tick() {
-		algorithmIndex = clamp(algorithmSelect + algorithmCV, 0, (NUM_ALGORITHMS - 1));
-		activeAlogrithm = algorithms[algorithmIndex];
-		activeAlogrithm->Tick();
-	}
-
-	// Common algoithm specific functions.
-	void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
-	void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
-	uint64_t getDisplayMatrix() { return activeAlogrithm->GetDisplayMatrix(); }
-
-	// Drawing functions.
-	
-	void setLookAndFeel(LookAndFeel* l) {
-		lookAndFeel = l;
-		for (int i = 0; i < NUM_ALGORITHMS; i++) {
-			algorithms[i]->SetLookAndFeel(lookAndFeel);
-		}
-	}
-	
-
-	//void drawTextBackground(NVGcontext* vg, int row) {
-	//	activeAlogrithm->DrawTextBackground(vg, row);
-	//}
-
-	void drawMenuBackground(NVGcontext* vg, MenuPages page, int rows) { activeAlogrithm->DrawMenuBackground(vg, page, rows); }
-
-	void drawMenuText(NVGcontext* vg, MenuPages page) {
-		// TODO: if page is algo, draw algo menu
-
-		//	SEED,
-		//  SLEW,
-		//	MODE,
-		//	SYNC,
-		//	ALGORITHM,
-
-		//lookAndFeel->drawText("ALGO", 1);
-		switch (page) {
-		
-
-
-
-		default:	// Seed & mode
-			activeAlogrithm->DrawMenuText(vg, page);
-			break;
-		}
-
-		//activeAlogrithm->DrawMenuText(vg, page);
-	}
-
-	/*
-	void drawAlgoithmMenuText(NVGcontext* vg) {
-		nvgFillColor(vg, *lookAndFeel->getPrimaryColour());
-		nvgText(vg, padding, fontSize + padding, "ALGO", nullptr);
-		switch (algorithmIndex) {
-		case 0:
-			nvgText(vg, padding, (fontSize * 2) + padding, "WOLF", nullptr);
-			break;
-		case 1:
-			nvgText(vg, padding, (fontSize * 2) + padding, "LIFE", nullptr);
-			break;
-		default:
-			break;
-		}
-	}
-	
-	
-	// Algoithm specific drawing functions.
-	//void drawMenuBackground(NVGcontext* vg, int row = 0) { activeAlogrithm->DrawMenuBackground(vg, clamp(row, 0, 2)); }
-	//void drawRuleMenuText(NVGcontext* vg) { activeAlogrithm->DrawRuleMenuText(vg); }
-	//void drawModeMenuText(NVGcontext* vg) { activeAlogrithm->DrawModeMenuText(vg); }
-	//void drawSeedMenuText(NVGcontext* vg) { activeAlogrithm->DrawSeedMenuText(vg); }
-	
-	// Algoithm specific functions.
-	void step(int sequenceLength) { activeAlogrithm->Step(sequenceLength); }
-	void update() { activeAlogrithm->Update(offset); }
-	void generate() { activeAlogrithm->Generate(); }
-	void seedReset(bool write = false) { activeAlogrithm->SeedReset(write); }
-	void inject(bool add, bool write = false) { activeAlogrithm->Inject(add, write); }
-
-	void setRuleCV(float cv) { activeAlogrithm->SetRuleCV(clamp(cv * 0.1f, -1.f, 1.f)); }
-	void ruleUpdate(int delta, bool reset) { activeAlogrithm->RuleUpdate(delta, reset); }
-	void seedUpdate(int delta, bool reset) { activeAlogrithm->SeedUpdate(delta, reset); }
-	void modeUpdate(int delta, bool reset) { activeAlogrithm->ModeUpdate(delta, reset); }
-
-	float getXVoltage() { return clamp(activeAlogrithm->GetXVoltage(), 0.f, 1.f); }
-	float getYVoltage() { return clamp(activeAlogrithm->GetYVoltage(), 0.f, 1.f); }
-	bool getXPulse() { return activeAlogrithm->GetXPulse(); }
-	bool getYPulse() { return activeAlogrithm->GetYPulse(); }
-
-
-	// LED function
-	float getModeLEDValue() { return activeAlogrithm->GetModeLEDValue(); }
-
-	//
-	std::string getRuleString() { return activeAlogrithm->GetRuleString(); }
-
-private:
-	WolfAlgoithm wolf;
-	LifeAlgoithm life;
-
-	static constexpr int NUM_ALGORITHMS = 2;
-	std::array<AlgorithmBase*, NUM_ALGORITHMS> algorithms {};
-	AlgorithmBase* activeAlogrithm;
-	int algorithmIndex = 0;
-	int algorithmSelect = 0;
-	int algorithmCV = 0;
-
-	int offset = 0;
-
-	// Drawing 
-	//LookAndFeel lookAndFeel;
-	LookAndFeel* lookAndFeel;
-
-	float padding = 0;
-	float fontSize = 0;
-};
-
-*/

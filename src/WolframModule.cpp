@@ -82,30 +82,55 @@ struct WolframModule : Module {
 		LIGHTS_LEN
 	};
 
-	//AlgoithmDispatcher algo; 
+	// Look and feel
 	LookAndFeel lookAndFeel;
-	MenuPages menuPages = MenuPages::SEED;
 
+	// Algorithms
 	WolfAlgoithm wolf;
 	LifeAlgoithm life;
 
 	static constexpr int NUM_ALGORITHMS = 2;
 	std::array<AlgorithmBase*, NUM_ALGORITHMS> algorithms{};
 	AlgorithmBase* activeAlogrithm;
+	static constexpr int algorithmDefault = 0;
 	int algorithmIndex = 0;
-	int algorithmSelect = 0;
+	int algorithmSelect = algorithmDefault;
 	int algorithmCV = 0;
 
-	//int offset = 0;
+	// Menu
+	static constexpr int NUM_MENUPAGES = 5;
+	static constexpr int menuPageDefault = 0;
+	int menuPageIndex = menuPageDefault;
+	bool menu = false;
+	
+	// Params
+	int sequenceLength = 8;
+	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
 
-	// Drawing 
-	//LookAndFeel lookAndFeel;
-	//LookAndFeel* lookAndFeel;
+	float prob = 1;
+	int offset = 0;
+	int offsetPending = 0;
+	bool resetPending = false;
+	bool ruleResetPending = false;
+	int injectPendingState = 0;
+	bool gen = false;
+	bool genPending = false;
+	float lastTrigVoltage = 0.f;
+	int slewParam = 0;
+	bool sync = false;
+	bool vcoMode = false;
+	
+	// Select encoder
+	static constexpr float encoderIndent = 1.f / 30.f;
+	float prevEncoderValue = 0.f;
+	bool encoderReset = false;
+	
+	// Display
+	bool displayRule = false;
 
-	//float padding = 0;
-	//float fontSize = 0;
+	// Samplerate
+	float sr = 0;
 
-	// 
 	dsp::PulseGenerator xPulse;
 	dsp::PulseGenerator yPulse;
 	dsp::SchmittTrigger trigTrigger;
@@ -116,51 +141,20 @@ struct WolframModule : Module {
 	dsp::BooleanTrigger modeTrigger;
 	dsp::Timer ruleDisplayTimer;
 	dsp::RCFilter dcFilter[2];
-
 	SlewLimiter slewLimiter[2];
-
-	int sequenceLength = 8;
-	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
-	float prob = 1;
-	int offset = 0;
-	int offsetPending = 0;
-	bool resetPending = false;
-	bool ruleResetPending = false;
-	int injectPendingState = 0;
-	bool gen = false;
-	bool genPending = false;
-	float lastTrigVoltage = 0.f;
-	float sr = 0;
-
-	int slewParam = 0;
-	//float slewAmount = 0;
-	bool sync = false;
-	bool menu = false;
-	bool vcoMode = false;
-	
-	// Encoder
-	static constexpr float encoderIndent = 1.f / 20.f;
-	float prevEncoderValue = 0.f;
-	bool encoderReset = false;
-	
-	// Display
-	bool displayRule = false;
 
 	// is this really nessisary 
 	inline int fastRoundInt(float value) {
 		return static_cast<int>(value + (value >= 0.f ? 0.5f : -0.5f));
 	}
 
-
-	// 
-
-	void setAlgoithmCV(float cv) {
+	void algoithmSetCV(float cv) {
 		algorithmCV = std::round(cv * (NUM_ALGORITHMS - 1));
 	}
 
 	void algoithmUpdate(int delta, bool reset) {
 		if (reset) {
-			algorithmSelect = 0;
+			algorithmSelect = algorithmDefault;
 		}
 		else {
 			algorithmSelect = (algorithmSelect + delta + NUM_ALGORITHMS) % NUM_ALGORITHMS;
@@ -172,18 +166,6 @@ struct WolframModule : Module {
 		activeAlogrithm = algorithms[algorithmIndex];
 		activeAlogrithm->Tick();
 	}
-
-	// Common algoithm specific functions.
-	//void setReadHead(int readHead) { activeAlogrithm->SetReadHead(readHead); }
-	//void setWriteHead(int writeHead) { activeAlogrithm->SetWriteHead(writeHead); }
-	//uint64_t getDisplayMatrix() { return activeAlogrithm->GetDisplayMatrix(); }
-
-	//void setLookAndFeel(LookAndFeel* l) {
-	//	//lookAndFeel = l;
-	//	//for (int i = 0; i < NUM_ALGORITHMS; i++) {
-	//	//	algorithms[i]->SetLookAndFeel(lookAndFeel);
-	//	//}
-	//}
 
 	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -262,13 +244,12 @@ struct WolframModule : Module {
 	void onSampleRateChange() override {
 		sr = APP->engine->getSampleRate();
 
-		// set DC blocker to ~10Hz.
+		// Set DC blocker to ~10Hz,
+		// calculate slew time
 		for (int i = 0; i < 2; i++) {
 			dcFilter[i].setCutoffFreq(10.f / sr);
-			slewLimiter[i].setSlewAmountMs(vcoMode ? (slewParam * 0.075f) : (slewParam * 10.f), sr);
+			slewLimiter[i].setSlewAmountMs(vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f), sr);
 		}
-
-		
 	}
 
 	void processEncoder() {
@@ -282,51 +263,58 @@ struct WolframModule : Module {
 		if (delta != 0)
 			prevEncoderValue += delta * encoderIndent;
 
+		// TODO: if !menu structure?
+
 		if (menu) {
-			switch (menuPages) {
-			case SEED:
-				//algo.seedUpdate(delta, encoderReset);
+			switch (menuPageIndex) {
+			case 0: {
+				// Seed
 				activeAlogrithm->SeedUpdate(delta, encoderReset);
 				break;
+			}
 
-			case MODE:
-				//algo.modeUpdate(delta, encoderReset);
-				activeAlogrithm->ModeUpdate(delta, encoderReset);
-				break;
-
-			case SYNC:
-				if (encoderReset) {
-					sync = false;
-					break;
-				}
-				sync = !sync;
-				break;
-
-			case SLEW: {
-				slewParam = clamp(slewParam + delta, 0, 100);
+			case 1: {
+				// Slew
+				slewParam = clamp(slewParam + delta, 0, 200);
 				if (encoderReset)
 					slewParam = 0;
-				// Convert slewParam (0 - 100) to ms (0, 1000),
-				// or (0 - 10) if vcoMode is true.
+				// Convert slewParam (0 - 200) to ms (0, 2000),
+				// or (0 - 20) if vcoMode is true.
 				float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
 				for (int i = 0; i < 2; i++) {
 					slewLimiter[i].setSlewAmountMs(slew, sr);
 				}
 				break;
 			}
-			case ALGORITHM:
-				//algo.algoithmUpdate(delta, encoderReset);
+
+			case 2: {
+				// Mode
+				activeAlogrithm->ModeUpdate(delta, encoderReset);
+				break;
+			}
+
+			case 3: {
+				// Sync
+				if (encoderReset) {
+					sync = false;
+					break;
+				}
+				sync = !sync;
+				break;
+			}
+
+			case 4: {
+				// Algoithm
 				algoithmUpdate(delta, encoderReset);
 				activeAlogrithm->Update(offset);
-				//algo.update();
 				break;
+			}
 
 			default:
 				break;
 			}
 		}
 		else {
-			//algo.ruleUpdate(delta, encoderReset);
 			activeAlogrithm->RuleUpdate(delta, encoderReset);
 			if (sync) {
 				ruleResetPending = true;
@@ -336,8 +324,6 @@ struct WolframModule : Module {
 				genPending = true;
 				ruleResetPending = false;
 				if (gen) {
-					//algo.seedReset();
-					//algo.update();
 					activeAlogrithm->SeedReset(false);
 					activeAlogrithm->Update(offset);
 				}
@@ -351,12 +337,10 @@ struct WolframModule : Module {
 
 	void process(const ProcessArgs& args) override {
 		// KNOBS & INPUTS
-		// Algoithm CV input.
-		//algo.setAlgoithmCV(inputs[ALGO_CV_INPUT].getVoltage());
-		setAlgoithmCV(clamp(inputs[ALGO_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
+		// Algoithm CV input
+		algoithmSetCV(clamp(inputs[ALGO_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
 		// Rule CV input.
-		//algo.setRuleCV(inputs[RULE_CV_INPUT].getVoltage());
 		activeAlogrithm->SetRuleCV(clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
 		// Length knob.
@@ -367,27 +351,22 @@ struct WolframModule : Module {
 		prob = clamp(params[PROB_PARAM].getValue() + probCV, 0.f, 1.f);
 
 		// BUTTONS
-		if (menuTrigger.process(params[MENU_PARAM].getValue())) {
+		if (menuTrigger.process(params[MENU_PARAM].getValue()))
 			menu = !menu;
-		}
 
 		if (modeTrigger.process(params[MODE_PARAM].getValue())) {
 			if (menu) {
-				int numMenus = static_cast<int>(MenuPages::MENU_LEN);
-				int menuIndex = static_cast<int>(menuPages);
-				menuIndex++;
-				if (menuIndex >= numMenus) { menuIndex = 0; }
-				menuPages = static_cast<MenuPages>(menuIndex);
+				menuPageIndex++;
+				if (menuPageIndex >= NUM_MENUPAGES)
+					menuPageIndex = 0; 
 			}
 			else {
-				//algo.modeUpdate(1, false);
 				activeAlogrithm->ModeUpdate(1, false);
 			}
 		}
 
 		// SELECT ENCODER
 		processEncoder();
-
 
 		float offsetCv = clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f;
 		int newOffset = std::min(std::max(fastRoundInt(params[OFFSET_PARAM].getValue() + offsetCv), -4), 4);
@@ -396,8 +375,6 @@ struct WolframModule : Module {
 		}
 		else if (offset != newOffset) {
 			offset = newOffset;
-			//algo.setOffset(newOffset);
-			//algo.update();
 			activeAlogrithm->Update(offset);
 		}
 
@@ -413,8 +390,6 @@ struct WolframModule : Module {
 				}
 			}
 			else {
-				//algo.inject(positiveInject ? true : false);
-				//algo.update();
 				activeAlogrithm->Inject(positiveInject ? true : false, false);
 				activeAlogrithm->Update(offset);
 				injectPendingState = 0;
@@ -430,16 +405,12 @@ struct WolframModule : Module {
 				genPending = true;
 				resetPending = false;
 				if (gen) {
-					//algo.seedReset();
 					activeAlogrithm->SeedReset(false);
 				}
 				else {
-					//algo.setReadHead(0);
-					//algo.setWriteHead(1);
 					activeAlogrithm->SetReadHead(0);
 					activeAlogrithm->SetWriteHead(1);
 				}
-				//algo.update();
 				activeAlogrithm->Update(offset);
 			}
 		}
@@ -459,28 +430,25 @@ struct WolframModule : Module {
 
 		// TODO: do the dont trigger when reseting thing SEQ3
 		if (trig) {
-			if (!genPending) {
-				// Find gen if not found when reset triggered and sync off
+			// Find gen if not found when reset triggered and sync off
+			if (!genPending)
 				gen = random::get<float>() < prob;
-			}
 
 			// Synced offset
-			if (sync) {
-				//algo.setOffset(offsetPending);
+			if (sync)
 				offset = offsetPending; //TODO: this right?
-			}
 
 			// Synced inject
 			switch (injectPendingState) {
-			case 1:
-				//algo.inject(true, true);
+			case 1: {
 				activeAlogrithm->Inject(true, true);
 				break;
+			}
 
-			case 2:
+			case 2: {
 				activeAlogrithm->Inject(false, true);
-				//algo.inject(false, true);
 				break;
+			}
 
 			default: 
 				break;
@@ -489,22 +457,15 @@ struct WolframModule : Module {
 			// Synced reset
 			if (resetPending || ruleResetPending) {
 				if (gen) {
-					//algo.seedReset(true);
 					activeAlogrithm->SeedReset(true);
 				}
 				else if (!ruleResetPending) {
-					//algo.setWriteHead(0);
 					activeAlogrithm->SetWriteHead(0);
 				}
 			}
 
-			if (gen && !resetPending && !ruleResetPending && !injectPendingState) {
-				//algo.generate();
+			if (gen && !resetPending && !ruleResetPending && !injectPendingState)
 				activeAlogrithm->Generate();
-			}
-
-			//algo.step(sequenceLength);
-			//algo.update();
 
 			activeAlogrithm->Step(sequenceLength);
 			activeAlogrithm->Update(offset);
@@ -518,9 +479,6 @@ struct WolframModule : Module {
 		}
 
 		// OUTPUT
-		//float xCv = algo.getXVoltage();
-		//float yCv = algo.getYVoltage();
-
 		float xCv = activeAlogrithm->GetXVoltage();
 		float yCv = activeAlogrithm->GetYVoltage();
 
@@ -546,11 +504,9 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
 		// Pulse outputs - 0V to 10V.
-		//if(algo.getXPulse())
 		if (activeAlogrithm->GetXPulse())
 			xPulse.trigger(1e-3f);
 
-		//if (algo.getYPulse())
 		if (activeAlogrithm->GetYPulse())
 			yPulse.trigger(1e-3f);
 
@@ -560,7 +516,6 @@ struct WolframModule : Module {
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// LIGHTS
-		//lights[MODE_LIGHT].setBrightnessSmooth(algo.getModeLEDValue(), args.sampleTime); 
 		lights[MODE_LIGHT].setBrightnessSmooth(activeAlogrithm->GetModeLEDValue(), args.sampleTime);
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
@@ -569,11 +524,10 @@ struct WolframModule : Module {
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
 		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject | negativeInject, args.sampleTime);
 		
-		// Hide rule display.
+		// Hide rule display
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f)
 			displayRule = false;
 
-		//algo.tick();
 		tick();
 	}
 };
@@ -586,7 +540,7 @@ struct DisplayFramebuffer : FramebufferWidget {
 	uint64_t prevMatrix = 0;
 	bool prevMenu = false;
 	bool prevDisplayRule = false;
-	MenuPages prevPage = MenuPages::SEED;
+	//MenuPages prevPage = MenuPages::SEED;
 
 	DisplayFramebuffer(WolframModule* m) {
 		module = m;
@@ -596,7 +550,7 @@ struct DisplayFramebuffer : FramebufferWidget {
 		uint64_t matrix = module ? module->activeAlogrithm->GetDisplayMatrix() : 0;
 		bool menu = module ? module->menu : false;
 		bool displayRule = module ? module->displayRule : false;
-		MenuPages page = module ? module->menuPages : MenuPages::SEED;
+		//MenuPages page = module ? module->menuPages : MenuPages::SEED;
 
 
 		// Naah this is all drawn on layer 1???
@@ -612,8 +566,8 @@ struct DisplayFramebuffer : FramebufferWidget {
 		if (menu != prevMenu)
 			dirty = true;
 
-		if (menu && (page != prevPage))
-			dirty = true;
+		//if (menu && (page != prevPage))
+		//	dirty = true;
 
 		if (!menu && (displayRule != prevDisplayRule))
 			dirty = true;
@@ -625,7 +579,7 @@ struct DisplayFramebuffer : FramebufferWidget {
 
 		prevMatrix = matrix;
 		prevMenu = menu;
-		prevPage = page;
+		//prevPage = page;
 		prevDisplayRule = displayRule;
 
 		if (dirty) {
@@ -636,7 +590,6 @@ struct DisplayFramebuffer : FramebufferWidget {
 	}
 };
 
-//struct Display : TransparentWidget {
 struct Display : TransparentWidget {
 	WolframModule* module;
 	LookAndFeel* lookAndFeel;
@@ -680,201 +633,77 @@ struct Display : TransparentWidget {
 		lookAndFeel->setDrawingParams(padding, fontSize, cellPadding);
 	}
 
-	/*
-	void drawMenu(NVGcontext* vg, MenuPages Menu, NVGcolor* c) {
+	void drawMenuBackgroud(int pageIndex, bool rule) {
 
-		module->algo.drawTextBackground(vg, 0);
-		module->algo.drawTextBackground(vg, 3);
-
-		nvgFillColor(vg, *c);
-		nvgText(vg, padding, padding, "menu", nullptr);
-
-		switch (Menu) {
-		case SEED:
-			module->algo.drawSeedMenuText(vg);
-			break;
-		case MODE:
-			module->algo.drawModeMenuText(vg);
-			break;
-		case SYNC:
-			module->algo.drawTextBackground(vg, 1);
-			module->algo.drawTextBackground(vg, 2);
-
-			nvgFillColor(vg, *c);
-			nvgText(vg, padding, fontSize + padding, "SYNC", nullptr);
-			if (module->sync)
-				nvgText(vg, padding, (fontSize * 2.f) + padding, "LOCK", nullptr);
-			else
-				nvgText(vg, padding, (fontSize * 2.f) + padding, "FREE", nullptr);
-			break;
-		case SLEW:
-			module->algo.drawTextBackground(vg, 1);
-			module->algo.drawTextBackground(vg, 2);
-
-			nvgFillColor(vg, *c);
-			nvgText(vg, padding, fontSize + padding, "SLEW", nullptr);
-
-			char slewString[5];
-			snprintf(slewString, sizeof(slewString), "%4.3d", module->slewParam);
-			nvgText(vg, padding, (fontSize * 2.f) + padding, slewString, nullptr);
-			break;
-		case ALGORITHM:
-			module->algo.drawAlgoithmMenuText(vg);
-			break;
-		default:
-			break;
-		}
-
-		nvgFillColor(vg, *c);
-		nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
-	}
-
-	void drawMenuBackground(NVGcontext* vg, MenuPages Menu) {
-
-		module->algo.drawTextBackground(vg, 0);
-		module->algo.drawTextBackground(vg, 3);
-
-		switch (Menu) {
-		case SEED:
-			module->algo.drawMenuBackground(vg);
-			break;
-		case MODE:
-			module->algo.drawMenuBackground(vg);
-			break;
-		case SYNC:
-			module->algo.drawTextBackground(vg, 1);
-			module->algo.drawTextBackground(vg, 2);
-			break;
-		case SLEW:
-			module->algo.drawTextBackground(vg, 1);
-			module->algo.drawTextBackground(vg, 2);
-			break;
-		case ALGORITHM:
-			module->algo.drawMenuBackground(vg);
-			break;
-		default:
-			break;
-		}
-	}
-	
-	void drawMenuText(NVGcontext* vg, MenuPages Menu) {
-		nvgFillColor(vg, primaryColour);
-		nvgText(vg, padding, padding, "menu", nullptr);
-
-		switch (Menu) {
-		case SEED:
-			module->algo.drawSeedMenuText(vg);
-			break;
-
-		case MODE:
-			module->algo.drawModeMenuText(vg);
-			break;
-
-		case SYNC:
-			nvgFillColor(vg, primaryColour);
-			nvgText(vg, padding, fontSize + padding, "SYNC", nullptr);
-			if (module->sync)
-				nvgText(vg, padding, (fontSize * 2.f) + padding, "LOCK", nullptr);
-			else
-				nvgText(vg, padding, (fontSize * 2.f) + padding, "FREE", nullptr);
-			break;
-
-		case SLEW:
-			nvgFillColor(vg, primaryColour);
-			nvgText(vg, padding, fontSize + padding, "SLEW", nullptr);
-
-			char slewString[5];
-			snprintf(slewString, sizeof(slewString), "%4.3d", module->slewParam);
-			nvgText(vg, padding, (fontSize * 2.f) + padding, slewString, nullptr);
-			break;
-
-		case ALGORITHM:
-			module->algo.drawAlgoithmMenuText(vg);
-			break;
-		default:
-			break;
-		}
-
-		nvgFillColor(vg, primaryColour);
-		nvgText(vg, padding, (fontSize * 3.f) + padding, "<#@>", nullptr);
-	}
-	*/
-
-	void drawMenuBackgroud(NVGcontext* vg, MenuPages page, bool rule) {
-
-		// Rule.
+		// Rule
 		if (rule) {
-			lookAndFeel->drawTextBackground(vg, 0);
-			lookAndFeel->drawTextBackground(vg, 1);
+			module->activeAlogrithm->DrawMenuBackground(pageIndex, rule);
 			return;
 		}
 		
-		// Menu.
-		lookAndFeel->drawTextBackground(vg, 0);
-		lookAndFeel->drawTextBackground(vg, 3);
+		// Menu
+		lookAndFeel->drawTextBackground(0);
+		lookAndFeel->drawTextBackground(3);
 
-		if ((page == MenuPages::SEED) || (page == MenuPages::MODE)) {
-			module->activeAlogrithm->DrawMenuBackground(vg, page, false);
+		if ((pageIndex == 0) || (pageIndex == 2)) {
+			// Seed & mode
+			module->activeAlogrithm->DrawMenuBackground(pageIndex, rule);
 			return;
 		}
 
 		// Slew, Sync, Algo.
-		lookAndFeel->drawTextBackground(vg, 1);
-		lookAndFeel->drawTextBackground(vg, 2);	
+		lookAndFeel->drawTextBackground(1);
+		lookAndFeel->drawTextBackground(2);	
 	}
 
-	void drawMenuText(NVGcontext* vg, MenuPages page, bool rule) {
+	void drawMenuText(int pageIndex, bool rule) {
 		// Rule.
 		if (rule) {
-			module->activeAlogrithm->DrawMenuText(vg, page, rule);
+			module->activeAlogrithm->DrawMenuText(pageIndex, rule);
 			return;
 		}
 
 		// Menu.
-		lookAndFeel->drawText(vg, "menu", 0);
-		lookAndFeel->drawText(vg, "<#@>", 3);
-
-		switch (page) {
-		case SLEW: {
-			char t[5];
-			snprintf(t, sizeof(t), "%4.3d", module->slewParam);
-			lookAndFeel->drawText(vg, "SLEW", 1);
-			lookAndFeel->drawText(vg, t, 2);
+		std::string pageName;
+		std::string pageData;
+		
+		switch (pageIndex) {
+		case 1: {
+			pageName = "SLEW";
+			pageData = std::to_string(module->slewParam) + "%";
 			break;
 		}
-		case SYNC: {
-			lookAndFeel->drawText(vg, "SYNC", 1);
-			if (module->sync)
-				lookAndFeel->drawText(vg, "LOCK", 2);
-			else
-				lookAndFeel->drawText(vg, "FREE", 2);
+		case 3: {
+			pageName = "SYNC";
+			pageData = module->sync ? "LOCK" : "FREE";
 			break;
 		}
-		case ALGORITHM: {
-			lookAndFeel->drawText(vg, "ALGO", 1);
-			switch (module->algorithmIndex) {
-			case 0:
-				lookAndFeel->drawText(vg, "WOLF", 2);
-				break;
-
-			case 1:
-				lookAndFeel->drawText(vg, "LIFE", 2);
-				break;
-
-			default:
-				break;
+		case 4: {
+			pageName = "ALGO";
+			int i = module->algorithmIndex;
+			if (i == 0) {
+				pageData = "WOLF";
+			}
+			else if (i == 1) {
+				pageData = "LIFE";
 			}
 			break;
 		}
-		default:	// SEED & MODE.
-			module->activeAlogrithm->DrawMenuText(vg, page, rule);
+		default:	// Seed & Mode.
+			module->activeAlogrithm->DrawMenuText(pageIndex, rule);
 			break;
 		}
+
+		lookAndFeel->drawText2("menu", 0);
+		lookAndFeel->drawText2(pageName, 1);
+		lookAndFeel->drawText2(pageData, 2);
+		lookAndFeel->drawText2("<#@>", 3);
 	}
 
 	void draw(const DrawArgs& args) override {
-		
-		//lookAndFeel->setDrawingContext(args.vg);
+
+		if (module)
+			lookAndFeel->setDrawingContext(args.vg);
 
 		// Draw background & border.
 		NVGcolor backgroundColour = module ? *lookAndFeel->getBackgroundColour() : nvgRGB(58, 16, 19);
@@ -897,7 +726,7 @@ struct Display : TransparentWidget {
 		int firstRow = 0;
 		if (module) {
 			if (module->menu || module->displayRule)
-				drawMenuBackgroud(args.vg, module->menuPages, module->displayRule);
+				drawMenuBackgroud(module->menuPageIndex, module->displayRule);
 
 			if (module->menu)
 				return;
@@ -923,7 +752,7 @@ struct Display : TransparentWidget {
 				else {
 					// Draw dead cells.
 					if (module)
-						lookAndFeel->drawCell(args.vg, col, row, false);
+						lookAndFeel->drawCell(col, row, false);
 				}
 			}
 		}
@@ -935,15 +764,15 @@ struct Display : TransparentWidget {
 		if (layer != 1)
 			return;
 
-		//if (module)
-		//	lookAndFeel->setDrawingContext(args.vg);
+		if (module)
+			lookAndFeel->setDrawingContext(args.vg);
 
 		nvgFontSize(args.vg, fontSize);
 		nvgFontFaceId(args.vg, font->handle);
 		nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
 		if (module && (module->menu || module->displayRule))
-			drawMenuText(args.vg, module->menuPages, module->displayRule);
+			drawMenuText(module->menuPageIndex, module->displayRule);
 
 		// Draw alive cells.
 		nvgBeginPath(args.vg);
@@ -951,7 +780,7 @@ struct Display : TransparentWidget {
 			int col = pos.x;
 			int row = pos.y;
 			if (module) {
-				lookAndFeel->drawCell(args.vg, col, row, true);
+				lookAndFeel->drawCell(col, row, true);
 			}
 		}
 		nvgFill(args.vg);
