@@ -4,8 +4,18 @@
 
 class LookAndFeel {
 public:
+	// Certain grahic elements are drawn on layer 1 (the foreground),
+	// these elements, such as text & alive cells, are not associated with a framebuffer,
+	// therefore they are drawn immediately.
+	// 
+	// Background items, such as dead cells, are associated with a framebuffer,
+	// and are drawn when required. Most forground element values are
+	// calulated with background graphics (contolled by the framebuffer).
+	// 
+	// See Display & DisplayFramebuffer for details.
+
 	// Setters
-	void setDrawingContext(NVGcontext* context) { vg2 = context; }
+	void setDrawingContext(NVGcontext* context) { vg = context; }
 
 	void setDrawingParams(float p, float fs, float cp) { 
 
@@ -25,7 +35,6 @@ public:
 		// Text background positions. 
 		for (int r = 0; r < 4; r++) {
 			for (int c = 0; c < 4; c++) {
-
 				int i = r * 4 + c;
 				textBgPos[i].x = (fontSize * c) + textBgPadding;
 				textBgPos[i].y = (fontSize * r) + textBgPadding;
@@ -35,45 +44,70 @@ public:
 		// Cell positions.
 		for (int c = 0; c < 8; c++) {
 			for (int r = 0; r < 8; r++) {
-
 				int i = r * 8 + c;
-				cellCirclePos[i].x = (cellSpacing * c) + (cellSpacing * 0.5f) + padding;
-				cellCirclePos[i].y = (cellSpacing * r) + (cellSpacing * 0.5f) + padding;
+				float a = (cellSpacing * 0.5f) + padding;
+				cellCirclePos[i].x = (cellSpacing * c) + a;
+				cellCirclePos[i].y = (cellSpacing * r) + a;
 
-				cellSquarePos[i].x = (cellSpacing * c) + (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
-				cellSquarePos[i].y = (cellSpacing * r) + (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
+				float b = (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
+				cellSquarePos[i].x = (cellSpacing * c) + b;
+				cellSquarePos[i].y = (cellSpacing * r) + b;
 			}
 		}
 
+		// Wolf seed display
+		float halfFs = fontSize * 0.5f;
+		wolfSeedSize = halfFs - 2.f;
+		for (int c = 0; c < 8; c++) {
+			float a = (halfFs * 0.5f) - (wolfSeedSize * 0.5f) + padding;
+			wolfSeedPos[c].x = (halfFs * c) + a;
+			wolfSeedPos[c].y = (halfFs * 4.f) + a;
+		}							
 	};
 
 	void setLookIndex(int i) { lookIndex = i; }
 	void setFeelIndex(int i) { feelIndex = i; }
+	void setRedrawBg() { redrawBg = true; }
 
 	// Getters
 	int getLookIndex() { return lookIndex; }
 	int getFeelIndex() { return feelIndex; }
+	bool getRedrawBg() { return redrawBg; }
 
-	NVGcolor* getBackgroundColour() { return &looks[lookIndex][0]; }
-	NVGcolor* getPrimaryColour() { return &looks[lookIndex][1]; }
-	NVGcolor* getSecondaryColour() { return &looks[lookIndex][2]; }
+	NVGcolor* getScreenColour() { return &looks[lookIndex][0]; }
+	NVGcolor* getForegroundColour() { return &looks[lookIndex][1]; }
+	NVGcolor* getBackgroundColour() { return &looks[lookIndex][2]; }
 
-	// Drawing
-	
-	void drawText(const char text[5], const int row) {
-		// Draw four character row of text
-		nvgFillColor(vg2, *getPrimaryColour());
-		nvgText(vg2, textPos[row].x, textPos[row].y, text, nullptr);
-	}
-
-	std::string formatIntForText(const int value) {
+	// Helpers
+	std::string formatIntForText(int value) {
 		char t[5];
 		snprintf(t, sizeof(t), "%4.3d", value);
 		return std::string(t);
 	}
 
-	void drawText2(const std::string& str, const int row) {
-		// Draw four character row of text.
+	// Drawing
+	void drawCell(float col, float row, bool state) {
+		// Draw cell.
+		int i = row * 8 + col;
+		nvgFillColor(vg, state ? *getForegroundColour() : *getBackgroundColour());
+
+		switch (feelIndex) {
+		case 1: {
+			// Square.
+			nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
+				squareCellSize, squareCellSize, squareCellBevel);
+			break;
+		}
+
+		default:
+			// Circle.
+			nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
+			break;
+		}
+	}
+
+	void drawText(const std::string& str, int row) {
+		// Draw four character row of text
 		std::string outputStr;
 
 		if (str.size() >= 4) {
@@ -83,89 +117,50 @@ public:
 			outputStr = std::string(4 - str.size(), ' ') + str;
 		}
 
-		nvgFillColor(vg2, *getPrimaryColour());
-		nvgText(vg2, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
+		nvgFillColor(vg, *getForegroundColour());
+		nvgText(vg, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
 	}
 
-	void drawTextBackground(const int row) {
-		// Draw one row of four square text character backgrounds.
-
+	void drawTextBg(int row) {
+		// Draw one row of four square text character backgrounds
 		float textBgBevel = 3.f;
-		nvgFillColor(vg2, *getSecondaryColour());
+		nvgFillColor(vg, *getBackgroundColour());
 
-		nvgBeginPath(vg2);
+		nvgBeginPath(vg);
 		for (int col = 0; col < 4; col++) {
 
 			int i = row * 4 + col;
-			nvgRoundedRect(vg2, textBgPos[i].x, textBgPos[i].y, 
+			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y,
 				textBgSize, textBgSize, textBgBevel);
 		}
-		nvgFill(vg2);
+		nvgFill(vg);
+
+		redrawBg = false;
 	}
 
-	void drawSeedRect(const int row, const bool state, const uint8_t seed) {
+	void drawWolfSeedDisplay(int row, bool layer, uint8_t seed) {
+		
+		nvgFillColor(vg, layer ? *getForegroundColour() : *getBackgroundColour());
 
-		if (state) {
-			// Draw ON seed rectangles.
-			float halfFontSize = fontSize * 0.5f;
-			float rectSize = halfFontSize - 2.f;
+		nvgBeginPath(vg);
+		for (int col = 0; col < 8; col++) {
+			bool cell = (seed >> (7 - col)) & 1;
 
-			nvgFillColor(vg2, *getPrimaryColour());
-			nvgBeginPath(vg2);
-			for (int col = 0; col < 8; col++) {
-				bool cell = (seed >> (7 - col)) & 1;
-				if (cell) {
-					nvgRoundedRect(vg2, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-						(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-						rectSize, (rectSize * 2.f) + 2.f, 3.f);
-				}
-
-			}
-			nvgFill(vg2);
+			if ((layer && !cell) || (!layer && cell))
+				continue;
+			
+			nvgRoundedRect(vg, wolfSeedPos[col].x, wolfSeedPos[col].y,
+				wolfSeedSize, (wolfSeedSize * 2.f) + 2.f, wolfSeedBevel);
 		}
-		else {
-			// Draw seed rectangle backgrounds.
-			float halfFontSize = fontSize * 0.5f;
-			float rectSize = halfFontSize - 2.f;
+		nvgFill(vg);
 
-			nvgFillColor(vg2, *getSecondaryColour());
-			nvgBeginPath(vg2);
-			for (int col = 0; col < 8; col++) {
-				bool cell = (seed >> (7 - col)) & 1;
-				if (!cell) {
-					nvgRoundedRect(vg2, (halfFontSize * col) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-						(halfFontSize * 4) + (halfFontSize * 0.5f) - (rectSize * 0.5f) + padding,
-						rectSize, (rectSize * 2.f) + 2.f, 3.f);
-				}
-
-			}
-			nvgFill(vg2);
-		}
-	}
-
-	void drawCell(float col, float row, bool state) {
-		// Draw cell.
-		int i = row * 8 + col;
-		nvgFillColor(vg2, state ? *getPrimaryColour() : *getSecondaryColour());
-
-		switch (feelIndex) {
-		case 1: {
-			// Square.
-			nvgRoundedRect(vg2, cellSquarePos[i].x, cellSquarePos[i].y,
-				squareCellSize, squareCellSize, squareCellBevel);
-			break;
-		}
-
-		default:	
-			// Circle.
-			nvgCircle(vg2, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
-			break;
-		}
+		if (!layer)
+			redrawBg = false;
 	}
 
 protected:
 	// Params
-	NVGcontext* vg2;
+	NVGcontext* vg;
 	float padding = 0;
 
 	// Cell
@@ -181,7 +176,9 @@ protected:
 	std::array<Vec, 16> textBgPos{};
 
 	// Wolfram 
-	
+	float wolfSeedSize = 0;
+	float wolfSeedBevel = 3.f;
+	std::array<Vec, 8> wolfSeedPos{};
 
 	// Looks
 	static constexpr int NUM_COLOURS = 3;
@@ -200,27 +197,24 @@ protected:
 	float circleCellSize = 5.f;
 	float squareCellSize = 10.f;
 	float squareCellBevel = 1.f;
+
+	// Algoithm can set true to force a framebuffer redraw
+	bool redrawBg = false;
 };
 
-
-class AlgorithmBase {
+class Algorithm {
 public:
-	AlgorithmBase() {}
-	~AlgorithmBase() {}
+	Algorithm() {}
+	~Algorithm() {}
 
-	// Common functions
-	void SetReadHead(int h) { readHead = h; }
-	void SetWriteHead(int h) { writeHead = h; }
-	uint64_t GetDisplayMatrix() { return displayMatrix; }
-
-	void AdvanceHeads(int s) {
+	void advanceHeads(int s) {
 		// Advance read and write heads
 		// TODO: could use if, would be quicker?
 		readHead = writeHead;
 		writeHead = (writeHead + 1) % s;
 	}
 
-	uint8_t ApplyOffset(uint8_t r, int o) {
+	uint8_t applyOffset(uint8_t r, int o) {
 		// Apply a horizontal offset to a given row.
 		int shift = clamp(o, -4, 4);
 		if (shift < 0) {
@@ -233,47 +227,59 @@ public:
 		return r;
 	}
 
-	// Common drawing functions.
-	void SetLookAndFeel(LookAndFeel* l) { lookAndFeel = l; }
-	
-	// Algorithm specific functions.
-	virtual void Tick() = 0;
-	virtual void Step(int s) { AdvanceHeads(s); };
-	virtual void Update(int o) = 0;
-	virtual void Generate() = 0;
-	virtual void SeedReset(bool w) = 0;
-	virtual void Inject(bool a, bool w) = 0;
+	virtual void step(int s) { advanceHeads(s); };
+	virtual void update(int o) = 0;
+	virtual void generate() = 0;
+	virtual void pushSeed(bool w) = 0;
+	virtual void inject(bool a, bool w) = 0;
+	void tick() { displayMatrixUpdated = false; }
 
-	// Update functions
-	virtual void SetRuleCV(float cv) = 0;
-	virtual void RuleUpdate(int d, bool r) = 0;
-	virtual void SeedUpdate(int d, bool r) = 0;
-	virtual void ModeUpdate(int d, bool r) = 0;
+	// Setters
+	void setLookAndFeel(LookAndFeel* l) { lookAndFeel = l; }
+	void setReadHead(int h) { readHead = h; }
+	void setWriteHead(int h) { writeHead = h; }
 
-	// Output functions
-	virtual float GetXVoltage() = 0;
-	virtual float GetYVoltage() = 0;
-	virtual bool GetXPulse() = 0;
-	virtual bool GetYPulse() = 0;
+	int updateSelect(int value, int MAX_VALUE,
+		int defaultValue, int delta, bool reset) {
+		// Helper of updating values via select encoder
+		if (reset)
+			return defaultValue;
 
-	// Drawing functions
-	virtual void DrawMenuText(int page, bool displayRule) = 0;
+		return (value + delta + MAX_VALUE) % MAX_VALUE;
+	}
 
-	virtual void DrawMenuBackground(int page, bool displayRule) {
+	virtual void updateRule() = 0;
+
+	virtual void setRuleCV(float cv) = 0;
+	virtual void setRuleSelect(int d, bool r) = 0;
+	virtual void setSeedSelect(int d, bool r) = 0;
+	virtual void setModeSelect(int d, bool r) = 0;
+
+	// Getters
+	uint64_t getDisplayMatrix() { return displayMatrix; }
+	virtual float getXVoltage() = 0;
+	virtual float getYVoltage() = 0;
+	virtual bool getXPulse() = 0;
+	virtual bool getYPulse() = 0;
+	virtual float getModeLEDValue() = 0;
+	virtual std::string getRuleString() = 0;
+
+	// Drawing
+	virtual void drawMenuText(int page, bool displayRule) = 0;
+
+	virtual void drawMenuBackground(int page, bool displayRule) {
 		int rows = 4;
 		if (displayRule)
 			rows = 2;
 
 		for (int row = 0; row < rows; row++) {
-			lookAndFeel->drawTextBackground(row);
+			lookAndFeel->drawTextBg(row);
 		}
 	}
 
-	// LED function
-	virtual float GetModeLEDValue() = 0;
-	virtual std::string GetRuleString() = 0;
-
 protected:
+	LookAndFeel* lookAndFeel;
+
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
 	std::array<uint8_t, MAX_SEQUENCE_LENGTH> rowBuffer{};
 	std::array<uint64_t, MAX_SEQUENCE_LENGTH> matrixBuffer{};
@@ -283,50 +289,38 @@ protected:
 
 	int readHead = 0;
 	int writeHead = 1;
-
-	// Drawing
-	LookAndFeel* lookAndFeel;
-	float padding = 0;
-	float fontSize = 0;
 };
 
-class WolfAlgoithm : public AlgorithmBase {
+class WolfAlgoithm : public Algorithm {
 public:
 	WolfAlgoithm() {
-		// Init seed.
-		rowBuffer[readHead] = seed;
+		rowBuffer[readHead] = seed;	// Init seed
 	}
 
-	void Tick() override { 
-		// Set rule.
-		rule = static_cast<uint8_t>(clamp(ruleSelect + ruleCV, 0, UINT8_MAX));
-		displayMatrixUpdated = false; 
-	}
-
-	void Step(int s) override {
-		AdvanceHeads(s);
+	void step(int s) override {
+		advanceHeads(s);
 		displayMatrix <<= 8;	// Shift matrix along (up).
 	}
 
-	void Update(int o) override {
+	void update(int o) override {
 		displayMatrixUpdated = true;
 
-		// Apply lastest offset.
+		// Apply lastest offset
 		int offsetDifference = o - prevOffset;
 		uint64_t tempMatrix = 0;
 		for (int i = 1; i < 8; i++) {
 			uint8_t row = (displayMatrix >> (i * 8)) & 0xFF;
-			tempMatrix |= uint64_t(ApplyOffset(row, offsetDifference)) << (i * 8);
+			tempMatrix |= uint64_t(applyOffset(row, offsetDifference)) << (i * 8);
 		}
 		displayMatrix = tempMatrix;
 		prevOffset = o;
 
-		// Push latest row.
+		// Push latest row
 		displayMatrix &= ~0xFFULL;	
-		displayMatrix |= static_cast<uint64_t>(ApplyOffset(rowBuffer[readHead], o));
+		displayMatrix |= static_cast<uint64_t>(applyOffset(rowBuffer[readHead], o));
 	}
 
-	void Generate() override {
+	void generate() override {
 		// One Dimensional Cellular Automata.
 		uint8_t readRow = rowBuffer[readHead];
 		uint8_t writeRow = 0;
@@ -369,7 +363,7 @@ public:
 		rowBuffer[writeHead] = writeRow;
 	}
 
-	void SeedReset(bool w) override {
+	void pushSeed(bool w) override {
 		uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
 		size_t head = readHead;
 		if (w) {
@@ -378,14 +372,14 @@ public:
 		rowBuffer[head] = resetRow;
 	}
 
-	void Inject(bool a, bool w) override {
+	void inject(bool a, bool w) override {
 		int head = readHead;
 		if (w)
 			head = writeHead;
 		
 		uint8_t row = rowBuffer[head];
 
-		// Check to see if row is already full or empty
+		// Check if row is already full or empty
 		if ((a & (row == UINT8_MAX)) | (!a & (row == 0)))
 			return;
 
@@ -407,21 +401,44 @@ public:
 		rowBuffer[head] = row;
 	}
 
-	void SetRuleCV(float cv) override { ruleCV = std::round(cv * 256); }
-
-	void RuleUpdate(int d, bool r) override {
-		if (r) {
-			ruleSelect = defaultRule;
-			return;
-		}
-		ruleSelect = static_cast<uint8_t>(ruleSelect + d);
+	void updateRule() override {
+		rule = static_cast<uint8_t>(clamp(ruleSelect + ruleCV, 0, UINT8_MAX));
+		lookAndFeel->setRedrawBg();
 	}
 
-	void SeedUpdate(int d, bool r) override {
+	void setRuleCV(float cv) override {
+		int newCV = std::round(cv * 256);
+
+		if (newCV == ruleCV)
+			return;
+
+		ruleCV = newCV;
+		updateRule();
+	}
+
+	void setRuleSelect(int d, bool r) override {
+		int newSelect = 0;
+
+		if (r) {
+			newSelect = defaultRule;
+			return;
+		}
+		newSelect = static_cast<uint8_t>(ruleSelect + d);
+
+		if (newSelect == ruleSelect)
+			return;
+
+		ruleSelect = newSelect;
+		updateRule();
+	}
+
+	void setSeedSelect(int d, bool r) override {
+
 		if (r) {
 			seed = defaultSeed;
 			seedSelect = seed;
 			randSeed = false;
+			lookAndFeel->setRedrawBg();
 			return;
 		}
 
@@ -437,23 +454,22 @@ public:
 
 		if (!randSeed)
 			seed = static_cast<uint8_t>(seedSelect);
+
+		lookAndFeel->setRedrawBg();
 	}
 
-	void ModeUpdate(int d, bool r) override {
-		if (r) {
-			modeIndex = modeDefault;
-			return;
-		}
-		modeIndex = (modeIndex + d + NUM_MODES) % NUM_MODES;
+	void setModeSelect(int d, bool r) override {
+		modeIndex = updateSelect(modeIndex, NUM_MODES, modeDefault, d, r);
+		lookAndFeel->setRedrawBg();
 	}
 
-	float GetXVoltage() override {
+	float getXVoltage() override {
 		// Returns bottom row of Ouput Matrix as 'voltage' (0-1V).		
 		uint8_t firstRow = displayMatrix & 0xFFULL;
 		return firstRow * voltageScaler;
 	}
 
-	float GetYVoltage() override {
+	float getYVoltage() override {
 		// Returns right column of ouput matrix as 'voltage' (0-1V).
 		// Output matrix is flipped when drawn (right -> left, left <- right),
 		uint64_t yMask = 0x0101010101010101ULL;
@@ -462,7 +478,7 @@ public:
 		return yColumn * voltageScaler;
 	}
 
-	bool GetXPulse() override {
+	bool getXPulse() override {
 		// Returns true if bottom left cell state
 		// of displayMatrix is alive.
 		bool bottonLeftCellState = ((displayMatrix & 0xFFULL) >> 7) & 1;
@@ -474,7 +490,7 @@ public:
 		return xPulse;
 	}
 
-	bool GetYPulse() override {
+	bool getYPulse() override {
 		// Returns true if top right cell state
 		// of displayMatrix is alive.
 		bool topRightCellState = ((displayMatrix >> 56) & 0xFFULL) & 1;
@@ -487,24 +503,25 @@ public:
 	}
 
 	// Drawing functions
-	void DrawMenuBackground(int page, bool displayRule) override {
+	void drawMenuBackground(int page, bool displayRule) override {
 		int rows = 4;
 		if (displayRule)
 			rows = 2;
 
 		for (int row = 0; row < rows; row++) {
-			if (!randSeed && (page == 0) && (row == 2))
-				// Seed
-				lookAndFeel->drawSeedRect(row, false, seed);
-			else
-				lookAndFeel->drawTextBackground(row);
+			if (!randSeed && (page == 0) && (row == 2)) {
+				lookAndFeel->drawWolfSeedDisplay(row, false, seed);	// Seed display
+			}
+			else {
+				lookAndFeel->drawTextBg(row);
+			}
 		}
 	}
 	
-	void DrawMenuText(int page, bool displayRule) override {
+	void drawMenuText(int page, bool displayRule) override {
 		if (displayRule) {
-			lookAndFeel->drawText2("RULE", 0);
-			lookAndFeel->drawText2(lookAndFeel->formatIntForText(rule), 1);
+			lookAndFeel->drawText("RULE", 0);
+			lookAndFeel->drawText(lookAndFeel->formatIntForText(rule), 1);
 			return;
 		}
 
@@ -518,7 +535,7 @@ public:
 				pageData = "RAND";
 				break;
 			}
-			lookAndFeel->drawSeedRect(2, true, seed);
+			lookAndFeel->drawWolfSeedDisplay(2, true, seed);
 			break;
 		}
 
@@ -532,16 +549,16 @@ public:
 			break;
 		}
 
-		lookAndFeel->drawText2(pageName, 1);
-		lookAndFeel->drawText2(pageData, 2);
+		lookAndFeel->drawText(pageName, 1);
+		lookAndFeel->drawText(pageData, 2);
 	}
 
 	// LED function
-	float GetModeLEDValue() override {
+	float getModeLEDValue() override {
 		return static_cast<float>(modeIndex) * modeScaler;
 	}
 
-	std::string GetRuleString() override {
+	std::string getRuleString() override {
 		std::string ruleString = std::to_string(rule);
 		return ruleString;
 	}
@@ -575,14 +592,13 @@ private:
 	static constexpr float modeScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 };
 
-class LifeAlgoithm : public AlgorithmBase {
+class LifeAlgoithm : public Algorithm {
 public:
 	LifeAlgoithm() {
-		// Init seed.
-		matrixBuffer[readHead] = seeds[seedIndex].value;
+		matrixBuffer[readHead] = seeds[seedIndex].value;	// Init seed
 	}
 
-	// Helper functions
+	// Helpers
 	static inline void halfadder(uint8_t a, uint8_t b,
 		uint8_t& sum, uint8_t& carry) {
 
@@ -630,28 +646,22 @@ public:
 		}
 	}
 	
-	// Algoithm specific functions
-	void Tick() override {
-		ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1);
-		displayMatrixUpdated = false;
-	}
-
-	void Update(int o) override {
-		displayMatrixUpdated = true;
-
+	void update(int o) override {
 		// Push current matrix to output matrix
 		uint64_t tempMatrix = 0;
 		for (int i = 0; i < 8; i++) {
 			uint8_t row = (matrixBuffer[readHead] >> (i * 8)) & 0xFFULL;
-			tempMatrix |= uint64_t(ApplyOffset(row, o)) << (i * 8);
+			tempMatrix |= uint64_t(applyOffset(row, o)) << (i * 8);
 		}
 		displayMatrix = tempMatrix;
 
 		// Count current living cells
 		population = __builtin_popcountll(displayMatrix);
+
+		displayMatrixUpdated = true;
 	}
 
-	void Generate() override {
+	void generate() override {
 		// 2D cellular automata.
 		// Based on parallel bitwise implementation by Tomas Rokicki, Paperclip Optimizer,
 		// and Michael Abrash's (Graphics Programmer's Black Book, Chapter 17) padding method.
@@ -775,26 +785,30 @@ public:
 		matrixBuffer[writeHead] = writeMatrix;
 	}
 
-	void SeedReset(bool w) override {
+	void pushSeed(bool w) override {
 		size_t head = readHead;
 		if (w)
 			head = writeHead;
 
 		uint64_t resetMatrix = seeds[seedIndex].value;
 
-		// Dynamic random seeds.
+		// Dynamic random seeds
 		switch (seedIndex) {
-		case 9:
-			// True random.
+		case 9: {
+			// True random
 			resetMatrix = random::get<uint64_t>();
 			break;
-		case 8:
-			// Half desity random.
-			resetMatrix = random::get<uint64_t>() & 
-				random::get<uint64_t>();
+		}
+
+		case 8: {
+			// Half desity random
+			resetMatrix = random::get<uint64_t>() &
+			random::get<uint64_t>();
 			break;
+		}
+
 		case 7: {
-			// Symmetrical / mirrored random.
+			// Symmetrical / mirrored random
 			uint32_t randomHalf = random::get<uint32_t>();
 			uint64_t mirroredRandomHalf = 0;
 			for (int i = 0; i < 4; i++) {
@@ -804,6 +818,7 @@ public:
 			resetMatrix = randomHalf | (mirroredRandomHalf << 32);
 			break;
 		}
+
 		default:
 			break;
 		}
@@ -811,7 +826,7 @@ public:
 		matrixBuffer[head] = resetMatrix;
 	}
 
-	void Inject(bool a, bool w) override {
+	void inject(bool a, bool w) override {
 		size_t head = readHead;
 		if (w)
 			head = writeHead;
@@ -851,43 +866,56 @@ public:
 		matrixBuffer[head] = matrix;
 	}
 
-	void SetRuleCV(float cv) override { ruleCV = std::round(cv * NUM_RULES); }
-
-	void RuleUpdate(int d, bool r) override {
-		if (r) {
-			ruleSelect = ruleDefault;
-			return;
-		}
-		ruleSelect = (ruleSelect + d + NUM_RULES) % NUM_RULES;
+	void updateRule() override {
+		ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1);
+		lookAndFeel->setRedrawBg();
 	}
 
-	void SeedUpdate(int d, bool r) override {
-		if (r) {
-			seedIndex = seedDefault;
+	void setRuleCV(float cv) override { 
+		int newCV = std::round(cv * NUM_RULES); 
+
+		if (newCV == ruleCV)
 			return;
-		}
-		seedIndex = (seedIndex + d + NUM_SEEDS) % NUM_SEEDS;
+
+		ruleCV = newCV;
+		updateRule();
+	
 	}
 
-	void ModeUpdate(int d, bool r) override {
-		if (r) {
-			modeIndex = modeDefault;
+	void setRuleSelect(int d, bool r) override {
+		int newSelect = updateSelect(ruleSelect, 
+			NUM_RULES, ruleDefault, d, r);
+
+		if (newSelect == ruleSelect)
 			return;
-		}
-		modeIndex = (modeIndex + d + NUM_MODES) % NUM_MODES;
+
+		ruleSelect = newSelect;
+		updateRule();
 	}
 
-	float GetXVoltage() override {
+	void setSeedSelect(int d, bool r) override {
+		seedIndex = updateSelect(seedIndex, 
+			NUM_SEEDS, seedDefault, d, r);
+		lookAndFeel->setRedrawBg();
+	}
+
+	void setModeSelect(int d, bool r) override {
+		modeIndex = updateSelect(modeIndex, 
+			NUM_MODES, modeDefault, d, r);
+		lookAndFeel->setRedrawBg();
+	}
+
+	float getXVoltage() override {
 		// Returns the population (number of alive cells) as voltage (0-1V).
 		return population * xVoltageScaler;
 	}
 
-	float GetYVoltage() override {
+	float getYVoltage() override {
 		// Returns the 64-bit number output matrix as voltage (0-1V).
 		return displayMatrix * yVoltageScaler;
 	}
 
-	bool GetXPulse() override {
+	bool getXPulse() override {
 		// True if population (number of alive cells) has grown.
 		bool xPulse = false;
 
@@ -898,7 +926,7 @@ public:
 		return xPulse;
 	}
 
-	bool GetYPulse() override {
+	bool getYPulse() override {
 		// True if life becomes stagnant (no change occurs),
 		// also true if output repeats while looping.
 
@@ -913,10 +941,10 @@ public:
 	}
 
 	// Drawing functions
-	void DrawMenuText(int page, bool displayRule) override {
+	void drawMenuText(int page, bool displayRule) override {
 		if (displayRule) {
-			lookAndFeel->drawText2("RULE", 0);
-			lookAndFeel->drawText2(rules[ruleIndex].name, 1);
+			lookAndFeel->drawText("RULE", 0);
+			lookAndFeel->drawText(rules[ruleIndex].name, 1);
 			return;
 		}
 
@@ -940,16 +968,16 @@ public:
 			break;
 		}
 
-		lookAndFeel->drawText2(pageName, 1);
-		lookAndFeel->drawText2(pageData, 2);
+		lookAndFeel->drawText(pageName, 1);
+		lookAndFeel->drawText(pageData, 2);
 	}
 
 	// LED function
-	float GetModeLEDValue() override {
+	float getModeLEDValue() override {
 		return static_cast<float>(modeIndex) * modesScaler;
 	}
 
-	std::string GetRuleString() override {
+	std::string getRuleString() override {
 		return rules[ruleIndex].name;
 	}
 
@@ -965,7 +993,6 @@ private:
 	};
 
 	static constexpr int NUM_MODES = 4;
-	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 	int modeDefault = 1;
 	int modeIndex = modeDefault;
 	std::array<std::string, NUM_MODES> modeName{
@@ -1058,4 +1085,5 @@ private:
 
 	static constexpr float xVoltageScaler = 1.f / 64.f;
 	static constexpr float yVoltageScaler = 1.f / UINT64_MAX;
+	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 };
