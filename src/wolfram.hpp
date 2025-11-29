@@ -241,7 +241,7 @@ public:
 
 	int updateSelect(int value, int MAX_VALUE,
 		int defaultValue, int delta, bool reset) {
-		// Helper of updating values via select encoder
+		// Helper of updating values via Select encoder
 		if (reset)
 			return defaultValue;
 
@@ -260,21 +260,28 @@ public:
 	virtual float getXVoltage() = 0;
 	virtual float getYVoltage() = 0;
 	virtual bool getXPulse() = 0;
-	virtual bool getYPulse() = 0;
-	virtual float getModeLEDValue() = 0;
-	virtual std::string getRuleString() = 0;
+	virtual bool getYPulse() { return false; }
+	virtual float getModeLEDValue() { return 0; }
+	virtual std::string getAlgoStr() { return ""; }
+	virtual std::string getRuleStr() { return ""; }
+	virtual std::string getRuleSelectStr() { return ""; }
+	virtual std::string getSeedStr() { return ""; }
+	virtual std::string getModeStr() { return ""; }
 
-	// Drawing
-	virtual void drawMenuText(int page, bool displayRule) = 0;
+	void getAlgoBg() {
+		lookAndFeel->drawTextBg(2);
+	}
 
-	virtual void drawMenuBackground(int page, bool displayRule) {
-		int rows = 4;
-		if (displayRule)
-			rows = 2;
+	void getRuleBg() {
+		lookAndFeel->drawTextBg(1);
+	}
 
-		for (int row = 0; row < rows; row++) {
-			lookAndFeel->drawTextBg(row);
-		}
+	virtual void getSeedBg() {
+		lookAndFeel->drawTextBg(2);
+	}
+
+	void getModeBg() {
+		lookAndFeel->drawTextBg(2);
 	}
 
 protected:
@@ -502,65 +509,49 @@ public:
 		return yPulse;
 	}
 
-	// Drawing functions
-	void drawMenuBackground(int page, bool displayRule) override {
-		int rows = 4;
-		if (displayRule)
-			rows = 2;
-
-		for (int row = 0; row < rows; row++) {
-			if (!randSeed && (page == 0) && (row == 2)) {
-				lookAndFeel->drawWolfSeedDisplay(row, false, seed);	// Seed display
-			}
-			else {
-				lookAndFeel->drawTextBg(row);
-			}
-		}
-	}
-	
-	void drawMenuText(int page, bool displayRule) override {
-		if (displayRule) {
-			lookAndFeel->drawText("RULE", 0);
-			lookAndFeel->drawText(lookAndFeel->formatIntForText(rule), 1);
-			return;
-		}
-
-		std::string pageName;
-		std::string pageData;
-
-		switch (page) {
-		case 0: {
-			pageName = "SEED";
-			if (randSeed) {
-				pageData = "RAND";
-				break;
-			}
-			lookAndFeel->drawWolfSeedDisplay(2, true, seed);
-			break;
-		}
-
-		case 2: {
-			pageName = "MODE";
-			pageData = modeName[modeIndex];
-			break;
-		}
-
-		default:
-			break;
-		}
-
-		lookAndFeel->drawText(pageName, 1);
-		lookAndFeel->drawText(pageData, 2);
-	}
-
 	// LED function
 	float getModeLEDValue() override {
 		return static_cast<float>(modeIndex) * modeScaler;
 	}
 
-	std::string getRuleString() override {
-		std::string ruleString = std::to_string(rule);
-		return ruleString;
+
+	std::string getAlgoStr() override {
+		return "WOLF";
+	}
+
+	std::string getRuleStr() override {
+		//return std::to_string(rule);
+		return lookAndFeel->formatIntForText(rule);
+	}
+
+	std::string getRuleSelectStr() override {
+		//return std::to_string(rule);
+		return lookAndFeel->formatIntForText(ruleSelect);
+	}
+
+	std::string getSeedStr() override {
+		std::string str = "";
+		if (randSeed) {
+			str = "RAND";
+		}
+		else {
+			lookAndFeel->drawWolfSeedDisplay(2, true, seed);
+		}
+		return str;
+	}
+
+	std::string getModeStr() override {
+		return modeName[modeIndex];
+	}
+
+	void getSeedBg() override {
+		if (randSeed) {
+			lookAndFeel->drawTextBg(2);
+			
+		}
+		else {
+			lookAndFeel->drawWolfSeedDisplay(2, false, seed);
+		}
 	}
 
 private:
@@ -871,6 +862,7 @@ public:
 		lookAndFeel->setRedrawBg();
 	}
 
+	/* Setters */
 	void setRuleCV(float cv) override { 
 		int newCV = std::round(cv * NUM_RULES); 
 
@@ -905,6 +897,7 @@ public:
 		lookAndFeel->setRedrawBg();
 	}
 
+	/* Getters */
 	float getXVoltage() override {
 		// Returns the population (number of alive cells) as voltage (0-1V).
 		return population * xVoltageScaler;
@@ -940,46 +933,30 @@ public:
 		return yPulse;
 	}
 
-	// Drawing functions
-	void drawMenuText(int page, bool displayRule) override {
-		if (displayRule) {
-			lookAndFeel->drawText("RULE", 0);
-			lookAndFeel->drawText(rules[ruleIndex].name, 1);
-			return;
-		}
-
-		std::string pageName;
-		std::string pageData;
-
-		switch (page) {
-		case 0: {
-			pageName = "SEED";
-			pageData = seeds[seedIndex].name;
-			break;
-		}
-
-		case 2: {
-			pageName = "MODE";
-			pageData = modeName[modeIndex];
-			break;
-		}
-
-		default:
-			break;
-		}
-
-		lookAndFeel->drawText(pageName, 1);
-		lookAndFeel->drawText(pageData, 2);
-	}
-
-	// LED function
 	float getModeLEDValue() override {
 		return static_cast<float>(modeIndex) * modesScaler;
 	}
 
-	std::string getRuleString() override {
+	std::string getAlgoStr() override {
+		return "LIFE";
+	}
+
+	std::string getRuleStr() override {
 		return rules[ruleIndex].name;
 	}
+
+	std::string getRuleSelectStr() override {
+		return rules[ruleSelect].name;
+	}
+
+	std::string getSeedStr() override {
+		return seeds[seedIndex].name;
+	}
+
+	std::string getModeStr() override {
+		return modeName[modeIndex];
+	}
+
 
 private:
 	struct Rule {

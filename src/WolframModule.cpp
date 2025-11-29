@@ -12,21 +12,18 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
+// TODO: Crashing on close...
 // TODO: The panel
 // TODO: Save state
 // TODO: onReset and onRandomize
-// TODO: Slew Amount, where Func is, put func (vco mode in context menu), could use the same slew/filter in vco mode?
-// TODO: Put sync mode in contex menu?
+// TODO: Put sync mode in contex menu
 // TODO: Some anti-aliasing for vco mode, BLEP BEEP BOOP or whatever
-
-// TODO: Looks change Led colour
+// TODO: inject puts 4 in when in life algo?
 
 #include "wolfram.hpp"
 #include <vector>
 
 struct SlewLimiter {
-	float y = 0.f;
-	float slew = 20.f;
 
 	void setSlewAmountMs(float s_ms, float sr) {
 		slew = (1000.f / sr) / clamp(s_ms, 1e-3f, 1000.f);
@@ -40,7 +37,62 @@ struct SlewLimiter {
 	void reset() {
 		y = 0;
 	}
+
+	float y = 0.f;
+	float slew = 20.f;
 };
+
+
+struct MenuPage {
+	// Way over my head alert
+
+	/* Select setter */
+	struct Select {
+		std::function<void(int d, bool r)> set;
+
+		Select() : set([](int, bool) {}) {}
+		Select(std::function<void(int, bool)> f)
+			: set(std::move(f)) 
+		{}
+	};
+
+	/* Text getter */
+	struct Text {
+		std::function<std::string()> getHeader;
+		std::function<std::string()> getTitle;
+		std::function<std::string()> getData;
+
+		Text() 
+			: getHeader([]() {return ""; }),
+			  getTitle([]() {return ""; }),
+			  getData([]() {return ""; })
+		{}
+
+		Text(std::function<std::string()> h,
+			std::function<std::string()> t,
+			std::function<std::string()> d)
+			: getHeader(std::move(h)),
+			  getTitle(std::move(t)),
+			  getData(std::move(d))
+		{}
+	};
+
+	/* Draw backgound */
+	struct Bg {
+		std::function<void()> drawDataBg;
+
+		Bg() : drawDataBg([]() {}) {}
+		Bg(std::function<void()> f)
+			: drawDataBg(std::move(f))
+		{}
+	};
+
+	static constexpr int NUM_DEFAULTPAGES = 4;
+	static constexpr int NUM_RULEMODPAGES = 5;
+	static constexpr int NUM_ALGOMODPAGES = 8;
+	static constexpr int NUM_MAXPAGES = 8;
+};
+
 
 struct WolframModule : Module {
 	enum ParamId {
@@ -81,7 +133,7 @@ struct WolframModule : Module {
 		INJECT_LIGHT,
 		LIGHTS_LEN
 	};
-
+	
 	// Look and feel
 	LookAndFeel lookAndFeel;
 
@@ -97,10 +149,13 @@ struct WolframModule : Module {
 	int algoSelect = algoDefault;
 	int algoCV = 0;
 
-	// Menu
-	static constexpr int NUM_MENUPAGES = 5;
-	static constexpr int menuPageDefault = 0;
-	int menuPageIndex = menuPageDefault;
+	/* Menu
+	Init with MAX_PAGES to create empty functions to call,
+	even when no behavoir is defined. */
+	std::array<MenuPage::Select, MenuPage::NUM_MAXPAGES> defaultSelect{};
+	std::array<MenuPage::Select, MenuPage::NUM_MAXPAGES> algoModSelect{};
+	int pageCounter = 0;
+	int pageIndex = 0;
 	bool menu = false;
 	
 	// Params
@@ -111,10 +166,11 @@ struct WolframModule : Module {
 	int offset = 0;
 	int offsetPending = 0;
 	bool resetPending = false;
-	bool ruleResetPending = false;
+	bool ruleResetPending = false; // TODO: rename seedPushPending?
 	int injectPendingState = 0;
 	bool gen = false;
 	bool genPending = false;
+	int algoCvPending = 0;
 	float lastTrigVoltage = 0.f;
 	int slewParam = 0;
 	bool sync = false;
@@ -127,6 +183,9 @@ struct WolframModule : Module {
 	
 	// Display
 	bool displayRule = false;
+
+	bool ruleMod = false; // not needed?
+	bool algoMod = false;
 
 	// Samplerate
 	float sr = 0;
@@ -143,7 +202,6 @@ struct WolframModule : Module {
 	dsp::RCFilter dcFilter[2];
 	SlewLimiter slewLimiter[2];
 
-
 	void updateAlgo() {
 		algoIndex = clamp(algoSelect + algoCV, 0, (NUM_ALGOS - 1));;
 		a = algos[algoIndex];
@@ -156,6 +214,11 @@ struct WolframModule : Module {
 
 		if (newCV == algoCV)
 			return;
+
+		if (sync) {
+			algoCvPending = newCV;
+			return;
+		}
 
 		algoCV = newCV;
 		updateAlgo();
@@ -172,7 +235,38 @@ struct WolframModule : Module {
 		updateAlgo();
 	}
 
-	WolframModule() {
+	void setSlewSelect(int delta, bool reset) {
+		slewParam = clamp(slewParam + delta, 0, 200);
+		if (reset)
+			slewParam = 0;
+
+		// Convert slewParam (0 - 200) to ms (0, 2000),
+		// or (0 - 20) if vcoMode is true.
+		float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
+		for (int i = 0; i < 2; i++) {
+			slewLimiter[i].setSlewAmountMs(slew, sr);
+		}
+	}
+
+	WolframModule() 
+		/* Menu Select setters */
+		: defaultSelect{ {
+			{ [this](int d, bool r) { algos[algoIndex]->setSeedSelect(d, r); } },
+			{ [this](int d, bool r) { algos[algoIndex]->setModeSelect(d, r); } },
+			{ [this](int d, bool r) { setSlewSelect(d, r); } },
+			{ [this](int d, bool r) { setAlgoSelect(d, r); } }
+		} },
+		algoModSelect{ {
+			{ [this](int d, bool r) { algos[0]->setRuleSelect(d, false); } },
+			{ [this](int d, bool r) { algos[0]->setSeedSelect(d, false); } },
+			{ [this](int d, bool r) { algos[0]->setModeSelect(d, r); } },
+			{ [this](int d, bool r) { algos[1]->setRuleSelect(d, r); } },
+			{ [this](int d, bool r) { algos[1]->setSeedSelect(d, r); } },
+			{ [this](int d, bool r) { algos[1]->setModeSelect(d, r); } },
+			{ [this](int d, bool r) { setSlewSelect(d, r); } },
+			{ [this](int d, bool r) { setAlgoSelect(d, r); } }
+		} }
+	{
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
@@ -217,18 +311,68 @@ struct WolframModule : Module {
 		}
 
 		// Set default alogrithm
+		//TODO: dont like this
 		a = algos[algoIndex];
 
 		// Push matrix
-		a->update(offset);
+		algos[algoIndex]->update(offset);
 		onSampleRateChange();
 	}
 
 	struct EncoderParamQuantity : ParamQuantity {
-		// Custom behaviour to display rule when hovering over Select encoder
+		/* Custom behaviour to display rule when hovering over Select encoder */
 		std::string getDisplayValueString() override {
+
 			auto* m = dynamic_cast<WolframModule*>(module);
-			return m ? m->a->getRuleString() : "30";
+			if (!m)
+				return "";
+
+			bool algoMod = m->algoMod;
+			bool ruleMod = m->ruleMod;
+			bool menu = m->menu;
+			int page = m->pageIndex;
+
+			std::string ruleStr = m->a->getRuleStr();
+			std::string selectStr = m->a->getRuleSelectStr();
+
+			// No algorithm modulation & no rule modulation
+			if (!algoMod && !ruleMod)
+				return selectStr;
+
+			// Menu closed or no algorithm modulation
+			if (!algoMod || !menu) {
+				if (!ruleMod)
+					return selectStr;
+
+				return selectStr + " ( " + ruleStr + " )";
+			}
+
+			// Menu open & algorithm modulation
+			if (page == 0) {
+				// Wolf rule page
+				std::string s = m->algos[0]->getRuleSelectStr();
+				std::string r = ruleMod ? 
+					m->algos[0]->getRuleStr() : 
+					ruleStr;
+
+				return s + " ( " + r + " )";
+			}
+
+			if (page == 3) {
+				// Life rule page
+				std::string s = m->algos[1]->getRuleSelectStr();
+				std::string r = ruleMod ? 
+					m->algos[1]->getRuleStr() : 
+					ruleStr;
+
+				return s + " ( " + r + " )";
+			}
+
+			// Non-rule pages
+			if (!ruleMod)
+				return selectStr;
+
+			return selectStr + " ( " + ruleStr + " )";
 		}
 
 		// Suppress behaviour
@@ -270,55 +414,16 @@ struct WolframModule : Module {
 		}
 
 		if (menu) {
-			switch (menuPageIndex) {
-			case 0: {
-				// Seed
-				a->setSeedSelect(delta, encoderReset);
-				break;
-			}
+			/* Menu select setter */
+			MenuPage::Select& select = algoMod ? 
+				algoModSelect[pageIndex] : 
+				defaultSelect[pageIndex];
 
-			case 1: {
-				// Slew
-				slewParam = clamp(slewParam + delta, 0, 200);
-				if (encoderReset)
-					slewParam = 0;
-				// Convert slewParam (0 - 200) to ms (0, 2000),
-				// or (0 - 20) if vcoMode is true.
-				float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
-				for (int i = 0; i < 2; i++) {
-					slewLimiter[i].setSlewAmountMs(slew, sr);
-				}
-				break;
-			}
-
-			case 2: {
-				// Mode
-				a->setModeSelect(delta, encoderReset);
-				break;
-			}
-
-			case 3: {
-				// Sync
-				if (encoderReset) {
-					sync = false;
-					break;
-				}
-				sync = !sync;
-				break;
-			}
-
-			case 4: {
-				// Algoithm
-				setAlgoSelect(delta, encoderReset);
-				break;
-			}
-
-			default:
-				break;
-			}
+			select.set(delta, encoderReset);
 		}
 		else {
-			a->setRuleSelect(delta, false);
+			/* Rule select setter */
+			algos[algoIndex]->setRuleSelect(delta, false);
 			if (sync) {
 				ruleResetPending = true;
 			}
@@ -327,8 +432,8 @@ struct WolframModule : Module {
 				genPending = true;
 				ruleResetPending = false;
 				if (gen) {
-					a->pushSeed(false);
-					a->update(offset);
+					algos[algoIndex]->pushSeed(false);
+					algos[algoIndex]->update(offset);
 				}
 			}
 			if (!encoderReset) {
@@ -336,19 +441,19 @@ struct WolframModule : Module {
 				ruleDisplayTimer.reset();
 			}
 		}
+		
 		encoderReset = false;
 	}
 
 	void process(const ProcessArgs& args) override {
 
 		// KNOBS & INPUTS
-		// Algoithm CV input
+		algoMod = inputs[ALGO_CV_INPUT].isConnected();
 		setAlgoCV(clamp(inputs[ALGO_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
-		// Rule CV input.
-		a->setRuleCV(clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
+		ruleMod = inputs[RULE_CV_INPUT].isConnected();
+		algos[algoIndex]->setRuleCV(clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
-		// Length knob.
 		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 
 		// Prob knob & CV input.
@@ -361,19 +466,24 @@ struct WolframModule : Module {
 
 		if (modeTrigger.process(params[MODE_PARAM].getValue())) {
 			if (menu) {
-				menuPageIndex++;
-				if (menuPageIndex >= NUM_MENUPAGES)
-					menuPageIndex = 0; 
+				pageCounter++;
 			}
 			else {
-				a->setModeSelect(1, false);
+				algos[algoIndex]->setModeSelect(1, false);
 			}
 		}
 
-		// SELECT ENCODER
+		/* Get menu page index */
+		int NUM_PAGES = algoMod ? 
+			MenuPage::NUM_ALGOMODPAGES : 
+			MenuPage::NUM_DEFAULTPAGES;
+
+		pageIndex = (pageCounter + NUM_PAGES) % NUM_PAGES;
+
+		/* Select Encoder */
 		processEncoder();
 
-		// Offset
+		/* Offset */
 		float offsetCv = clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f; // cast to int here
 		int newOffset = clamp(static_cast<int>(std::round(params[OFFSET_PARAM].getValue() + offsetCv)), -4, 4);
 		if (sync) {
@@ -381,7 +491,7 @@ struct WolframModule : Module {
 		}
 		else if (offset != newOffset) {
 			offset = newOffset;
-			a->update(offset);
+			algos[algoIndex]->update(offset);
 		}
 
 		// Inject
@@ -397,8 +507,8 @@ struct WolframModule : Module {
 				}
 			}
 			else {
-				a->inject(positiveInject ? true : false, false);
-				a->update(offset);
+				algos[algoIndex]->inject(positiveInject ? true : false, false);
+				algos[algoIndex]->update(offset);
 				injectPendingState = 0;
 			}
 		}
@@ -413,13 +523,13 @@ struct WolframModule : Module {
 				genPending = true;
 				resetPending = false;
 				if (gen) {
-					a->pushSeed(false);
+					algos[algoIndex]->pushSeed(false);
 				}
 				else {
-					a->setReadHead(0);
-					a->setWriteHead(1);
+					algos[algoIndex]->setReadHead(0);
+					algos[algoIndex]->setWriteHead(1);
 				}
-				a->update(offset);
+				algos[algoIndex]->update(offset);
 			}
 		}
 
@@ -443,41 +553,42 @@ struct WolframModule : Module {
 			if (!genPending)
 				gen = random::get<float>() < prob;
 
-			// Synced offset
-			if (sync)
+			if (sync) {
+				algoCV = algoCvPending;
+				updateAlgo();
+
 				offset = offsetPending;
 
-			// Synced inject
-			switch (injectPendingState) {
-			case 1: {
-				a->inject(true, true);
-				break;
-			}
-
-			case 2: {
-				a->inject(false, true);
-				break;
-			}
-
-			default: 
-				break;
-			}
-
-			// Synced reset
-			if (resetPending || ruleResetPending) {
-				if (gen) {
-					a->pushSeed(true);
+				switch (injectPendingState) {
+				case 1: {
+					algos[algoIndex]->inject(true, true);
+					break;
 				}
-				else if (!ruleResetPending) {
-					a->setWriteHead(0);
+
+				case 2: {
+					algos[algoIndex]->inject(false, true);
+					break;
+				}
+
+				default:
+					break;
+				}
+
+				if (resetPending || ruleResetPending) {
+					if (gen) {
+						algos[algoIndex]->pushSeed(true);
+					}
+					else if (!ruleResetPending) {
+						algos[algoIndex]->setWriteHead(0);
+					}
 				}
 			}
 
 			if (gen && !resetPending && !ruleResetPending && !injectPendingState)
-				a->generate();
+				algos[algoIndex]->generate();
 
-			a->step(sequenceLength);
-			a->update(offset);
+			algos[algoIndex]->step(sequenceLength);
+			algos[algoIndex]->update(offset);
 
 			// Reset gen and sync penders
 			gen = false;
@@ -485,11 +596,12 @@ struct WolframModule : Module {
 			resetPending = false;
 			ruleResetPending = false;
 			injectPendingState = 0;
+			algoCvPending = 0;
 		}
 
 		// OUTPUT
-		float xCv = a->getXVoltage();
-		float yCv = a->getYVoltage();
+		float xCv = algos[algoIndex]->getXVoltage();
+		float yCv = algos[algoIndex]->getYVoltage();
 
 		xCv = slewLimiter[0].process(xCv);
 		yCv = slewLimiter[1].process(yCv);
@@ -513,10 +625,10 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
 		// Pulse outputs - 0V to 10V.
-		if (a->getXPulse())
+		if (algos[algoIndex]->getXPulse())
 			xPulse.trigger(1e-3f);
 
-		if (a->getYPulse())
+		if (algos[algoIndex]->getYPulse())
 			yPulse.trigger(1e-3f);
 
 		bool xGate = xPulse.process(args.sampleTime);
@@ -525,7 +637,7 @@ struct WolframModule : Module {
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// LIGHTS
-		lights[MODE_LIGHT].setBrightnessSmooth(a->getModeLEDValue(), args.sampleTime);
+		lights[MODE_LIGHT].setBrightnessSmooth(algos[algoIndex]->getModeLEDValue(), args.sampleTime);
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
@@ -537,10 +649,11 @@ struct WolframModule : Module {
 		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f)
 			displayRule = false;
 
-		a->tick();
+		algos[algoIndex]->tick();
 	}
 };
 
+/*
 struct DisplayFramebuffer : FramebufferWidget {
 	WolframModule* module;
 
@@ -558,7 +671,7 @@ struct DisplayFramebuffer : FramebufferWidget {
 		int look = module ? module->lookAndFeel.getLookIndex() : 0;
 		int feel = module ? module->lookAndFeel.getFeelIndex() : 0;
 		bool menu = module ? module->menu : false;
-		int page = module ? module->menuPageIndex : 0;
+		int page = module ? module->pageCounter : 0;
 		bool displayRule = module ? module->displayRule : false;
 		uint64_t matrix = module ? module->a->getDisplayMatrix() : 0;
 
@@ -589,10 +702,16 @@ struct DisplayFramebuffer : FramebufferWidget {
 		FramebufferWidget::step();
 	}
 };
+*/
 
 struct Display : TransparentWidget {
 	WolframModule* module;
 	LookAndFeel* lookAndFeel;
+
+	std::array<MenuPage::Text, MenuPage::NUM_MAXPAGES> defaultText{};
+	std::array<MenuPage::Bg, MenuPage::NUM_MAXPAGES> defaultBg{};
+	std::array<MenuPage::Text, MenuPage::NUM_MAXPAGES> algoModText{};
+	std::array<MenuPage::Bg, MenuPage::NUM_MAXPAGES> algoModBg{};
 
 	std::shared_ptr<Font> font;
 	std::string fontPath;
@@ -608,96 +727,162 @@ struct Display : TransparentWidget {
 	// TODO: std pair for col and row (int, int)
 	std::vector<Vec> aliveCellCord{};
 
-	Display(WolframModule* m, float y, float w, float s) {
+	Display(WolframModule* m, float y, float w, float s)
+		/* Menu texts & backgrounds */
+
+		/* Default menu */
+		: defaultText{ {
+			/* Seed page */
+			{
+				[]() { return "menu"; },
+				[]() { return "SEED"; },
+				[m]() { return m->a->getSeedStr(); }
+			},
+			/* Mode page */
+			{
+				[]() { return "menu"; },
+				[]() { return "MODE"; },
+				[m]() { return m->a->getModeStr(); }
+			},
+			/* Slew page */
+			{
+				[]() { return "menu"; },
+				[]() { return "SLEW"; },
+				[m]() { return std::to_string(m->slewParam) + "%"; }
+			},
+			/* Algo page */
+			{
+				[]() { return "menu"; },
+				[]() { return "ALGO"; },
+				[m]() { return m->a->getAlgoStr(); }
+			}
+		} },
+		defaultBg{ {
+			{ [m]() { m->a->getSeedBg(); } },
+			{ [m]() { m->a->getModeBg(); } },
+			{ [m]() { m->lookAndFeel.drawTextBg(2); } },
+			{ [m]() { m->a->getAlgoBg(); } }
+		} },
+
+		/* Algo modulation menu */
+		algoModText{ {
+			/* Wolf rule page */
+			{
+				[]() { return "wolf"; },
+				[]() { return "RULE"; },
+				[m]() { return m->algos[0]->getRuleStr(); }
+			},
+			/* Wolf seed page */
+			{
+				[]() { return "wolf"; },
+				[]() { return "SEED"; },
+				[m]() { return m->algos[0]->getSeedStr(); }
+			},
+			/* Wolf mode page */
+			{
+				[]() { return "wolf"; },
+				[]() { return "MODE"; },
+				[m]() { return m->algos[0]->getModeStr(); }
+			},
+			/* Life rule page */
+			{
+				[]() { return "life"; },
+				[]() { return "RULE"; },
+				[m]() { return m->algos[1]->getRuleStr(); }
+			},
+			/* Life seed page */
+			{
+				[]() { return "life"; },
+				[]() { return "SEED"; },
+				[m]() { return m->algos[1]->getSeedStr(); }
+			},
+			/* Life mode page */
+			{
+				[]() { return "life"; },
+				[]() { return "MODE"; },
+				[m]() { return m->algos[1]->getModeStr(); }
+			},
+			/* Slew page */
+			{
+				[]() { return "menu"; },
+				[]() { return "SLEW"; },
+				[m]() { return std::to_string(m->slewParam) + "%"; }
+			},
+			/* Algo page */
+			{
+				[]() { return "menu"; },
+				[]() { return "ALGO"; },
+				[m]() { return m->a->getAlgoStr(); }
+			}
+		} },
+		algoModBg{ {
+			{ [m]() { m->lookAndFeel.drawTextBg(2); } }, //TODO: get rule bg
+			{ [m]() { m->algos[0]->getSeedBg(); } },
+			{ [m]() { m->algos[0]->getModeBg(); } },
+			{ [m]() { m->lookAndFeel.drawTextBg(2); } },
+			{ [m]() { m->algos[1]->getSeedBg(); } },
+			{ [m]() { m->algos[1]->getModeBg(); } },
+			{ [m]() { m->lookAndFeel.drawTextBg(2); } },
+			{ [m]() { m->a->getAlgoBg(); } }
+		} }
+	{
 		module = m;
 
-		// Params
+		/* Wiget params */
 		widgetSize = s;
 		float screenSize = widgetSize - (padding * 2.f);
 		fontSize = (screenSize / cols) * 2.f;
 
 		float cellPadding = (screenSize / cols);
 
-		// Widget size
+		/* Widget size */
 		box.pos = Vec((w * 0.5f) - (widgetSize * 0.5f), y);
 		box.size = Vec(widgetSize, widgetSize);
 
-		// Load font
+		/* Get font */
 		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/mtf_wolf5.otf"));
 		font = APP->window->loadFont(fontPath);
 
 		if (!module)
 			return;
-
+		/* Set look & feel */
 		lookAndFeel = &module->lookAndFeel;
 		lookAndFeel->setDrawingParams(padding, fontSize, cellPadding);
 	}
 
-	void drawMenuBackgroud(int pageIndex, bool displayRule) {
-
-		// Rule
-		if (displayRule) {
-			module->a->drawMenuBackground(pageIndex, displayRule);
-			return;
-		}
-		
-		// Menu
+	void drawMenuBackgroud(int i) {
+		/* Rule Background */
 		lookAndFeel->drawTextBg(0);
-		lookAndFeel->drawTextBg(3);
-
-		if ((pageIndex == 0) || (pageIndex == 2)) {
-			// Seed & mode
-			module->a->drawMenuBackground(pageIndex, displayRule);
-			return;
-		}
-
-		// Slew, Sync, Algo.
 		lookAndFeel->drawTextBg(1);
-		lookAndFeel->drawTextBg(2);	
+
+		if (module->menu) {
+			/* Menu Background */
+			MenuPage::Bg& bg = module->algoMod ? 
+				algoModBg[i] : 
+				defaultBg[i];
+
+			bg.drawDataBg();
+			lookAndFeel->drawTextBg(3);
+		}
 	}
 
-	void drawMenuText(int pageIndex, bool displayRule) {
-		// Rule.
-		if (displayRule) {
-			module->a->drawMenuText(pageIndex, displayRule);
+	void drawMenuText(int i) {
+		if (module->menu) {
+			/* Menu text */
+			MenuPage::Text& text = module->algoMod ? 
+				algoModText[i] : 
+				defaultText[i];
+
+			lookAndFeel->drawText(text.getHeader(), 0);
+			lookAndFeel->drawText(text.getTitle(), 1);
+			lookAndFeel->drawText(text.getData(), 2);
+			lookAndFeel->drawText("<#@>", 3);
 			return;
 		}
-
-		// Menu.
-		std::string pageName;
-		std::string pageData;
 		
-		switch (pageIndex) {
-		case 1: {
-			pageName = "SLEW";
-			pageData = std::to_string(module->slewParam) + "%";
-			break;
-		}
-		case 3: {
-			pageName = "SYNC";
-			pageData = module->sync ? "LOCK" : "FREE";
-			break;
-		}
-		case 4: {
-			pageName = "ALGO";
-			int i = module->algoIndex;
-			if (i == 0) {
-				pageData = "WOLF";
-			}
-			else if (i == 1) {
-				pageData = "LIFE";
-			}
-			break;
-		}
-		default:	// Seed & Mode.
-			module->a->drawMenuText(pageIndex, displayRule);
-			break;
-		}
-
-		lookAndFeel->drawText("menu", 0);
-		lookAndFeel->drawText(pageName, 1);
-		lookAndFeel->drawText(pageData, 2);
-		lookAndFeel->drawText("<#@>", 3);
+		/* Rule text */
+		lookAndFeel->drawText("RULE", 0);
+		lookAndFeel->drawText(module->a->getRuleStr(), 1);
 	}
 
 	void draw(const DrawArgs& args) override {
@@ -726,7 +911,7 @@ struct Display : TransparentWidget {
 		int firstRow = 0;
 		if (module) {
 			if (module->menu || module->displayRule)
-				drawMenuBackgroud(module->menuPageIndex, module->displayRule);
+				drawMenuBackgroud(module->pageIndex);
 
 			if (module->menu)
 				return;
@@ -734,10 +919,10 @@ struct Display : TransparentWidget {
 			firstRow = module->displayRule ? (rows - 4) : 0;
 		}
 
-		// Requires flipping.
+		// Requires flipping
 		uint64_t matrix = module ? module->a->getDisplayMatrix() : 8;
 
-		// Calculate and store cell 
+		// Draw dead cell, store alive cell 
 		nvgBeginPath(args.vg);
 		for (int row = firstRow; row < rows; row++) {
 			int rowInvert = (row - 7) * -1;
@@ -757,7 +942,6 @@ struct Display : TransparentWidget {
 			}
 		}
 		nvgFill(args.vg);
-
 	}
 
 	void drawLayer(const DrawArgs& args, int layer) override {
@@ -771,8 +955,9 @@ struct Display : TransparentWidget {
 		nvgFontFaceId(args.vg, font->handle);
 		nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
-		if (module && (module->menu || module->displayRule))
-			drawMenuText(module->menuPageIndex, module->displayRule);
+		if (module && (module->menu || module->displayRule)) {
+			drawMenuText(module->pageIndex);
+		}
 
 		// Draw alive cells.
 		nvgBeginPath(args.vg);
@@ -936,16 +1121,20 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		
 
-		DisplayFramebuffer* displayFb = new DisplayFramebuffer(module);
+		//DisplayFramebuffer* displayFb = new DisplayFramebuffer(module);
 		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
-		displayFb->addChild(display);
-		addChild(displayFb);
+		addChild(display);
+
+
+		//displayFb->addChild(display);
+		//addChild(displayFb);
 	}
 
 	void appendContextMenu(Menu* menu) override {
 		WolframModule* module = dynamic_cast<WolframModule*>(this->module);
 		
 		menu->addChild(new MenuSeparator);
+		menu->addChild(createBoolPtrMenuItem("Sync", "", &module->sync));
 		menu->addChild(createBoolPtrMenuItem("VCO Mode", "", &module->vcoMode));
 
 		menu->addChild(new MenuSeparator);
