@@ -65,13 +65,13 @@ public:
 		}							
 	};
 
-	void setLookIndex(int i) { lookIndex = i; }
-	void setFeelIndex(int i) { feelIndex = i; }
-	void setRedrawBg() { redrawBg = true; }
+	void setLook(int i) { lookIndex = i; }
+	void setCellStyle(int i) { cellStyleIndex = i; }
+	void setRedrawBg() { redrawBg = true; } // TODO: remove
 
 	// Getters
 	int getLookIndex() { return lookIndex; }
-	int getFeelIndex() { return feelIndex; }
+	int getFeelIndex() { return cellStyleIndex; }
 	bool getRedrawBg() { return redrawBg; }
 
 	NVGcolor* getScreenColour() { return &looks[lookIndex][0]; }
@@ -87,11 +87,16 @@ public:
 
 	// Drawing
 	void drawCell(float col, float row, bool state) {
+
+		//if(state)
+			//nvgGlobalCompositeBlendFunc(vg, NVG_ONE_MINUS_DST_COLOR, NVG_ONE);
+
 		// Draw cell.
 		int i = row * 8 + col;
 		nvgFillColor(vg, state ? *getForegroundColour() : *getBackgroundColour());
 
-		switch (feelIndex) {
+		//nvgBeginPath(vg);
+		switch (cellStyleIndex) {
 		case 1: {
 			// Square.
 			nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
@@ -104,11 +109,46 @@ public:
 			nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
 			break;
 		}
+		//nvgFill(vg);
+
+		/*
+		// Draw halo
+		// Don't draw halo if rendering in a framebuffer, e.g. screenshots or Module Browser.
+		//if (args.fb)
+		//	return;
+
+		if (!state)
+			return;
+
+		const float halo = settings::haloBrightness;
+		if (halo == 0.f)
+			return;
+		
+		float radius = circleCellSize / 2.f;
+		float oradius = radius + std::min(radius * 4.f, 15.f);
+
+		nvgBeginPath(vg);
+		nvgRect(vg, cellCirclePos[i].x - oradius, 
+			cellCirclePos[i].y - oradius, 2 * oradius, 2 * oradius);
+
+		NVGcolor icol = color::mult(*getForegroundColour(), halo * 0.4f);
+		NVGcolor ocol = nvgRGBA(0, 0, 0, 0);
+		NVGpaint paint = nvgRadialGradient(vg, cellCirclePos[i].x, 
+			cellCirclePos[i].y, radius, oradius, icol, ocol);
+		nvgFillPaint(vg, paint);
+		nvgFill(vg);
+		*/
 	}
 
 	void drawText(const std::string& str, int row) {
 		// Draw four character row of text
 		std::string outputStr;
+
+		//cool
+		//nvgFontBlur(vg, 5.f);
+
+		// special case font colours
+		// if (lookIndex && (row == 0)) ...
 
 		if (str.size() >= 4) {
 			outputStr = str.substr(str.size() - 4);
@@ -135,12 +175,44 @@ public:
 		}
 		nvgFill(vg);
 
+
+		//nvgStrokeWidth(vg, padding);
+		//nvgStrokeColor(vg, *getForegroundColour());
+		//nvgStroke(vg);
+		//nvgClosePath(vg);
+		
+
 		redrawBg = false;
 	}
 
 	void drawWolfSeedDisplay(int row, bool layer, uint8_t seed) {
 		
 		nvgFillColor(vg, layer ? *getForegroundColour() : *getBackgroundColour());
+
+		if (layer) {
+
+			NVGcolor c = *getForegroundColour();
+			if (lookIndex == 3) {
+				// Special case colour for Eva 
+				c = nvgRGB(115, 255, 166);
+			}
+			nvgStrokeColor(vg, c);
+
+			nvgBeginPath(vg);
+			for (int col = 0; col < 8; col++) {
+				if ((col >= 1) && (col <= 7)) {
+					// TODO: pre compute?
+					nvgMoveTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y - 1);
+					nvgLineTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y + 1);
+					
+					nvgMoveTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) - 1);
+					nvgLineTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) + 1);
+					
+				}
+			}
+			nvgStrokeWidth(vg, 0.5f);
+			nvgStroke(vg);
+		}
 
 		nvgBeginPath(vg);
 		for (int col = 0; col < 8; col++) {
@@ -181,19 +253,24 @@ protected:
 	std::array<Vec, 8> wolfSeedPos{};
 
 	// Looks
-	static constexpr int NUM_COLOURS = 3;
-	static constexpr int NUM_LOOKS = 3;
+	static constexpr int NUM_LOOKS = 6;
 	int lookIndex = 0;
-	std::array<std::array<NVGcolor, NUM_COLOURS>, NUM_LOOKS> looks { {
+	std::array<std::array<NVGcolor, 3>, NUM_LOOKS> looks { {
 
-		{ nvgRGB(58, 16, 19), nvgRGB(228, 7, 7), nvgRGB(78, 12, 9) },		// Default
+		{ nvgRGB(58, 16, 19), nvgRGB(228, 7, 7), nvgRGB(78, 12, 9) },		// Redrick
 		{ nvgRGB(37, 59, 99), nvgRGB(205, 254, 254), nvgRGB(39, 70, 153) },	// Oled
-		{ nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(0, 0, 0) },				// VCV Rack
-
+		{ nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(18, 18, 18) },			// Rack
+		{ nvgRGB(4, 3, 8), nvgRGB(244, 84, 22), nvgRGB(26, 7, 0) },			// Eva 
+		
+		{ nvgRGB(0, 0, 0), nvgRGB(255, 255, 255), nvgRGB(0, 0, 0) },	// Purple
+		// Green
+		//{ nvgRGB(225, 225, 223), nvgRGB(5, 5, 3), nvgRGB(205, 205, 203) },	// White
+		{ nvgRGB(0, 0, 0), nvgRGB(255, 255, 255), nvgRGB(0, 0, 0) },	// Mono
+		// TODO: add purple
 	} };
 
-	// Feels
-	int feelIndex = 0;
+	// Cell styles
+	int cellStyleIndex = 0;
 	float circleCellSize = 5.f;
 	float squareCellSize = 10.f;
 	float squareCellBevel = 1.f;
@@ -207,6 +284,7 @@ public:
 	Algorithm() {}
 	~Algorithm() {}
 
+	
 	void advanceHeads(int s) {
 		// Advance read and write heads
 		// TODO: could use if, would be quicker?
@@ -236,12 +314,19 @@ public:
 
 	// Setters
 	void setLookAndFeel(LookAndFeel* l) { lookAndFeel = l; }
+
+	void setDisplayMatrix(uint64_t newDisplay) {
+		displayMatrix = newDisplay;
+	}
+
+	virtual void setBuffer(bool r) = 0;
+
 	void setReadHead(int h) { readHead = h; }
 	void setWriteHead(int h) { writeHead = h; }
 
 	int updateSelect(int value, int MAX_VALUE,
 		int defaultValue, int delta, bool reset) {
-		// Helper of updating values via Select encoder
+		// Helper for updating values via Select encoder
 		if (reset)
 			return defaultValue;
 
@@ -260,13 +345,13 @@ public:
 	virtual float getXVoltage() = 0;
 	virtual float getYVoltage() = 0;
 	virtual bool getXPulse() = 0;
-	virtual bool getYPulse() { return false; }
-	virtual float getModeLEDValue() { return 0; }
-	virtual std::string getAlgoStr() { return ""; }
-	virtual std::string getRuleStr() { return ""; }
-	virtual std::string getRuleSelectStr() { return ""; }
-	virtual std::string getSeedStr() { return ""; }
-	virtual std::string getModeStr() { return ""; }
+	virtual bool getYPulse() = 0;
+	virtual float getModeLEDValue() = 0;
+	virtual std::string getAlgoStr() = 0;
+	virtual std::string getRuleStr() = 0;
+	virtual std::string getRuleSelectStr() = 0;
+	virtual std::string getSeedStr() = 0;
+	virtual std::string getModeStr() = 0;
 
 	void getAlgoBg() {
 		lookAndFeel->drawTextBg(2);
@@ -284,10 +369,13 @@ public:
 		lookAndFeel->drawTextBg(2);
 	}
 
+	//virtual void onReset() {}
+
 protected:
 	LookAndFeel* lookAndFeel;
 
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
+	// put in each algo..
 	std::array<uint8_t, MAX_SEQUENCE_LENGTH> rowBuffer{};
 	std::array<uint64_t, MAX_SEQUENCE_LENGTH> matrixBuffer{};
 
@@ -462,12 +550,20 @@ public:
 		if (!randSeed)
 			seed = static_cast<uint8_t>(seedSelect);
 
-		lookAndFeel->setRedrawBg();
+		//lookAndFeel->setRedrawBg();
 	}
 
 	void setModeSelect(int d, bool r) override {
-		modeIndex = updateSelect(modeIndex, NUM_MODES, modeDefault, d, r);
+		modeIndex = updateSelect(modeIndex, NUM_MODES, defaultMode, d, r);
 		lookAndFeel->setRedrawBg();
+	}
+
+	void setBuffer(bool r) override {
+
+		if (r) {
+			rowBuffer = {};
+			return;
+		}
 	}
 
 	float getXVoltage() override {
@@ -554,10 +650,25 @@ public:
 		}
 	}
 
+	/*
+	void onReset() override {
+		//readHead = 0;
+		//writeHead = 1;
+
+		displayMatrix = 0;
+		rowBuffer.empty();
+		matrixBuffer.empty();
+
+		//ruleSelect = defaultRule;
+		//seedSelect = defaultSeed;
+		//modeIndex = defaultMode;
+	}
+	*/
+
 private:
 	static constexpr int NUM_MODES = 3;
-	static constexpr int modeDefault = 1;
-	int modeIndex = modeDefault;
+	static constexpr int defaultMode = 1;
+	int modeIndex = defaultMode;
 	std::array<std::string, NUM_MODES> modeName{
 		"CLIP",
 		"WRAP",
@@ -895,6 +1006,14 @@ public:
 		modeIndex = updateSelect(modeIndex, 
 			NUM_MODES, modeDefault, d, r);
 		lookAndFeel->setRedrawBg();
+	}
+
+	void setBuffer(bool r) override {
+
+		if (r) {
+			matrixBuffer = {};
+			return;
+		}
 	}
 
 	/* Getters */

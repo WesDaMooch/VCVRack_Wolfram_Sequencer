@@ -12,11 +12,9 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
-// TODO: Crashing on close...
 // TODO: The panel
 // TODO: Save state
 // TODO: onReset and onRandomize
-// TODO: Put sync mode in contex menu
 // TODO: Some anti-aliasing for vco mode, BLEP BEEP BOOP or whatever
 // TODO: inject puts 4 in when in life algo?
 
@@ -166,7 +164,7 @@ struct WolframModule : Module {
 	int offset = 0;
 	int offsetPending = 0;
 	bool resetPending = false;
-	bool ruleResetPending = false; // TODO: rename seedPushPending?
+	bool seedPushPending = false;
 	int injectPendingState = 0;
 	bool gen = false;
 	bool genPending = false;
@@ -184,11 +182,11 @@ struct WolframModule : Module {
 	// Display
 	bool displayRule = false;
 
-	bool ruleMod = false; // not needed?
+	bool ruleMod = true;
 	bool algoMod = false;
 
 	// Samplerate
-	float sr = 0;
+	float samplerate = 44100;
 
 	dsp::PulseGenerator xPulse;
 	dsp::PulseGenerator yPulse;
@@ -202,65 +200,19 @@ struct WolframModule : Module {
 	dsp::RCFilter dcFilter[2];
 	SlewLimiter slewLimiter[2];
 
-	void updateAlgo() {
-		algoIndex = clamp(algoSelect + algoCV, 0, (NUM_ALGOS - 1));;
-		a = algos[algoIndex];
-		a->update(offset);
-		lookAndFeel.setRedrawBg();
-	}
-
-	void setAlgoCV(float cv) {
-		int newCV = std::round(cv * (NUM_ALGOS - 1));
-
-		if (newCV == algoCV)
-			return;
-
-		if (sync) {
-			algoCvPending = newCV;
-			return;
-		}
-
-		algoCV = newCV;
-		updateAlgo();
-	}
-
-	void setAlgoSelect(int delta, bool reset) {
-		int newSelect = a->updateSelect(algoSelect, 
-			NUM_ALGOS, algoDefault, delta, reset);
-
-		if (newSelect == algoSelect)
-			return;
-
-		algoSelect = newSelect;
-		updateAlgo();
-	}
-
-	void setSlewSelect(int delta, bool reset) {
-		slewParam = clamp(slewParam + delta, 0, 200);
-		if (reset)
-			slewParam = 0;
-
-		// Convert slewParam (0 - 200) to ms (0, 2000),
-		// or (0 - 20) if vcoMode is true.
-		float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
-		for (int i = 0; i < 2; i++) {
-			slewLimiter[i].setSlewAmountMs(slew, sr);
-		}
-	}
-
 	WolframModule() 
 		/* Menu Select setters */
 		: defaultSelect{ {
-			{ [this](int d, bool r) { algos[algoIndex]->setSeedSelect(d, r); } },
-			{ [this](int d, bool r) { algos[algoIndex]->setModeSelect(d, r); } },
+			{ [this](int d, bool r) { a->setSeedSelect(d, r); } },
+			{ [this](int d, bool r) { a->setModeSelect(d, r); } },
 			{ [this](int d, bool r) { setSlewSelect(d, r); } },
 			{ [this](int d, bool r) { setAlgoSelect(d, r); } }
 		} },
 		algoModSelect{ {
 			{ [this](int d, bool r) { algos[0]->setRuleSelect(d, false); } },
-			{ [this](int d, bool r) { algos[0]->setSeedSelect(d, false); } },
+			{ [this](int d, bool r) { algos[0]->setSeedSelect(d, r); } },
 			{ [this](int d, bool r) { algos[0]->setModeSelect(d, r); } },
-			{ [this](int d, bool r) { algos[1]->setRuleSelect(d, r); } },
+			{ [this](int d, bool r) { algos[1]->setRuleSelect(d, false); } },
 			{ [this](int d, bool r) { algos[1]->setSeedSelect(d, r); } },
 			{ [this](int d, bool r) { algos[1]->setModeSelect(d, r); } },
 			{ [this](int d, bool r) { setSlewSelect(d, r); } },
@@ -311,16 +263,15 @@ struct WolframModule : Module {
 		}
 
 		// Set default alogrithm
-		//TODO: dont like this
 		a = algos[algoIndex];
 
 		// Push matrix
-		algos[algoIndex]->update(offset);
+		a->update(offset);
 		onSampleRateChange();
 	}
 
 	struct EncoderParamQuantity : ParamQuantity {
-		/* Custom behaviour to display rule when hovering over Select encoder */
+		// Custom behaviour to display rule when hovering over Select encoder 
 		std::string getDisplayValueString() override {
 
 			auto* m = dynamic_cast<WolframModule*>(module);
@@ -390,14 +341,94 @@ struct WolframModule : Module {
 		void setDisplayValueString(std::string s) override {}
 	};
 
+	void updateAlgo() {
+		algoIndex = clamp(algoSelect + algoCV, 0, (NUM_ALGOS - 1));;
+		a = algos[algoIndex];
+		a->update(offset);
+		lookAndFeel.setRedrawBg();
+	}
+
+	void setAlgoCV(float cv) {
+		int newCV = std::round(cv * (NUM_ALGOS - 1));
+
+		if (newCV == algoCV)
+			return;
+
+		if (sync) {
+			algoCvPending = newCV;
+			return;
+		}
+
+		algoCV = newCV;
+		updateAlgo();
+	}
+
+	void setAlgoSelect(int delta, bool reset) {
+		int newSelect = a->updateSelect(algoSelect,
+			NUM_ALGOS, algoDefault, delta, reset);
+
+		if (newSelect == algoSelect)
+			return;
+
+		algoSelect = newSelect;
+		updateAlgo();
+	}
+
+	void setSlewSelect(int delta, bool reset) {
+		slewParam = clamp(slewParam + delta, 0, 200);
+
+		if (reset)
+			slewParam = 0;
+
+		// Convert slewParam (0 - 200) to ms (0, 2000),
+		// or (0 - 20) if vcoMode is true.
+		float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
+		for (int i = 0; i < 2; i++) {
+			slewLimiter[i].setSlewAmountMs(slew, samplerate);
+		}
+	}
+
+	void onReset(const ResetEvent& e) override {
+		
+		Module::onReset(e);
+		
+		sync = true;
+		vcoMode = false;
+		pageCounter = 0;
+
+		setSlewSelect(0, true);
+		setAlgoSelect(0, true);
+
+		a->setReadHead(0);
+		a->setWriteHead(1);
+		a->setDisplayMatrix(0);
+
+		for (int i = 0; i < NUM_ALGOS; i++) {
+			algos[i]->setBuffer(true);
+			algos[i]->setRuleSelect(0, true);
+			algos[i]->setSeedSelect(0, true);
+			algos[i]->setModeSelect(0, true);
+			algos[i]->pushSeed(false);
+			algos[i]->update(offset);
+		}
+
+		for (int i = 0; i < 2; i++) {
+			dcFilter[i].reset();
+			slewLimiter[i].reset();
+		}
+
+		// lookAndFeel.setLook(0);
+		// lookAndFeel.setCellStyle(0);
+	}
+
 	void onSampleRateChange() override {
-		sr = APP->engine->getSampleRate();
+		samplerate = APP->engine->getSampleRate();
 
 		// Set DC blocker to ~10Hz,
 		// calculate slew time
 		for (int i = 0; i < 2; i++) {
-			dcFilter[i].setCutoffFreq(10.f / sr);
-			slewLimiter[i].setSlewAmountMs(vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f), sr);
+			dcFilter[i].setCutoffFreq(10.f / samplerate);
+			slewLimiter[i].setSlewAmountMs(vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f), samplerate);
 		}
 	}
 
@@ -414,26 +445,25 @@ struct WolframModule : Module {
 		}
 
 		if (menu) {
-			/* Menu select setter */
-			MenuPage::Select& select = algoMod ? 
-				algoModSelect[pageIndex] : 
-				defaultSelect[pageIndex];
+			// Menu select setter
+			MenuPage::Select& select = algoMod ? algoModSelect[pageIndex] 
+											   : defaultSelect[pageIndex];
 
 			select.set(delta, encoderReset);
 		}
 		else {
-			/* Rule select setter */
-			algos[algoIndex]->setRuleSelect(delta, false);
+			// Rule select
+			a->setRuleSelect(delta, false);
 			if (sync) {
-				ruleResetPending = true;
+				seedPushPending = true;
 			}
 			else {
 				gen = random::get<float>() < prob;
 				genPending = true;
-				ruleResetPending = false;
+				seedPushPending = false;
 				if (gen) {
-					algos[algoIndex]->pushSeed(false);
-					algos[algoIndex]->update(offset);
+					a->pushSeed(false);
+					a->update(offset);
 				}
 			}
 			if (!encoderReset) {
@@ -447,20 +477,29 @@ struct WolframModule : Module {
 
 	void process(const ProcessArgs& args) override {
 
-		// KNOBS & INPUTS
+		// Knobs & CV inputs
 		algoMod = inputs[ALGO_CV_INPUT].isConnected();
 		setAlgoCV(clamp(inputs[ALGO_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
 		ruleMod = inputs[RULE_CV_INPUT].isConnected();
-		algos[algoIndex]->setRuleCV(clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
+		a->setRuleCV(clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
-		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
-
-		// Prob knob & CV input.
 		float probCV = clamp(inputs[PROB_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
 		prob = clamp(params[PROB_PARAM].getValue() + probCV, 0.f, 1.f);
 
-		// BUTTONS
+		sequenceLength = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
+
+		float offsetCv = clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f; // cast to int here
+		int newOffset = clamp(static_cast<int>(std::round(params[OFFSET_PARAM].getValue() + offsetCv)), -4, 4);
+		if (sync) {
+			offsetPending = newOffset;
+		}
+		else if (offset != newOffset) {
+			offset = newOffset;
+			a->update(offset);
+		}
+
+		// Buttons
 		if (menuTrigger.process(params[MENU_PARAM].getValue()))
 			menu = !menu;
 
@@ -469,32 +508,19 @@ struct WolframModule : Module {
 				pageCounter++;
 			}
 			else {
-				algos[algoIndex]->setModeSelect(1, false);
+				a->setModeSelect(1, false);
 			}
 		}
 
-		/* Get menu page index */
-		int NUM_PAGES = algoMod ? 
-			MenuPage::NUM_ALGOMODPAGES : 
-			MenuPage::NUM_DEFAULTPAGES;
-
+		// Get menu page index 
+		int NUM_PAGES = algoMod ? MenuPage::NUM_ALGOMODPAGES
+							    : MenuPage::NUM_DEFAULTPAGES;
 		pageIndex = (pageCounter + NUM_PAGES) % NUM_PAGES;
 
-		/* Select Encoder */
+		// Encoder
 		processEncoder();
 
-		/* Offset */
-		float offsetCv = clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f; // cast to int here
-		int newOffset = clamp(static_cast<int>(std::round(params[OFFSET_PARAM].getValue() + offsetCv)), -4, 4);
-		if (sync) {
-			offsetPending = newOffset;
-		}
-		else if (offset != newOffset) {
-			offset = newOffset;
-			algos[algoIndex]->update(offset);
-		}
-
-		// Inject
+		// Trigger inputs
 		bool positiveInject = posInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), 0.1f, 2.f);
 		bool negativeInject = negInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), -2.f, -0.1f);
 		if (positiveInject || negativeInject) {
@@ -507,8 +533,8 @@ struct WolframModule : Module {
 				}
 			}
 			else {
-				algos[algoIndex]->inject(positiveInject ? true : false, false);
-				algos[algoIndex]->update(offset);
+				a->inject(positiveInject ? true : false, false);
+				a->update(offset);
 				injectPendingState = 0;
 			}
 		}
@@ -523,17 +549,16 @@ struct WolframModule : Module {
 				genPending = true;
 				resetPending = false;
 				if (gen) {
-					algos[algoIndex]->pushSeed(false);
+					a->pushSeed(false);
 				}
 				else {
-					algos[algoIndex]->setReadHead(0);
-					algos[algoIndex]->setWriteHead(1);
+					a->setReadHead(0);
+					a->setWriteHead(1);
 				}
-				algos[algoIndex]->update(offset);
+				a->update(offset);
 			}
 		}
 
-		// Trigger
 		bool trig = false;
 		float trigVotagte = inputs[TRIG_INPUT].getVoltage();
 		if (vcoMode) {
@@ -559,49 +584,41 @@ struct WolframModule : Module {
 
 				offset = offsetPending;
 
-				switch (injectPendingState) {
-				case 1: {
-					algos[algoIndex]->inject(true, true);
-					break;
+				if (injectPendingState == 1) {
+					a->inject(true, true);
+				}
+				else if (injectPendingState == 2) {
+					a->inject(false, true);
 				}
 
-				case 2: {
-					algos[algoIndex]->inject(false, true);
-					break;
-				}
-
-				default:
-					break;
-				}
-
-				if (resetPending || ruleResetPending) {
+				if (resetPending || seedPushPending) {
 					if (gen) {
-						algos[algoIndex]->pushSeed(true);
+						a->pushSeed(true);
 					}
-					else if (!ruleResetPending) {
-						algos[algoIndex]->setWriteHead(0);
+					else if (!seedPushPending) {
+						a->setWriteHead(0);
 					}
 				}
 			}
 
-			if (gen && !resetPending && !ruleResetPending && !injectPendingState)
-				algos[algoIndex]->generate();
+			if (gen && !resetPending && !seedPushPending && !injectPendingState)
+				a->generate();
 
-			algos[algoIndex]->step(sequenceLength);
-			algos[algoIndex]->update(offset);
+			a->step(sequenceLength);
+			a->update(offset);
 
 			// Reset gen and sync penders
 			gen = false;
 			genPending = false;
 			resetPending = false;
-			ruleResetPending = false;
+			seedPushPending = false;
 			injectPendingState = 0;
 			algoCvPending = 0;
 		}
 
 		// OUTPUT
-		float xCv = algos[algoIndex]->getXVoltage();
-		float yCv = algos[algoIndex]->getYVoltage();
+		float xCv = a->getXVoltage();
+		float yCv = a->getYVoltage();
 
 		xCv = slewLimiter[0].process(xCv);
 		yCv = slewLimiter[1].process(yCv);
@@ -625,10 +642,11 @@ struct WolframModule : Module {
 		outputs[Y_CV_OUTPUT].setVoltage(yCv);
 
 		// Pulse outputs - 0V to 10V.
-		if (algos[algoIndex]->getXPulse())
+		// TODO: goes HIGH when triggered fast (vcoMode)
+		if (a->getXPulse())
 			xPulse.trigger(1e-3f);
 
-		if (algos[algoIndex]->getYPulse())
+		if (a->getYPulse())
 			yPulse.trigger(1e-3f);
 
 		bool xGate = xPulse.process(args.sampleTime);
@@ -637,7 +655,7 @@ struct WolframModule : Module {
 		outputs[Y_PULSE_OUTPUT].setVoltage(yGate ? 10.f : 0.f);
 
 		// LIGHTS
-		lights[MODE_LIGHT].setBrightnessSmooth(algos[algoIndex]->getModeLEDValue(), args.sampleTime);
+		lights[MODE_LIGHT].setBrightnessSmooth(a->getModeLEDValue(), args.sampleTime);
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
 		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
@@ -653,7 +671,7 @@ struct WolframModule : Module {
 	}
 };
 
-/*
+
 struct DisplayFramebuffer : FramebufferWidget {
 	WolframModule* module;
 
@@ -690,6 +708,8 @@ struct DisplayFramebuffer : FramebufferWidget {
 			prevMatrix = matrix;
 		}
 
+		dirty = false;
+
 		prevLook = look;
 		prevFeel = feel;
 		prevMenu = menu;
@@ -702,7 +722,7 @@ struct DisplayFramebuffer : FramebufferWidget {
 		FramebufferWidget::step();
 	}
 };
-*/
+
 
 struct Display : TransparentWidget {
 	WolframModule* module;
@@ -974,7 +994,9 @@ struct Display : TransparentWidget {
 	}
 };
 
+
 struct WolframModuleWidget : ModuleWidget {
+	WolframModule* m;
 
 	// Custom knobs & dials.
 	struct LengthKnob : RoundLargeBlackKnob {
@@ -1053,6 +1075,9 @@ struct WolframModuleWidget : ModuleWidget {
 	// TODO: Rename based on the name of the LED on switch electronics
 	template <typename TBase>
 	struct WolframLed : TBase {
+
+		//WolframModule* module = nullptr;
+
 		WolframLed() {
 			this->box.size = mm2px(Vec(5.f, 2.f));
 		}
@@ -1069,12 +1094,16 @@ struct WolframModuleWidget : ModuleWidget {
 			// If light is off, rendering the halo gives no effect.
 			if (this->color.a == 0.f)
 				return;
-
+		
 			float br = 30.0;	// Blur radius.
 			float cr = 5.0;		// Corner radius.
 
+			//NVGcolor colour = module ? *module->lookAndFeel.getForegroundColour() :
+			//						   TBase::color;
+
 			nvgBeginPath(args.vg);
 			nvgRect(args.vg, -br, -br, this->box.size.x + 2 * br, this->box.size.y + 2 * br);
+			//NVGcolor icol = color::mult(TBase::color, halo);
 			NVGcolor icol = color::mult(TBase::color, halo);
 			NVGcolor ocol = nvgRGBA(0, 0, 0, 0);
 			nvgFillPaint(args.vg, nvgBoxGradient(args.vg, 0, 0, this->box.size.x, this->box.size.y, cr, br, icol, ocol));
@@ -1083,6 +1112,7 @@ struct WolframModuleWidget : ModuleWidget {
 	};
 
 	WolframModuleWidget(WolframModule* module) {
+		m = module;
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/wolframLight.svg")));
 
@@ -1121,11 +1151,11 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
 		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		
 
-		//DisplayFramebuffer* displayFb = new DisplayFramebuffer(module);
+		
 		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
 		addChild(display);
 
-
+		//DisplayFramebuffer* displayFb = new DisplayFramebuffer(module);
 		//displayFb->addChild(display);
 		//addChild(displayFb);
 	}
@@ -1139,22 +1169,22 @@ struct WolframModuleWidget : ModuleWidget {
 
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createIndexSubmenuItem("Look",
-			{ "Redrick", "OLED", "Rack"},
+			{ "Redrick", "OLED", "Rack", "Eva", "Purple", "Mono"},
 			[ = ]() {
 				return module->lookAndFeel.getLookIndex();
 			},
 			[ = ](int i) {
-				module->lookAndFeel.setLookIndex(i);
+				module->lookAndFeel.setLook(i);
 			} 
 		));
 
-		menu->addChild(createIndexSubmenuItem("Feel",
+		menu->addChild(createIndexSubmenuItem("Cell Style",
 			{ "Circle", "Square"},
-			[=]() {
+			[ = ]() {
 				return module->lookAndFeel.getFeelIndex();
 			},
-			[=](int i) {
-				module->lookAndFeel.setFeelIndex(i);
+			[ = ](int i) {
+				module->lookAndFeel.setCellStyle(i);
 			}
 		));
 	}
