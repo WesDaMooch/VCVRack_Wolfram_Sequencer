@@ -123,7 +123,10 @@ struct WolframModule : Module {
 	bool genPending = false;
 	int algoCvPending = 0;
 	float lastTrigVoltage = 0.f;
+
 	int slewParam = 0;
+	bool slewX = true;
+	bool slewY = true;
 	bool sync = false;
 	bool vcoMode = false;
 	
@@ -140,14 +143,9 @@ struct WolframModule : Module {
 	// Samplerate
 	float samplerate = 44100;
 
-	dsp::PulseGenerator xPulse;
-	dsp::PulseGenerator yPulse;
-	dsp::SchmittTrigger trigTrigger;
-	dsp::SchmittTrigger posInjectTrigger;
-	dsp::SchmittTrigger negInjectTrigger;
-	dsp::SchmittTrigger resetTrigger;
-	dsp::BooleanTrigger menuTrigger;
-	dsp::BooleanTrigger modeTrigger;
+	dsp::PulseGenerator xPulse, yPulse;
+	dsp::SchmittTrigger trigTrigger, resetTrigger, posInjectTrigger, negInjectTrigger;
+	dsp::BooleanTrigger menuTrigger, modeTrigger;
 	dsp::Timer ruleDisplayTimer;
 	dsp::RCFilter dcFilter[2];
 	SlewLimiter slewLimiter[2];
@@ -196,20 +194,20 @@ struct WolframModule : Module {
 		ui[1] = &lifeUI;
 
 		for (int i = 0; i < NUM_ALGOS; i++)
-			engine[i]->updateRule();
+			engine[i]->updateRule(0, true);
 
 		// Set default alogrithm
 		a = engine[algoIndex];
 
 		// Push matrix
-		a->update(offset);
+		engine[algoIndex]->updateMatrix(sequenceLength, offset, false);
 		
 		// Algo and Slew menu pages
 		lookAndFeel.makeMenuPage(
 			algoPage,
 			"menu",
 			"ALGO",
-			[this] { return engine[algoIndex]->getAlgoStr(); },
+			[this] { return engine[algoIndex]->getAlgoName(); },
 			[this](int d, bool r) { setAlgoSelect(d, r); }
 		);
 
@@ -238,8 +236,8 @@ struct WolframModule : Module {
 			bool menu = m->menu;
 			int page = m->pageIndex;
 
-			std::string ruleStr = m->a->getRuleStr();
-			std::string selectStr = m->a->getRuleSelectStr();
+			std::string ruleStr = m->a->getRuleName();
+			std::string selectStr = m->a->getRuleSelectName();
 
 			// No algorithm modulation & no rule modulation
 			if (!algoMod && !ruleMod)
@@ -256,9 +254,9 @@ struct WolframModule : Module {
 			// Menu open & algorithm modulation
 			if (page == 0) {
 				// Wolf rule page
-				std::string s = m->engine[0]->getRuleSelectStr();
+				std::string s = m->engine[0]->getRuleSelectName();
 				std::string r = ruleMod ? 
-					m->engine[0]->getRuleStr() :
+					m->engine[0]->getRuleName() :
 					ruleStr;
 
 				return s + " ( " + r + " )";
@@ -266,9 +264,9 @@ struct WolframModule : Module {
 
 			if (page == 3) {
 				// Life rule page
-				std::string s = m->engine[1]->getRuleSelectStr();
+				std::string s = m->engine[1]->getRuleSelectName();
 				std::string r = ruleMod ? 
-					m->engine[1]->getRuleStr() :
+					m->engine[1]->getRuleName() :
 					ruleStr;
 
 				return s + " ( " + r + " )";
@@ -321,7 +319,7 @@ struct WolframModule : Module {
 	void updateAlgo() {
 		algoIndex = clamp(algoSelect + algoCV, 0, (NUM_ALGOS - 1));
 		a = engine[algoIndex];
-		a->update(offset);
+		a->updateMatrix(sequenceLength, offset, false);
 
 		updateMenu();
 	}
@@ -361,9 +359,8 @@ struct WolframModule : Module {
 		// Convert slewParam (0 - 200) to ms (0, 2000),
 		// or (0 - 20) if vcoMode is true.
 		float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
-		for (int i = 0; i < 2; i++) {
+		for (int i = 0; i < 2; i++)
 			slewLimiter[i].setSlewAmountMs(slew, samplerate);
-		}
 	}
 
 	void onReset(const ResetEvent& e) override {
@@ -387,7 +384,7 @@ struct WolframModule : Module {
 			engine[i]->updateSeed(0, true);
 			engine[i]->upateMode(0, true);
 			engine[i]->pushSeed(false);
-			engine[i]->update(offset);
+			engine[i]->updateMatrix(sequenceLength, offset, false);
 		}
 
 		for (int i = 0; i < 2; i++) {
@@ -407,6 +404,7 @@ struct WolframModule : Module {
 		}
 	}
 
+	/*
 	json_t* dataToJson() override {
 		json_t* rootJ = json_object();
 		
@@ -429,8 +427,8 @@ struct WolframModule : Module {
 
 		for (int i = 0; i < NUM_ALGOS; i++) {
 			json_array_append_new(rulesJ, json_integer(engine[i]->getRuleSelect()));
-			json_array_append_new(seedsJ, json_integer(engine[i]->getSeedIndex()));
-			json_array_append_new(modesJ, json_integer(engine[i]->getModeIndex()));
+			json_array_append_new(seedsJ, json_integer(engine[i]->getSeed()));
+			json_array_append_new(modesJ, json_integer(engine[i]->getMode()));
 
 			// Save buffers
 			json_t* rowJ = json_array();
@@ -537,6 +535,7 @@ struct WolframModule : Module {
 			lookAndFeel.cellStyleIndex = json_integer_value(cellStyleJ);
 
 	}
+	*/
 
 	void processEncoder() {
 		const float encoderValue = params[SELECT_PARAM].getValue();
@@ -563,7 +562,7 @@ struct WolframModule : Module {
 				seedPushPending = false;
 				if (gen) {
 					a->pushSeed(false);
-					a->update(offset);
+					a->updateMatrix(sequenceLength, offset, false);
 				}
 			}
 			if (!encoderReset) {
@@ -601,7 +600,7 @@ struct WolframModule : Module {
 		}
 		else if (offset != newOffset) {
 			offset = newOffset;
-			a->update(offset);
+			a->updateMatrix(sequenceLength, offset, false);
 		}
 
 		// Buttons
@@ -635,7 +634,7 @@ struct WolframModule : Module {
 			}
 			else {
 				a->inject(positiveInject ? true : false, false);
-				a->update(offset);
+				a->updateMatrix(sequenceLength, offset, false);
 				injectPendingState = 0;
 			}
 		}
@@ -656,7 +655,7 @@ struct WolframModule : Module {
 					a->setReadHead(0);
 					a->setWriteHead(1);
 				}
-				a->update(offset);
+				a->updateMatrix(sequenceLength, offset, false);
 			}
 		}
 
@@ -705,8 +704,7 @@ struct WolframModule : Module {
 			if (gen && !resetPending && !seedPushPending && !injectPendingState)
 				a->generate();
 
-			a->step(sequenceLength);
-			a->update(offset);
+			engine[algoIndex]->updateMatrix(sequenceLength, offset, true);
 
 			// Reset gen and sync penders
 			gen = false;
@@ -721,9 +719,21 @@ struct WolframModule : Module {
 		float xCv = a->getXVoltage();
 		float yCv = a->getYVoltage();
 
-		xCv = slewLimiter[0].process(xCv);
-		yCv = slewLimiter[1].process(yCv);
+		float xCvSlew = slewLimiter[0].process(xCv);
+		float yCvSlew = slewLimiter[1].process(yCv);
+		xCv = slewX ? xCvSlew : xCv;
+		yCv = slewY ? yCvSlew : yCv;
 
+		float xAudio = xCv - 0.5;
+		float yAudio = yCv - 0.5;
+		dcFilter[0].process(xAudio);
+		dcFilter[1].process(yAudio);
+		xAudio = dcFilter[0].highpass();
+		yAudio = dcFilter[1].highpass();
+		xCv = vcoMode ? xAudio : xCv;
+		yCv = vcoMode ? yAudio : yCv;
+
+		/*
 		if (vcoMode) {
 			// TODO should be processing all the time?
 			// Or call reset when vcoMode is changed?
@@ -735,6 +745,7 @@ struct WolframModule : Module {
 			dcFilter[1].process(yCv);
 			yCv = dcFilter[1].highpass();
 		}
+		*/
 
 		// CV outputs - 0V to 10V or -5V to 5V in VCO mode (10Vpp).
 		xCv = xCv * params[X_SCALE_PARAM].getValue() * 10.f;
@@ -1156,6 +1167,11 @@ struct WolframModuleWidget : ModuleWidget {
 		
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createBoolPtrMenuItem("Sync", "", &module->sync));
+		menu->addChild(createSubmenuItem("Slew", "",
+		[=](Menu* menu) {
+			menu->addChild(createBoolPtrMenuItem("X", "", &module->slewX));
+			menu->addChild(createBoolPtrMenuItem("Y", "", &module->slewY));
+		} ));
 		menu->addChild(createBoolPtrMenuItem("VCO Mode", "", &module->vcoMode));
 
 		menu->addChild(new MenuSeparator);
