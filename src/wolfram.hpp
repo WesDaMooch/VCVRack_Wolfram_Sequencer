@@ -2,256 +2,12 @@
 #include "plugin.hpp"
 #include <array>
 
-
-struct LookAndFeel {
-	// Certain grahic elements are drawn on layer 1 (the foreground),
-	// these elements, such as text & alive cells.Background items, 
-	// such as dead cells, are drawn on layer 0. 
-
-	// Drawing variables
-	float padding = 0;
-
-	// Cell
-	float cellSpacing = 0;
-	std::array<Vec, 64> cellCirclePos{};
-	std::array<Vec, 64> cellSquarePos{};
-
-	// Cell styles
-	int cellStyleIndex = 0;
-	float circleCellSize = 5.f;
-	float squareCellSize = 10.f;
-	float squareCellBevel = 1.f;
-
-	// Text
-	float fontSize = 0;
-	float textBgSize = 0;
-	float textBgPadding = 0;
-	std::array<Vec, 4> textPos{};
-	std::array<Vec, 16> textBgPos{};
-
-	// Wolfram 
-	float wolfSeedSize = 0;
-	float wolfSeedBevel = 3.f;
-	std::array<Vec, 8> wolfSeedPos{};
-
-	// Looks
-	static constexpr int NUM_LOOKS = 6;
-	int lookIndex = 0;
-	std::array<std::array<NVGcolor, 3>, NUM_LOOKS> looks{ {
-		{ nvgRGB(58, 16, 19), nvgRGB(228, 7, 7), nvgRGB(78, 12, 9) },		// Redrick
-		{ nvgRGB(37, 59, 99), nvgRGB(205, 254, 254), nvgRGB(39, 70, 153) },	// Oled
-		{ nvgRGB(18, 18, 18), SCHEME_YELLOW, nvgRGB(18, 18, 18) },			// Rack
-		{ nvgRGB(4, 3, 8), nvgRGB(244, 84, 22), nvgRGB(26, 7, 0) },			// Eva MORE red
-		{ nvgRGB(17, 3, 20), nvgRGB(177, 72, 198), nvgRGB(38, 13, 43) },	// Purple
-		// Acid 
-		{ nvgRGB(0, 0, 0), nvgRGB(255, 255, 255), nvgRGB(0, 0, 0) },		// Mono
-	} };
-
-	void init() { 
-
-		textBgSize = fontSize - 2.f;
-		textBgPadding = (fontSize * 0.5f) - (textBgSize * 0.5f) + padding;
-
-		// Text positions. 
-		for (int i = 0; i < 4; i++) {
-			textPos[i].x = padding;
-			textPos[i].y = padding + (fontSize * i);
-		}
-
-		// Text background positions. 
-		for (int r = 0; r < 4; r++) {
-			for (int c = 0; c < 4; c++) {
-				int i = r * 4 + c;
-				textBgPos[i].x = (fontSize * c) + textBgPadding;
-				textBgPos[i].y = (fontSize * r) + textBgPadding;
-			}
-		}
-
-		// Cell positions.
-		for (int c = 0; c < 8; c++) {
-			for (int r = 0; r < 8; r++) {
-				int i = r * 8 + c;
-				float a = (cellSpacing * 0.5f) + padding;
-				cellCirclePos[i].x = (cellSpacing * c) + a;
-				cellCirclePos[i].y = (cellSpacing * r) + a;
-
-				float b = (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
-				cellSquarePos[i].x = (cellSpacing * c) + b;
-				cellSquarePos[i].y = (cellSpacing * r) + b;
-			}
-		}
-
-		// Wolf seed display
-		float halfFs = fontSize * 0.5f;
-		wolfSeedSize = halfFs - 2.f;
-		for (int c = 0; c < 8; c++) {
-			float a = (halfFs * 0.5f) - (wolfSeedSize * 0.5f) + padding;
-			wolfSeedPos[c].x = (halfFs * c) + a;
-			wolfSeedPos[c].y = (halfFs * 4.f) + a;
-		}							
-	};
-
-	// Getters TODO: return reference?
-	NVGcolor* getScreenColour() { return &looks[lookIndex][0]; }
-	NVGcolor* getForegroundColour() { return &looks[lookIndex][1]; }
-	NVGcolor* getBackgroundColour() { return &looks[lookIndex][2]; }
-
-	// Helpers
-	std::string formatIntForText(int value) {
-		// TODO: not using anymore
-		char t[5];
-		snprintf(t, sizeof(t), "%4.3d", value);
-		return std::string(t);
-	}
-
-	// Drawing
-	void drawCell(NVGcontext* vg, float col, float row, bool state) {
-
-		int i = row * 8 + col;
-		nvgFillColor(vg, state ? *getForegroundColour() : *getBackgroundColour());
-
-		switch (cellStyleIndex) {
-		case 1: {
-			// Square.
-			nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
-				squareCellSize, squareCellSize, squareCellBevel);
-			break;
-		}
-
-		default:
-			// Circle.
-			nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
-			break;
-		}
-	}
-
-	void drawText(NVGcontext* vg, const std::string& str, int row) {
-		// Draw four character row of text
-		std::string outputStr;
-
-		// special case font colours
-		// if (lookIndex && (row == 0)) ...
-
-		if (str.size() >= 4) {
-			outputStr = str.substr(str.size() - 4);
-		}
-		else {
-			outputStr = std::string(4 - str.size(), ' ') + str;
-		}
-
-		nvgFillColor(vg, *getForegroundColour());
-		nvgText(vg, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
-	}
-
-	void drawTextBg(NVGcontext* vg, int row) {
-		// Draw one row of four square text character backgrounds
-		float textBgBevel = 3.f;
-		nvgFillColor(vg, *getBackgroundColour());
-
-		nvgBeginPath(vg);
-		for (int col = 0; col < 4; col++) {
-
-			int i = row * 4 + col;
-			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y,
-				textBgSize, textBgSize, textBgBevel);
-		}
-		nvgFill(vg);
-
-
-		//nvgStrokeWidth(vg, padding);
-		//nvgStrokeColor(vg, *getForegroundColour());
-		//nvgStroke(vg);
-		//nvgClosePath(vg);
-		
-
-		//redrawBg = false;
-	}
-
-	void drawWolfSeedDisplay(NVGcontext* vg, int row, bool layer, uint8_t seed) {
-		
-		nvgFillColor(vg, layer ? *getForegroundColour() : *getBackgroundColour());
-
-		if (layer) {
-
-			NVGcolor c = *getForegroundColour();
-			if (lookIndex == 3) {
-				// Special case colour for Eva look
-				c = nvgRGB(115, 255, 166);
-			}
-			nvgStrokeColor(vg, c);
-
-			nvgBeginPath(vg);
-			for (int col = 0; col < 8; col++) {
-				if ((col >= 1) && (col <= 7)) {
-					// TODO: pre compute?
-					nvgMoveTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y - 1);
-					nvgLineTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y + 1);
-					
-					nvgMoveTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) - 1);
-					nvgLineTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) + 1);
-					
-				}
-			}
-			nvgStrokeWidth(vg, 0.5f);
-			nvgStroke(vg);
-		}
-
-		nvgBeginPath(vg);
-		for (int col = 0; col < 8; col++) {
-			bool cell = (seed >> (7 - col)) & 1;
-
-			if ((layer && !cell) || (!layer && cell))
-				continue;
-			
-			nvgRoundedRect(vg, wolfSeedPos[col].x, wolfSeedPos[col].y,
-				wolfSeedSize, (wolfSeedSize * 2.f) + 2.f, wolfSeedBevel);
-		}
-		nvgFill(vg);
-	}
-
-	// Menu pages
-	struct Page {
-		std::function<void(int, bool)> set;
-		std::function<void(NVGcontext*, bool)> fg;
-		std::function<void(NVGcontext*)> bg;
-	};
-
-	void makeMenuPage(Page& page,
-		std::string header,
-		const std::string& title,
-		std::function<std::string()> data,
-		std::function<void(int, bool)> setter) {
-
-		// Default page look
-		std::transform(header.begin(), 
-			header.end(), header.begin(), ::tolower);
-
-		page.set = [setter](int d, bool r) {
-			setter(d, r);
-		};
-
-		page.fg = [this, header, title, data](NVGcontext* vg, bool displayHeader) {
-			drawText(vg, displayHeader ? header : "menu", 0);
-			drawText(vg, title, 1);
-			drawText(vg, data(), 2);
-			drawText(vg, "<#@>", 3);
-		};
-
-		page.bg = [this](NVGcontext* vg) {
-			for (int i = 0; i < 4; i++)
-				drawTextBg(vg, i);
-		};
-	}
-};
-
 class AlgoEngine {
 public:
 	AlgoEngine() {}
 	~AlgoEngine() {}
 
 	// Sequencer
-	// TODO: could use if, would be quicker?
-
 	void tick() { displayMatrixUpdated = false; }
 	virtual void updateMatrix(int length, int offset, bool advance) = 0;
 	virtual void generate() = 0;
@@ -261,7 +17,7 @@ public:
 	// Updaters
 	int updateSelect(int value, int MAX_VALUE,
 		int defaultValue, int delta, bool reset) {
-		// Helper for updating values via Select encoder
+		// Generic updater for Select encoder
 
 		if (reset)
 			return defaultValue;
@@ -279,7 +35,6 @@ public:
 	void setWriteHead(int newWriteHead) { writeHead = newWriteHead; }
 
 	virtual void setBufferFrame(int newBufferFrame, int index, bool reset) = 0;
-	// TODO: virtual void setBuffer(template buffer pointer)
 	virtual void setRuleCV(float newCV) = 0;
 	virtual void setRule(int newRule) = 0;
 	virtual void setSeed(int newSeed) = 0;
@@ -477,24 +232,22 @@ public:
 			return;
 
 		ruleCV = newCV;
-		makeRule();
+		onRuleChange();
 	}
 
 	void updateRule(int d, bool r) override {
-		int newSelect = 0;
-
 		if (r) {
-			newSelect = defaultRule;
+			ruleSelect = defaultRule;
 		}
 		else {
-			newSelect = static_cast<uint8_t>(ruleSelect + d);
+			uint8_t newSelect = static_cast<uint8_t>(ruleSelect + d);
 
 			if (newSelect == ruleSelect)
 				return;
 
 			ruleSelect = newSelect;
 		}
-		makeRule();
+		onRuleChange();
 	}
 
 	void updateSeed(int d, bool r) override {
@@ -606,14 +359,13 @@ protected:
 	static constexpr float modeScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
 	// Helpers
-	void makeRule() { rule = static_cast<uint8_t>(clamp(ruleSelect + ruleCV, 0, UINT8_MAX)); }
+	void onRuleChange() { rule = static_cast<uint8_t>(clamp(ruleSelect + ruleCV, 0, UINT8_MAX)); }
 };
 
 class LifeEngine : public AlgoEngine {
 public:
 	LifeEngine() {
 		name = "LIFE";
-		// Init seed
 		matrixBuffer[readHead] = seeds[seedIndex].value; 
 	}
 
@@ -628,8 +380,9 @@ public:
 		}
 		displayMatrix = tempMatrix;
 
-		// Count current living cells
+		// Count living cells
 		population = __builtin_popcountll(displayMatrix);
+
 		displayMatrixUpdated = true;
 	}
 
@@ -638,7 +391,7 @@ public:
 		// Based on parallel bitwise implementation by Tomas Rokicki, Paperclip Optimizer,
 		// and Michael Abrash's (Graphics Programmer's Black Book, Chapter 17) padding method.
 		//
-		// Not optimal but efficent enough and readable.
+		// Not optimal but efficent enough and readable
 
 		uint64_t readMatrix = matrixBuffer[readHead];
 		uint64_t writeMatrix = 0;
@@ -796,18 +549,17 @@ public:
 	}
 
 	void inject(bool a, bool w) override {
-		size_t head = readHead;
-		if (w)
-			head = writeHead;
-		uint64_t matrix = matrixBuffer[head];
+		size_t head = w ? writeHead : readHead;
+		uint64_t tempMatrix = matrixBuffer[head];
 
 		// Check to see if row is already full or empty
-		if ((a & (matrix == UINT64_MAX)) | (!a & (matrix == 0)))
+		if ((a & (tempMatrix == UINT64_MAX)) | (!a & (tempMatrix == 0)))
 			return;
 
-		uint64_t targetMask = matrix;
+		//uint64_t targetMask = a ? ~tempMatrix : tempMatrix;
+		uint64_t targetMask = tempMatrix;
 		if (a)
-			targetMask = ~matrix;	// Flip row
+			targetMask = ~tempMatrix;	// Flip row
 
 		int targetCount = __builtin_popcountll(targetMask);	// Count target bits
 		int target = random::get<uint8_t>() % targetCount;	// Random target index
@@ -831,8 +583,8 @@ public:
 			bitMask <<= 1;
 		}
 		*/
-		matrix = a ? (matrix | bitMask) : (matrix & ~bitMask);
-		matrixBuffer[head] = matrix;
+		tempMatrix = a ? (tempMatrix | bitMask) : (tempMatrix & ~bitMask);
+		matrixBuffer[head] = tempMatrix;
 	}
 	
 	// Updaters
@@ -849,7 +601,7 @@ public:
 
 			ruleSelect = newSelect;
 		}
-		makeRule();
+		onRuleChange();
 	}
 
 	void updateSeed(int d, bool r) override {
@@ -864,12 +616,10 @@ public:
 
 	// Settters
 	void setBufferFrame(int newBufferFrame, int index, bool reset) override {
-
 		if (reset) {
 			matrixBuffer = {};
 			return;
 		}
-
 		matrixBuffer[index] = static_cast<uint64_t>(newBufferFrame);
 	}
 
@@ -880,7 +630,7 @@ public:
 			return;
 
 		ruleCV = newCV;
-		makeRule();
+		onRuleChange();
 	}
 
 	void setRule(int newRule) override { ruleSelect = newRule; }
@@ -1038,7 +788,7 @@ protected:
 	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
 	// Helpers
-	void makeRule() { ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1); }
+	void onRuleChange() { ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1); }
 
 	static inline void halfadder(uint8_t a, uint8_t b,
 		uint8_t& sum, uint8_t& carry) {
@@ -1087,6 +837,239 @@ protected:
 		}
 	}
 	
+};
+
+struct LookAndFeel {
+	// Certain grahic elements are drawn on layer 1 (the foreground),
+	// these elements, such as text & alive cells.Background items, 
+	// such as dead cells, are drawn on layer 0. 
+
+	// Drawing variables
+	float padding = 0;
+
+	// Cell
+	float cellSpacing = 0;
+	std::array<Vec, 64> cellCirclePos{};
+	std::array<Vec, 64> cellSquarePos{};
+
+	// Cell styles
+	int cellStyleIndex = 0;
+	float circleCellSize = 5.f;
+	float squareCellSize = 10.f;
+	float squareCellBevel = 1.f;
+
+	// Text
+	float fontSize = 0;
+	float textBgSize = 0;
+	float textBgPadding = 0;
+	std::array<Vec, 4> textPos{};
+	std::array<Vec, 16> textBgPos{};
+
+	// Wolfram 
+	float wolfSeedSize = 0;
+	float wolfSeedBevel = 3.f;
+	std::array<Vec, 8> wolfSeedPos{};
+
+	// Looks
+	static constexpr int NUM_LOOKS = 6;
+	int lookIndex = 0;
+	std::array<std::array<NVGcolor, 3>, NUM_LOOKS> looks{ {
+		{ nvgRGB(58, 16, 19),	nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },	// Redrick
+		{ nvgRGB(37, 59, 99),	nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },	// Oled
+		{ nvgRGB(18, 18, 18),	SCHEME_YELLOW,			nvgRGB(18, 18, 18) },	// Rack  SCHEME_DARK_GRAY
+		{ nvgRGB(4, 3, 8),		nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },		// Eva MORE red
+		{ nvgRGB(17, 3, 20),	nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },	// Purple
+		// Acid 
+		{ nvgRGB(0, 0, 0),		nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },		// Mono
+	} };
+
+	void init() {
+
+		textBgSize = fontSize - 2.f;
+		textBgPadding = (fontSize * 0.5f) - (textBgSize * 0.5f) + padding;
+
+		// Text positions. 
+		for (int i = 0; i < 4; i++) {
+			textPos[i].x = padding;
+			textPos[i].y = padding + (fontSize * i);
+		}
+
+		// Text background positions. 
+		for (int r = 0; r < 4; r++) {
+			for (int c = 0; c < 4; c++) {
+				int i = r * 4 + c;
+				textBgPos[i].x = (fontSize * c) + textBgPadding;
+				textBgPos[i].y = (fontSize * r) + textBgPadding;
+			}
+		}
+
+		// Cell positions.
+		for (int c = 0; c < 8; c++) {
+			for (int r = 0; r < 8; r++) {
+				int i = r * 8 + c;
+				float a = (cellSpacing * 0.5f) + padding;
+				cellCirclePos[i].x = (cellSpacing * c) + a;
+				cellCirclePos[i].y = (cellSpacing * r) + a;
+
+				float b = (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
+				cellSquarePos[i].x = (cellSpacing * c) + b;
+				cellSquarePos[i].y = (cellSpacing * r) + b;
+			}
+		}
+
+		// Wolf seed display
+		float halfFs = fontSize * 0.5f;
+		wolfSeedSize = halfFs - 2.f;
+		for (int c = 0; c < 8; c++) {
+			float a = (halfFs * 0.5f) - (wolfSeedSize * 0.5f) + padding;
+			wolfSeedPos[c].x = (halfFs * c) + a;
+			wolfSeedPos[c].y = (halfFs * 4.f) + a;
+		}
+	};
+
+	// Getters TODO: return reference?
+	NVGcolor* getScreenColour() { return &looks[lookIndex][0]; }
+	NVGcolor* getForegroundColour() { return &looks[lookIndex][1]; }
+	NVGcolor* getBackgroundColour() { return &looks[lookIndex][2]; }
+
+	// Drawing
+	void drawCell(NVGcontext* vg, float col, float row, bool state) {
+
+		int i = row * 8 + col;
+		nvgFillColor(vg, state ? *getForegroundColour() : *getBackgroundColour());
+
+		switch (cellStyleIndex) {
+		case 1: {
+			// Square.
+			nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
+				squareCellSize, squareCellSize, squareCellBevel);
+			break;
+		}
+
+		default:
+			// Circle.
+			nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
+			break;
+		}
+	}
+
+	void drawText(NVGcontext* vg, const std::string& str, int row) {
+		// Draw four character row of text
+		std::string outputStr;
+
+		// special case font colours
+		// if (lookIndex && (row == 0)) ...
+
+		if (str.size() >= 4) {
+			outputStr = str.substr(str.size() - 4);
+		}
+		else {
+			outputStr = std::string(4 - str.size(), ' ') + str;
+		}
+
+		nvgFillColor(vg, *getForegroundColour());
+		nvgText(vg, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
+	}
+
+	void drawTextBg(NVGcontext* vg, int row) {
+		// Draw one row of four square text character backgrounds
+		float textBgBevel = 3.f;
+		nvgFillColor(vg, *getBackgroundColour());
+
+		nvgBeginPath(vg);
+		for (int col = 0; col < 4; col++) {
+
+			int i = row * 4 + col;
+			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y,
+				textBgSize, textBgSize, textBgBevel);
+		}
+		nvgFill(vg);
+
+
+		//nvgStrokeWidth(vg, padding);
+		//nvgStrokeColor(vg, *getForegroundColour());
+		//nvgStroke(vg);
+		//nvgClosePath(vg);
+
+
+		//redrawBg = false;
+	}
+
+	void drawWolfSeedDisplay(NVGcontext* vg, int row, bool layer, uint8_t seed) {
+
+		nvgFillColor(vg, layer ? *getForegroundColour() : *getBackgroundColour());
+
+		if (layer) {
+
+			NVGcolor c = *getForegroundColour();
+			if (lookIndex == 3) {
+				// Special case colour for Eva look
+				c = nvgRGB(115, 255, 166);
+			}
+			nvgStrokeColor(vg, c);
+
+			nvgBeginPath(vg);
+			for (int col = 0; col < 8; col++) {
+				if ((col >= 1) && (col <= 7)) {
+					// TODO: pre compute?
+					nvgMoveTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y - 1);
+					nvgLineTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y + 1);
+
+					nvgMoveTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) - 1);
+					nvgLineTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) + 1);
+
+				}
+			}
+			nvgStrokeWidth(vg, 0.5f);
+			nvgStroke(vg);
+		}
+
+		nvgBeginPath(vg);
+		for (int col = 0; col < 8; col++) {
+			bool cell = (seed >> (7 - col)) & 1;
+
+			if ((layer && !cell) || (!layer && cell))
+				continue;
+
+			nvgRoundedRect(vg, wolfSeedPos[col].x, wolfSeedPos[col].y,
+				wolfSeedSize, (wolfSeedSize * 2.f) + 2.f, wolfSeedBevel);
+		}
+		nvgFill(vg);
+	}
+
+	// Menu pages
+	struct Page {
+		std::function<void(int, bool)> set;
+		std::function<void(NVGcontext*, bool)> fg;
+		std::function<void(NVGcontext*)> bg;
+	};
+
+	void makeMenuPage(Page& page,
+		std::string header,
+		const std::string& title,
+		std::function<std::string()> data,
+		std::function<void(int, bool)> setter) {
+
+		// Default page look
+		std::transform(header.begin(),
+			header.end(), header.begin(), ::tolower);
+
+		page.set = [setter](int d, bool r) {
+			setter(d, r);
+			};
+
+		page.fg = [this, header, title, data](NVGcontext* vg, bool displayHeader) {
+			drawText(vg, displayHeader ? header : "menu", 0);
+			drawText(vg, title, 1);
+			drawText(vg, data(), 2);
+			drawText(vg, "<#@>", 3);
+			};
+
+		page.bg = [this](NVGcontext* vg) {
+			for (int i = 0; i < 4; i++)
+				drawTextBg(vg, i);
+			};
+	}
 };
 
 class AlgoUI {

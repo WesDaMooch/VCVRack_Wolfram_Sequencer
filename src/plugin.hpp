@@ -1,7 +1,6 @@
 #pragma once
 #include <rack.hpp>
 
-
 using namespace rack;
 
 // Declare the Plugin, defined in plugin.cpp
@@ -10,23 +9,35 @@ extern Plugin* pluginInstance;
 // Declare each Model, defined in each module source file
 extern Model* modelWolframModule;
 
-// Add custom knobs
-struct MoochDavies1900hBlackKnob : Davies1900hKnob {
-	MoochDavies1900hBlackKnob() {
-		//setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/Davies1900hBlack.svg")));
-		//bg->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/Davies1900hDarkGrey_bg.svg")));
+// Knobs
+
+struct M1900hBlackKnob : RoundKnob {
+	widget::SvgWidget* fg;
+
+	M1900hBlackKnob() {
+		setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hBlackKnob.svg")));
+
+		fg = new widget::SvgWidget;
+		fb->addChildAbove(fg, tw);
+		fg->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hKnob_fg.svg")));
 	}
 };
 
-struct MoochDavies1900hBlackEncoder : Davies1900hKnob {
-	MoochDavies1900hBlackEncoder() {
-		//setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/Davies1900hBlack.svg")));
-		//bg->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/Davies1900hDarkGrey_bg.svg")));
+struct M1900hBlackEncoder : RoundKnob {
+	widget::SvgWidget* fg;
+
+	M1900hBlackEncoder() {
+		setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hBlackEncoder.svg")));
+
+		fg = new widget::SvgWidget;
+		fb->addChildAbove(fg, tw);
+		fg->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hKnob_fg.svg")));
 	}
 };
 
+// Jacks
 struct BananutBlack : app::SvgPort {
-	// Befaco style port
+	// Befaco style
 	BananutBlack() {
 		setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/BananutBlack.svg")));
 	}

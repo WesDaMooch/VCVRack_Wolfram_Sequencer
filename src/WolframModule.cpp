@@ -13,12 +13,15 @@
 // See Befaco NoisePlethora
 
 // TODO: The panel
+// TODO: LED svg overlay
 // TODO: Save state
 // TODO: onReset and onRandomize
-// TODO: Some anti-aliasing for vco mode, BLEP BEEP BOOP or whatever
-// TODO: inject puts 4 in when in life algo?
-// TODO: Font - new O, < or >, new % maybe?
-// TODO: seperate x y slew bools contex menu
+// TODO: inject puts 4 in when in life algo? context menu (maybe nah idk)
+// TODO: Font - new O, < or >, new % maybe, and L - to close togther
+// TODO: when sync is on and cv is changing algo (and maybe rule) it glitches,
+// if CV is HIGH algo should = LIFE, but it seems to switch from WOLF to LIFE ever trigger
+// TODO: Log slew params
+// TODO: In WOLF when sync is off, X and Y Pulse triggering when changing rule in mini Menu
 
 #include "wolfram.hpp"
 #include <vector>
@@ -81,24 +84,22 @@ struct WolframModule : Module {
 		INJECT_LIGHT,
 		LIGHTS_LEN
 	};
-	
-	WolfEngine wolfEngine;
-	LifeEngine lifeEngine;
 
 	LookAndFeel lookAndFeel;
+	// Algorithms
+	WolfEngine wolfEngine;
+	LifeEngine lifeEngine;
 	WolfUI wolfUI;
 	LifeUI lifeUI;
-
 	static constexpr int NUM_ALGOS = 2;
 	std::array<AlgoEngine*, NUM_ALGOS> engine{};
 	std::array<AlgoUI*, NUM_ALGOS> ui{};
 	AlgoEngine* a; // Meh..
-
-	// Algorithms
 	static constexpr int algoDefault = 0;
 	int algoIndex = 0;
 	int algoSelect = algoDefault;
 	int algoCV = 0;
+	int algoCvPending = 0;
 
 	// Menu
 	LookAndFeel::Page algoPage;
@@ -112,8 +113,12 @@ struct WolframModule : Module {
 	// Params
 	int sequenceLength = 8;
 	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
-
 	float prob = 1;
+	int slewParam = 0;
+	bool slewX = true;
+	bool slewY = true;
+	bool sync = false;
+	bool vcoMode = false;
 	int offset = 0;
 	int offsetPending = 0;
 	bool resetPending = false;
@@ -121,14 +126,7 @@ struct WolframModule : Module {
 	int injectPendingState = 0;
 	bool gen = false;
 	bool genPending = false;
-	int algoCvPending = 0;
 	float lastTrigVoltage = 0.f;
-
-	int slewParam = 0;
-	bool slewX = true;
-	bool slewY = true;
-	bool sync = false;
-	bool vcoMode = false;
 	
 	// Select encoder
 	static constexpr float encoderIndent = 1.f / 30.f;
@@ -136,11 +134,10 @@ struct WolframModule : Module {
 	bool encoderReset = false;
 	
 	// Display
-	bool displayRule = false;
-	bool ruleMod = true;
+	bool miniMenuActive = false;
+	bool ruleMod = false;
 	bool algoMod = false;
 
-	// Samplerate
 	float samplerate = 44100;
 
 	dsp::PulseGenerator xPulse, yPulse;
@@ -193,16 +190,17 @@ struct WolframModule : Module {
 		ui[0] = &wolfUI;
 		ui[1] = &lifeUI;
 
+		// Init engine's rule
 		for (int i = 0; i < NUM_ALGOS; i++)
 			engine[i]->updateRule(0, true);
 
 		// Set default alogrithm
 		a = engine[algoIndex];
 
-		// Push matrix
+		// Init display matrix
 		engine[algoIndex]->updateMatrix(sequenceLength, offset, false);
 		
-		// Algo and Slew menu pages
+		// Algo, Slew menu pages
 		lookAndFeel.makeMenuPage(
 			algoPage,
 			"menu",
@@ -216,7 +214,7 @@ struct WolframModule : Module {
 			"menu",
 			"SLEW",
 			[this] { return std::to_string(slewParam) + "%"; },
-			[this](int d, bool r) { setSlewSelect(d, r); }
+			[this](int d, bool r) { updateSelect(d, r); }
 		);
 
 		updateMenu();
@@ -316,11 +314,10 @@ struct WolframModule : Module {
 		menuPages.push_back(&algoPage);
 	}
 
-	void updateAlgo() {
+	void onAlgoChange() {
 		algoIndex = clamp(algoSelect + algoCV, 0, (NUM_ALGOS - 1));
 		a = engine[algoIndex];
 		a->updateMatrix(sequenceLength, offset, false);
-
 		updateMenu();
 	}
 
@@ -336,7 +333,7 @@ struct WolframModule : Module {
 		}
 
 		algoCV = newCV;
-		updateAlgo();
+		onAlgoChange();
 	}
 
 	void setAlgoSelect(int delta, bool reset) {
@@ -347,10 +344,11 @@ struct WolframModule : Module {
 			return;
 
 		algoSelect = newSelect;
-		updateAlgo();
+		onAlgoChange();
 	}
 
-	void setSlewSelect(int delta, bool reset) {
+	//TODO: update slew???
+	void updateSelect(int delta, bool reset) {
 		slewParam = clamp(slewParam + delta, 0, 200);
 
 		if (reset)
@@ -371,7 +369,7 @@ struct WolframModule : Module {
 		vcoMode = false;
 		pageCounter = 0;
 
-		setSlewSelect(0, true);
+		updateSelect(0, true);
 		setAlgoSelect(0, true);
 
 		a->setReadHead(0);
@@ -552,7 +550,7 @@ struct WolframModule : Module {
 		}
 		else {
 			// Rule select
-			a->updateRule(delta, false);
+			a->updateRule(delta, miniMenuActive ? encoderReset : false);
 			if (sync) {
 				seedPushPending = true;
 			}
@@ -565,8 +563,8 @@ struct WolframModule : Module {
 					a->updateMatrix(sequenceLength, offset, false);
 				}
 			}
-			if (!encoderReset) {
-				displayRule = true;
+			if (!encoderReset || (miniMenuActive && encoderReset)) {
+				miniMenuActive = true;
 				ruleDisplayTimer.reset();
 			}
 		}
@@ -680,7 +678,7 @@ struct WolframModule : Module {
 
 			if (sync) {
 				algoCV = algoCvPending;
-				updateAlgo();
+				onAlgoChange();
 
 				offset = offsetPending;
 
@@ -733,20 +731,6 @@ struct WolframModule : Module {
 		xCv = vcoMode ? xAudio : xCv;
 		yCv = vcoMode ? yAudio : yCv;
 
-		/*
-		if (vcoMode) {
-			// TODO should be processing all the time?
-			// Or call reset when vcoMode is changed?
-			xCv -= 0.5f;
-			dcFilter[0].process(xCv);
-			xCv = dcFilter[0].highpass();
-
-			yCv -= 0.5f;
-			dcFilter[1].process(yCv);
-			yCv = dcFilter[1].highpass();
-		}
-		*/
-
 		// CV outputs - 0V to 10V or -5V to 5V in VCO mode (10Vpp).
 		xCv = xCv * params[X_SCALE_PARAM].getValue() * 10.f;
 		yCv = yCv * params[Y_SCALE_PARAM].getValue() * 10.f;
@@ -776,8 +760,8 @@ struct WolframModule : Module {
 		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject | negativeInject, args.sampleTime);
 		
 		// Hide rule display
-		if (displayRule && ruleDisplayTimer.process(args.sampleTime) > 0.75f)
-			displayRule = false;
+		if (miniMenuActive && ruleDisplayTimer.process(args.sampleTime) > 0.75f)
+			miniMenuActive = false;
 
 		engine[algoIndex]->tick();
 	}
@@ -809,7 +793,7 @@ struct DisplayFramebuffer : FramebufferWidget {
 		bool displayRule = module ? module->displayRule : false;
 		uint64_t matrix = module ? module->a->getDisplayMatrix() : 0;
 
-		bool dirty = false //module ? module->lookAndFeel.getRedrawBg() : false;
+		bool dirty = false; //module ? module->lookAndFeel.getRedrawBg() : false;
 		dirty |= (look != prevLook);
 		dirty |= (feel != prevFeel);
 		dirty |= (menu != prevMenu);
@@ -861,7 +845,7 @@ struct Display : TransparentWidget {
 	Display(WolframModule* m, float y, float w, float s) {
 		module = m;
 
-		/* Wiget params */
+		// Wiget params
 		widgetSize = s;
 		float screenSize = widgetSize - (padding * 2.f);
 		fontSize = (screenSize / cols) * 2.f;
@@ -878,6 +862,7 @@ struct Display : TransparentWidget {
 
 		if (!module)
 			return;
+
 		// Set look & feel
 		lookAndFeel = &module->lookAndFeel;
 		lookAndFeel->padding = padding;
@@ -893,7 +878,7 @@ struct Display : TransparentWidget {
 			return;
 		}
 
-		if (module->displayRule) {
+		if (module->miniMenuActive) {
 			int algoIndex = module->algoIndex;
 			LookAndFeel::Page* miniPage = module->ui[algoIndex]->getMiniPage();
 			miniPage->bg(args.vg);
@@ -908,7 +893,7 @@ struct Display : TransparentWidget {
 			return;
 		}
 
-		if (module->displayRule) {
+		if (module->miniMenuActive) {
 			int algoIndex = module->algoIndex;
 
 			LookAndFeel::Page* miniPage = module->ui[algoIndex]->getMiniPage();
@@ -937,13 +922,13 @@ struct Display : TransparentWidget {
 
 		int firstRow = 0;
 		if (module) {
-			if (module->menu || module->displayRule)
+			if (module->menu || module->miniMenuActive)
 				drawMenuBackgroud(args, module->pageIndex);
 
 			if (module->menu)
 				return;
 
-			firstRow = module->displayRule ? (rows - 4) : 0;
+			firstRow = module->miniMenuActive ? (rows - 4) : 0;
 		}
 
 		// Requires flipping
@@ -979,12 +964,12 @@ struct Display : TransparentWidget {
 		nvgFontFaceId(args.vg, font->handle);
 		nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
-		if (module && (module->menu || module->displayRule))
+		if (module && (module->menu || module->miniMenuActive))
 			drawMenuText(args, module->pageIndex);
 
 		// Draw alive cells.
 		nvgBeginPath(args.vg);
-		for (const Vec& pos : aliveCellCord) {
+		for (const Vec& pos: aliveCellCord) {
 			int col = pos.x;
 			int row = pos.y;
 			if (module)
@@ -1000,88 +985,36 @@ struct Display : TransparentWidget {
 struct WolframModuleWidget : ModuleWidget {
 	WolframModule* m;
 
-	// Custom knobs & dials.
-	struct LengthKnob : RoundLargeBlackKnob {
+	// Custom knobs & dials
+	struct LengthKnob : M1900hBlackKnob {
 		LengthKnob() {
 			minAngle = -0.75f * M_PI;
 			maxAngle = 0.5f * M_PI;
 		}
 	};
 
-	struct ProbKnob : RoundLargeBlackKnob {
+	struct ProbKnob : M1900hBlackKnob {
 		ProbKnob() {
 			minAngle = -0.75f * M_PI;
 			maxAngle = 0.75f * M_PI;
 		}
 	};
 
-	struct SelectEncoder : RoundBlackKnob {
+	struct SelectEncoder : M1900hBlackEncoder {
 		void onDoubleClick(const DoubleClickEvent& e) override {
+
 			// Reset Select encoder to default of current selection,
-			// see processEncoder for details.
+			// see processEncoder for details
 			auto* m = static_cast<WolframModule*>(module);
 			m->encoderReset = true;
 		}
-
 	};
 
-	// Count Modula's custom LEDs.
+	// Count Modula's custom LEDs
 	template <typename TBase>
-	struct RectangleLedDiagonal : TBase {
-
-		// -45 degree rotation.
-		float rotation = -M_PI / 4.f;
-
-		void drawBackground(const DrawArgs& args) override {
-			nvgSave(args.vg);
-			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
-			nvgRotate(args.vg, rotation);
-			nvgTranslate(args.vg, -this->box.size.x / 2.f, -this->box.size.y / 2.f);
-
-			nvgBeginPath(args.vg);
-			nvgRect(args.vg, 0, 0, this->box.size.x, this->box.size.y);
-
-			// Background
-			if (this->bgColor.a > 0.0) {
-				nvgFillColor(args.vg, this->bgColor);
-				nvgFill(args.vg);
-			}
-
-			// Border
-			if (this->borderColor.a > 0.0) {
-				nvgStrokeWidth(args.vg, 0.5);
-				nvgStrokeColor(args.vg, this->borderColor);
-				nvgStroke(args.vg);
-			}
-			nvgRestore(args.vg);
-		}
-
-		void drawLight(const DrawArgs& args) override {
-			nvgSave(args.vg);
-			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
-			nvgRotate(args.vg, rotation);
-			nvgTranslate(args.vg, -this->box.size.x / 2.f, -this->box.size.y / 2.f);
-
-			// Foreground
-			if (this->color.a > 0.0) {
-				nvgBeginPath(args.vg);
-				nvgRect(args.vg, 0, 0, this->box.size.x, this->box.size.y);
-
-				nvgFillColor(args.vg, this->color);
-				nvgFill(args.vg);
-			}
-			nvgRestore(args.vg);
-		}
-	};
-
-	// TODO: Rename based on the name of the LED on switch electronics
-	template <typename TBase>
-	struct WolframLed : TBase {
-
-		//WolframModule* module = nullptr;
-
-		WolframLed() {
-			this->box.size = mm2px(Vec(5.f, 2.f));
+	struct LuckyLight : RectangleLight<TSvgLight<TBase>> {
+		LuckyLight() {
+			this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/RectangleLight.svg")));
 		}
 
 		void drawHalo(const DrawArgs& args) override {
@@ -1100,16 +1033,62 @@ struct WolframModuleWidget : ModuleWidget {
 			float br = 30.0;	// Blur radius.
 			float cr = 5.0;		// Corner radius.
 
-			//NVGcolor colour = module ? *module->lookAndFeel.getForegroundColour() :
-			//						   TBase::color;
-
 			nvgBeginPath(args.vg);
 			nvgRect(args.vg, -br, -br, this->box.size.x + 2 * br, this->box.size.y + 2 * br);
-			//NVGcolor icol = color::mult(TBase::color, halo);
 			NVGcolor icol = color::mult(TBase::color, halo);
 			NVGcolor ocol = nvgRGBA(0, 0, 0, 0);
 			nvgFillPaint(args.vg, nvgBoxGradient(args.vg, 0, 0, this->box.size.x, this->box.size.y, cr, br, icol, ocol));
 			nvgFill(args.vg);
+		}
+	};
+
+	template <typename TBase>
+	struct DiagonalLuckyLight : LuckyLight<TBase> {
+		widget::TransformWidget* tw;
+		float rotation = -M_PI / 4.f;	// -45 degree rotation
+		
+		
+		DiagonalLuckyLight() {
+			// Rotate SVG
+			float rotationBoxSize = 5.4f;
+			Vec fbSize = mm2px(Vec(rotationBoxSize, rotationBoxSize));
+			this->fb->box.size = fbSize;
+			this->fb->box.pos = this->box.size.div(2.f).minus(fbSize.div(2.f));
+
+			tw = new widget::TransformWidget;
+			this->fb->removeChild(this->sw);
+			tw->box.size = fbSize;
+			this->fb->addChild(tw);
+			tw->addChild(this->sw);
+
+			// Recenter SVG 
+			this->sw->box.pos = fbSize.minus(this->sw->box.size).div(2.f);
+			Vec center = fbSize.div(2.f);
+
+			tw->identity();
+			tw->translate(center);
+			tw->rotate(rotation);
+			tw->translate(-center);
+		}
+		
+
+		void rotate(const DrawArgs& args) {
+			nvgSave(args.vg);
+			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
+			nvgRotate(args.vg, rotation);
+			nvgTranslate(args.vg, -this->box.size.x / 2.f, -this->box.size.y / 2.f);
+		}
+
+		void drawBackground(const DrawArgs& args) override {
+			rotate(args);
+			LuckyLight<TBase>::drawBackground(args);
+			nvgRestore(args.vg);
+		}
+
+		void drawLight(const DrawArgs& args) override {
+			rotate(args);
+			LuckyLight<TBase>::drawLight(args);
+			nvgRestore(args.vg);
 		}
 	};
 
@@ -1147,11 +1126,11 @@ struct WolframModuleWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 99.852f)), module, WolframModule::Y_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, WolframModule::Y_PULSE_OUTPUT));
 		// LEDs
-		addChild(createLightCentered<RectangleLedDiagonal<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 47.767f)), module, WolframModule::MODE_LIGHT)); 
-		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		
-		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(19.05f, 90.225f)), module, WolframModule::X_PULSE_LIGHT));	
-		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
-		addChild(createLightCentered<RectangleLight<WolframLed<RedLight>>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		
+		addChild(createLightCentered<DiagonalLuckyLight<RedLight>>(mm2px(Vec(53.34f, 47.767f)), module, WolframModule::MODE_LIGHT)); 
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(19.05f, 90.225f)), module, WolframModule::X_PULSE_LIGHT));	
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		
 
 		
 		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
@@ -1172,7 +1151,7 @@ struct WolframModuleWidget : ModuleWidget {
 			menu->addChild(createBoolPtrMenuItem("X", "", &module->slewX));
 			menu->addChild(createBoolPtrMenuItem("Y", "", &module->slewY));
 		} ));
-		menu->addChild(createBoolPtrMenuItem("VCO Mode", "", &module->vcoMode));
+		menu->addChild(createBoolPtrMenuItem("VCO", "", &module->vcoMode));
 
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createIndexSubmenuItem("Look",
