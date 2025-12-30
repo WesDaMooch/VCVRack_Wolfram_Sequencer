@@ -30,18 +30,18 @@ public:
 	virtual void upateMode(int d, bool r) = 0;
 
 	// Setters
-	void setDisplayMatrix(uint64_t newDisplayMatrix) { displayMatrix = newDisplayMatrix; }
+	//void setDisplayMatrix(uint64_t newDisplayMatrix) { displayMatrix = newDisplayMatrix; }
 	void setReadHead(int newReadHead) { readHead = newReadHead; }
 	void setWriteHead(int newWriteHead) { writeHead = newWriteHead; }
 
-	virtual void setBufferFrame(int newBufferFrame, int index, bool reset) = 0;
+	virtual void setBufferFrame(uint64_t frame, int index) = 0;
 	virtual void setRuleCV(float newCV) = 0;
 	virtual void setRule(int newRule) = 0;
 	virtual void setSeed(int newSeed) = 0;
 	virtual void setMode(int newMode) = 0;
 
 	// Getters
-	uint64_t getDisplayMatrix() { return displayMatrix; }
+	//uint64_t getDisplayMatrix() { return displayMatrix; }
 	int getReadHead() { return readHead; };
 	int getWriteHead() { return writeHead; };
 
@@ -99,8 +99,7 @@ class WolfEngine : public AlgoEngine {
 public:
 	WolfEngine() { 
 		name = "WOLF";
-		// Init seed
-		rowBuffer[readHead] = seed;
+		rowBuffer[readHead] = seed;	// Init seed
 	}
 
 	// Sequencer
@@ -211,14 +210,11 @@ public:
 	}
 
 	// Setters
-	void setBufferFrame(int newBufferFrame, int index, bool reset) override {
-
-		if (reset) {
-			rowBuffer = {};
-			return;
-		}
-
-		rowBuffer[index] = static_cast<uint8_t>(newBufferFrame);
+	void setBufferFrame(uint64_t frame, int index) override {
+		if (index == -1)
+			displayMatrix = frame;
+		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+			rowBuffer[index] = static_cast<uint8_t>(frame);
 	}
 
 	void setRule(int newRule) override { ruleSelect = static_cast<uint8_t>(newRule); }
@@ -278,7 +274,15 @@ public:
 	}
 
 	// Getters
-	uint64_t getBufferFrame(int index) override { return rowBuffer[index]; }
+	uint64_t getBufferFrame(int index) override {
+		if (index == -1)
+			return displayMatrix;
+		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+			return static_cast<uint64_t>(rowBuffer[index]);
+		else
+			return 0;
+	}
+
 	int getRuleSelect() override { return ruleSelect; }
 	int getRule() override { return rule; }
 	int getSeed() override { return seedSelect; }
@@ -299,9 +303,9 @@ public:
 		return yColumn * voltageScaler;
 	}
 
+	// Returns true if bottom left cell state
+	// of displayMatrix is alive.
 	bool getXPulse() override {
-		// Returns true if bottom left cell state
-		// of displayMatrix is alive.
 		bool bottonLeftCellState = ((displayMatrix & 0xFFULL) >> 7) & 1;
 		bool xPulse = false;
 
@@ -311,9 +315,9 @@ public:
 		return xPulse;
 	}
 
+	// Returns true if top right cell state
+	// of displayMatrix is alive.
 	bool getYPulse() override {
-		// Returns true if top right cell state
-		// of displayMatrix is alive.
 		bool topRightCellState = ((displayMatrix >> 56) & 0xFFULL) & 1;
 		bool yPulse = false;
 
@@ -615,12 +619,11 @@ public:
 	}
 
 	// Settters
-	void setBufferFrame(int newBufferFrame, int index, bool reset) override {
-		if (reset) {
-			matrixBuffer = {};
-			return;
-		}
-		matrixBuffer[index] = static_cast<uint64_t>(newBufferFrame);
+	void setBufferFrame(uint64_t frame, int index) override {
+		if (index == -1)
+			displayMatrix = frame;
+		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+			matrixBuffer[index] = frame;
 	}
 
 	void setRuleCV(float cv) override {
@@ -638,7 +641,15 @@ public:
 	void setMode(int newMode) override { modeIndex = newMode; }
 
 	// Getters
-	uint64_t getBufferFrame(int index) override { return matrixBuffer[index]; }
+	uint64_t getBufferFrame(int index) override { 
+		if (index == -1)
+			return displayMatrix;
+		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+			return matrixBuffer[index];
+		else
+			return 0;
+	}
+
 	int getRuleSelect() override { return ruleSelect; }
 	int getRule() override { return ruleIndex; }
 	int getSeed() override { return seedIndex; }
@@ -903,7 +914,7 @@ struct LookAndFeel {
 			}
 		}
 
-		// Cell positions.
+		// Cell positions
 		for (int c = 0; c < 8; c++) {
 			for (int r = 0; r < 8; r++) {
 				int i = r * 8 + c;
@@ -1056,19 +1067,19 @@ struct LookAndFeel {
 
 		page.set = [setter](int d, bool r) {
 			setter(d, r);
-			};
+		};
 
 		page.fg = [this, header, title, data](NVGcontext* vg, bool displayHeader) {
 			drawText(vg, displayHeader ? header : "menu", 0);
 			drawText(vg, title, 1);
 			drawText(vg, data(), 2);
 			drawText(vg, "<#@>", 3);
-			};
+		};
 
 		page.bg = [this](NVGcontext* vg) {
 			for (int i = 0; i < 4; i++)
 				drawTextBg(vg, i);
-			};
+		};
 	}
 };
 
