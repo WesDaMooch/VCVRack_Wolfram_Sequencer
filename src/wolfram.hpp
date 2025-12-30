@@ -197,9 +197,7 @@ public:
 
 	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
-		if (index == -1)
-			displayMatrix = frame;
-		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
 			rowBuffer[index] = static_cast<uint8_t>(frame);
 	}
 
@@ -607,9 +605,7 @@ public:
 
 	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
-		if (index == -1)
-			displayMatrix = frame;
-		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
 			matrixBuffer[index] = frame;
 	}
 
@@ -694,10 +690,10 @@ protected:
 	int modeDefault = 1;
 	int modeIndex = modeDefault;
 	std::array<std::string, NUM_MODES> modeNames{
-		"CLIP",	// A plane bounded by 0s.
-		"WRAP",	// Donut-shaped torus.
-		"BOTL",	// Klein bottle - If one pair of opposite edges are reversed.
-		"RAND"	// Plane is bounded by randomness. 
+		"CLIP",	// A plane bounded by 0s
+		"WRAP",	// Donut-shaped torus
+		"BOTL",	// Klein bottle - One pair of opposite edges are reversed
+		"RAND"	// Plane is bounded by randomness
 	};
 	
 	static constexpr int NUM_RULES = 30;
@@ -743,35 +739,35 @@ protected:
 	std::array<Seed, NUM_SEEDS> seeds{ {
 			// Seeds from the Life Lexicon, Hatsya catagolue & LifeWiki
 			{ "WING", 0x1824140C0000ULL },		// Wing									Rule: Life
-			{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship, 				Rule: LowLife
-			{ "VONG", 0x283C3C343000ULL },		// Castles Spaceship, 					Rule: Castles
-			{ "VELP", 0x20700000705000ULL },	// Virus Spaceship, 					Rule: Virus
+			{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship					Rule: LowLife
+			{ "VONG", 0x283C3C343000ULL },		// Castles Spaceship 					Rule: Castles
+			{ "VELP", 0x20700000705000ULL },	// Virus Spaceship	 					Rule: Virus
 			{ "STEP", 0xC1830000000ULL },		// Stairstep Hexomino					Rule: Life, HoneyLife
-			{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship, 					Rule: LowLife
+			{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship 					Rule: LowLife
 			{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
-			{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random,
-			{ "RNDH", 0xEFA8EFA474577557ULL },	// Half Density Random,				
-			{ " RND", random::get<uint64_t>() },// True Random,
+			{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random
+			{ "RNDH", 0xEFA8EFA474577557ULL },	// Half Density Random				
+			{ " RND", random::get<uint64_t>() },// True Random
 			{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
-			{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship,				Rule: Life, HoneyLife
-			{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship, 					Rule: Virus									// TODO: move left 1 bit
-			{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship, 						Rule: Live Free or Die, Seeds, Iceballs
-			{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship,				Rule: Life, HoneyLife 
-			{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship,					Rule: Move, Sqrt Replicator
+			{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship				Rule: Life, HoneyLife
+			{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship	 					Rule: Virus									// TODO: move left 1 bit
+			{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship 						Rule: Live Free or Die, Seeds, Iceballs
+			{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship				Rule: Life, HoneyLife 
+			{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship					Rule: Move, Sqrt Replicator
 			{ "HAND", 0xC1634180000ULL },		// Handshake							Rule: Life, HoneyLife
-			{ "G-BC", 0x1818000024A56600ULL },	// Glider-block Cycle,					Rule: Life 					
-			{ " GSV", 0x10387C38D60010ULL },	// Xq4_gkevekgzx2 Spaceship, 			Rule: Day & Night
-			{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole,							Rule: Life  						
-			{ "FLYR", 0x382010000000ULL },		// Glider,								Rule: Life, HoneyLife			
-			{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8,							Rule: Life 
-			{ "EPST", 0xBA7CEE440000ULL },		// Eppstein's Glider,					Rule: Stains
-			{ "CRWL", 0x850001C0000ULL },		// Crawler,								Rule: 2x2
+			{ "G-BC", 0x1818000024A56600ULL },	// Glider-block Cycle					Rule: Life 					
+			{ " GSV", 0x10387C38D60010ULL },	// Xq4_gkevekgzx2 Spaceship 			Rule: Day & Night
+			{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole								Rule: Life  						
+			{ "FLYR", 0x382010000000ULL },		// Glider								Rule: Life, HoneyLife			
+			{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8								Rule: Life 
+			{ "EPST", 0xBA7CEE440000ULL },		// Eppstein's Glider					Rule: Stains
+			{ "CRWL", 0x850001C0000ULL },		// Crawler								Rule: 2x2
 			{ "CHEL", 0x302C0414180000ULL },	// Herschel Descendant					Rule: Life
-			{ "BORG", 0x40304838380000ULL },	// Xq6_5qqs Spaceship, 					Rule: Star Trek	
-			{ "BFLY", 0x38740C0C0800ULL },		// Butterfly, 							Rule: Day & Night
+			{ "BORG", 0x40304838380000ULL },	// Xq6_5qqs Spaceship 					Rule: Star Trek	
+			{ "BFLY", 0x38740C0C0800ULL },		// Butterfly 							Rule: Day & Night
 			{ " B&G", 0x30280C000000ULL },		// Block and Glider						Rule: Life
-			{ "34D3", 0x41E140C000000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
-			{ "34C3", 0x3C2464140000ULL },		// 3-4 Life Spaceship, 					Rule: 3-4 Life
+			{ "34D3", 0x41E140C000000ULL },		// 3-4 Life Spaceship 					Rule: 3-4 Life
+			{ "34C3", 0x3C2464140000ULL },		// 3-4 Life Spaceship 					Rule: 3-4 Life
 		} };
 	static constexpr int seedDefault = 9;
 	int seedIndex = seedDefault;
@@ -790,7 +786,6 @@ protected:
 
 	static inline void halfadder(uint8_t a, uint8_t b,
 		uint8_t& sum, uint8_t& carry) {
-
 		sum = a ^ b;
 		carry = a & b;
 	}
@@ -804,6 +799,7 @@ protected:
 		carry = t2 | t1;
 	}
 
+	// TODO: pass row ref?
 	static inline uint8_t reverseRow(uint8_t row) {
 		row = ((row & 0xF0) >> 4) | ((row & 0x0F) << 4);
 		row = ((row & 0xCC) >> 2) | ((row & 0x33) << 2);
@@ -868,17 +864,17 @@ struct LookAndFeel {
 	float wolfSeedBevel = 3.f;
 	std::array<Vec, 8> wolfSeedPos{};
 
-	// Looks
-	static constexpr int NUM_LOOKS = 6;
-	int lookIndex = 0;
+	// Display Styles
+	static constexpr int NUM_LOOKS = 7;
+	int displayStyleIndex = 0;
 	std::array<std::array<NVGcolor, 3>, NUM_LOOKS> looks{ {
-		{ nvgRGB(58, 16, 19),	nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },	// Redrick
-		{ nvgRGB(37, 59, 99),	nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },	// Oled
-		{ nvgRGB(18, 18, 18),	SCHEME_YELLOW,			nvgRGB(18, 18, 18) },	// Rack  SCHEME_DARK_GRAY
-		{ nvgRGB(4, 3, 8),		nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },		// Eva MORE red
-		{ nvgRGB(17, 3, 20),	nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },	// Purple
-		// Acid 
-		{ nvgRGB(0, 0, 0),		nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },		// Mono
+		{ nvgRGB(58, 16, 19),		nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
+		{ nvgRGB(37, 59, 99),		nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
+		{ SCHEME_DARK_GRAY,		SCHEME_YELLOW,			SCHEME_DARK_GRAY },				// Rack  
+		{ nvgRGB(4, 3, 8),			nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },			// Eva MORE red
+		{ nvgRGB(17, 3, 20),		nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },		// Purple
+		{ nvgRGBA(120, 255, 0, 10),	nvgRGB(210, 255, 0),	nvgRGBA(0, 0, 0, 0) },		// Lamp
+		{ nvgRGB(0, 0, 0),			nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
 	} };
 
 	void init() {
@@ -925,46 +921,42 @@ struct LookAndFeel {
 		}
 	};
 
-	// Getters TODO: return reference?
-	NVGcolor* getScreenColour() { return &looks[lookIndex][0]; }
-	NVGcolor* getForegroundColour() { return &looks[lookIndex][1]; }
-	NVGcolor* getBackgroundColour() { return &looks[lookIndex][2]; }
+	// GETTERS TODO: return reference?
+	NVGcolor* getScreenColour() { return &looks[displayStyleIndex][0]; }
+	NVGcolor* getForegroundColour() { return &looks[displayStyleIndex][1]; }
+	NVGcolor* getBackgroundColour() { return &looks[displayStyleIndex][2]; }
 
 	// Drawing
-	void drawCell(NVGcontext* vg, float col, float row, bool state) {
-
+	inline void getCellPath(NVGcontext* vg, int col, int row) {
 		int i = row * 8 + col;
-		nvgFillColor(vg, state ? *getForegroundColour() : *getBackgroundColour());
 
-		switch (cellStyleIndex) {
-		case 1: {
-			// Square.
+		if ((i < 0) || (i >= 64))
+			return;
+
+		if (cellStyleIndex == 1) {
+			// Square
 			nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
 				squareCellSize, squareCellSize, squareCellBevel);
-			break;
 		}
-
-		default:
-			// Circle.
+		else {
+			// Circle
 			nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
-			break;
 		}
 	}
 
 	void drawText(NVGcontext* vg, const std::string& str, int row) {
 		// Draw four character row of text
+		if ((row < 0) || (row >= 4))
+			return;
+
 		std::string outputStr;
 
-		// special case font colours
-		// if (lookIndex && (row == 0)) ...
-
-		if (str.size() >= 4) {
+		if (str.size() >= 4)
 			outputStr = str.substr(str.size() - 4);
-		}
-		else {
+		else
 			outputStr = std::string(4 - str.size(), ' ') + str;
-		}
 
+		nvgBeginPath(vg);
 		nvgFillColor(vg, *getForegroundColour());
 		nvgText(vg, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
 	}
@@ -972,25 +964,16 @@ struct LookAndFeel {
 	void drawTextBg(NVGcontext* vg, int row) {
 		// Draw one row of four square text character backgrounds
 		float textBgBevel = 3.f;
-		nvgFillColor(vg, *getBackgroundColour());
 
 		nvgBeginPath(vg);
-		for (int col = 0; col < 4; col++) {
+		nvgFillColor(vg, *getBackgroundColour());
 
+		for (int col = 0; col < 4; col++) {
 			int i = row * 4 + col;
 			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y,
 				textBgSize, textBgSize, textBgBevel);
 		}
 		nvgFill(vg);
-
-
-		//nvgStrokeWidth(vg, padding);
-		//nvgStrokeColor(vg, *getForegroundColour());
-		//nvgStroke(vg);
-		//nvgClosePath(vg);
-
-
-		//redrawBg = false;
 	}
 
 	void drawWolfSeedDisplay(NVGcontext* vg, int row, bool layer, uint8_t seed) {
@@ -998,12 +981,12 @@ struct LookAndFeel {
 		nvgFillColor(vg, layer ? *getForegroundColour() : *getBackgroundColour());
 
 		if (layer) {
-
 			NVGcolor c = *getForegroundColour();
-			if (lookIndex == 3) {
-				// Special case colour for Eva look
+
+			// Special case colour for Eva look
+			if (displayStyleIndex == 3) 
 				c = nvgRGB(115, 255, 166);
-			}
+		
 			nvgStrokeColor(vg, c);
 
 			nvgBeginPath(vg);
@@ -1015,7 +998,6 @@ struct LookAndFeel {
 
 					nvgMoveTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) - 1);
 					nvgLineTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) + 1);
-
 				}
 			}
 			nvgStrokeWidth(vg, 0.5f);
