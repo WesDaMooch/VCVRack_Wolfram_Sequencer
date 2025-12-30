@@ -349,7 +349,6 @@ struct WolframModule : Module {
 		onAlgoChange();
 	}
 
-	//TODO: update slew???
 	void setSlewSelect(int delta, bool reset) {
 		slewParam = clamp(slewParam + delta, 0, 200);
 
@@ -378,7 +377,7 @@ struct WolframModule : Module {
 		engine[algoIndex]->setWriteHead(1);
 		for (int i = 0; i < NUM_ALGOS; i++) {
 
-			for (int j = -1; j < 64; j++)
+			for (int j = 0; j < 64; j++)
 				engine[i]->setBufferFrame(0, j);
 
 			engine[i]->updateRule(0, true);
@@ -387,11 +386,7 @@ struct WolframModule : Module {
 			engine[i]->pushSeed(false);
 			engine[i]->updateMatrix(sequenceLength, offset, false);
 		}
-
-		for (int i = 0; i < 2; i++) {
-			dcFilter[i].reset();
-			slewLimiter[i].reset();
-		}
+		onSampleRateChange();
 	}
 
 	void onSampleRateChange() override {
@@ -402,6 +397,9 @@ struct WolframModule : Module {
 		for (int i = 0; i < 2; i++) {
 			dcFilter[i].setCutoffFreq(10.f / samplerate);
 			slewLimiter[i].setSlewAmountMs(vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f), samplerate);
+
+			dcFilter[i].reset();
+			slewLimiter[i].reset();
 		}
 	}
 
@@ -414,23 +412,22 @@ struct WolframModule : Module {
 		json_object_set_new(rootJ, "vco", json_boolean(vcoMode));
 		json_object_set_new(rootJ, "slewValue", json_integer(slewParam));
 
-		// Save algorithm settings
-		json_object_set_new(rootJ, "algo", json_integer(algoSelect));
-		json_object_set_new(rootJ, "readHead", json_integer(engine[algoIndex]->getReadHead()));
-		json_object_set_new(rootJ, "writeHead", json_integer(engine[algoIndex]->getWriteHead()));
-		//json_object_set_new(rootJ, "displayMatrix", json_integer(engine[algoIndex]->getDisplayMatrix()));
-		json_object_set_new(rootJ, "displayMatrix", json_integer(engine[algoIndex]->getBufferFrame(-1)));
-
 		// Save algorithm specifics
+		json_t* readHeadsJ = json_array();
+		json_t* writeHeadsJ = json_array();
+		json_t* buffersJ = json_array();
+
 		json_t* rulesJ = json_array();
 		json_t* seedsJ = json_array();
 		json_t* modesJ = json_array();
-		json_t* buffersJ = json_array();
 
 		for (int i = 0; i < NUM_ALGOS; i++) {
 			json_array_append_new(rulesJ, json_integer(engine[i]->getRuleSelect()));
 			json_array_append_new(seedsJ, json_integer(engine[i]->getSeed()));
 			json_array_append_new(modesJ, json_integer(engine[i]->getMode()));
+
+			json_array_append_new(readHeadsJ, json_integer(engine[i]->getReadHead()));
+			json_array_append_new(writeHeadsJ, json_integer(engine[i]->getWriteHead()));
 
 			// Save buffers
 			json_t* rowJ = json_array();
@@ -443,8 +440,14 @@ struct WolframModule : Module {
 		json_object_set_new(rootJ, "rules", rulesJ);
 		json_object_set_new(rootJ, "seeds", seedsJ);
 		json_object_set_new(rootJ, "modes", modesJ);
+
+		json_object_set_new(rootJ, "readHeads", readHeadsJ);
+		json_object_set_new(rootJ, "writeHeads", writeHeadsJ);
 		json_object_set_new(rootJ, "buffers", buffersJ);
- 		
+		
+		// Save algorithm settings
+		json_object_set_new(rootJ, "algo", json_integer(algoSelect));
+
 		// Save LookAndFeel settings
 		json_object_set_new(rootJ, "look", json_integer(lookAndFeel.lookIndex));
 		json_object_set_new(rootJ, "cellStyle", json_integer(lookAndFeel.cellStyleIndex));
@@ -466,34 +469,32 @@ struct WolframModule : Module {
 		if (slewParamJ)
 			slewParam = json_integer_value(slewParamJ);
 
-		// Load algorithm settings
-		json_t* algoSelectJ = json_object_get(rootJ, "algo");
-		if (algoSelectJ) {
-			algoSelect = json_integer_value(algoSelectJ);
-			//updateAlgo();
-			onAlgoChange();
-		}
-
-		json_t* readHeadJ = json_object_get(rootJ, "readHead");
-		if (readHeadJ)
-			engine[algoIndex]->setReadHead(json_integer_value(readHeadJ));
-		
-		json_t* writeHeadJ = json_object_get(rootJ, "writeHead");
-		if (writeHeadJ)
-			engine[algoIndex]->setWriteHead(json_integer_value(writeHeadJ));
-
-		json_t* displayMatrixJ = json_object_get(rootJ, "displayMatrix");
-		if (displayMatrixJ)
-			engine[algoIndex]->setBufferFrame(static_cast<uint64_t>(json_integer_value(displayMatrixJ)), -1);
-			//engine[algoIndex]->setDisplayMatrix(static_cast<uint64_t>(json_integer_value(displayMatrixJ)));
-
 		// Load algorithm specifics
 		json_t* rulesJ = json_object_get(rootJ, "rules");
 		json_t* seedsJ = json_object_get(rootJ, "seeds");
 		json_t* modesJ = json_object_get(rootJ, "modes");
+
+		json_t* readHeadsJ = json_object_get(rootJ, "readHeads");
+		json_t* writeHeadsJ = json_object_get(rootJ, "writeHeads");
 		json_t* buffersJ = json_object_get(rootJ, "buffers");
 
+
 		for (int i = 0; i < NUM_ALGOS; i++) {
+
+			if (readHeadsJ) {
+				json_t* valueJ = json_array_get(readHeadsJ, i);
+
+				if (valueJ)
+					engine[i]->setReadHead(json_integer_value(valueJ));
+			}
+
+			if (writeHeadsJ) {
+				json_t* valueJ = json_array_get(writeHeadsJ, i);
+
+				if (valueJ)
+					engine[i]->setWriteHead(json_integer_value(valueJ));
+			}
+
 			if (rulesJ) {
 				json_t* valueJ = json_array_get(rulesJ, i);
 
@@ -522,12 +523,17 @@ struct WolframModule : Module {
 						json_t* valueJ = json_array_get(rowJ, j);
 
 						if (valueJ)
-							engine[i]->setBufferFrame(json_integer_value(valueJ), j);
-							//engine[i]->setBufferFrame(json_integer_value(valueJ), j, false);
+							engine[i]->setBufferFrame(static_cast<uint64_t>(json_integer_value(valueJ)), j);
 					}
 				}
-				
 			}
+		}
+
+		// Load algorithm
+		json_t* algoSelectJ = json_object_get(rootJ, "algo");
+		if (algoSelectJ) {
+			algoSelect = json_integer_value(algoSelectJ);
+			onAlgoChange();
 		}
 
 		// Load LookAndFeel settings
@@ -1161,29 +1167,39 @@ struct WolframModuleWidget : ModuleWidget {
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createBoolPtrMenuItem("Sync", "", &module->sync));
 		menu->addChild(createSubmenuItem("Slew", "",
-		[=](Menu* menu) {
-			menu->addChild(createBoolPtrMenuItem("X", "", &module->slewX));
-			menu->addChild(createBoolPtrMenuItem("Y", "", &module->slewY));
-		} ));
-		menu->addChild(createBoolPtrMenuItem("VCO", "", &module->vcoMode));
+			[=](Menu* menu) {
+				menu->addChild(createBoolPtrMenuItem("X", "", &module->slewX));
+				menu->addChild(createBoolPtrMenuItem("Y", "", &module->slewY));
+			} 
+		));
+	
+		menu->addChild(createBoolMenuItem("VCO", "",
+			[=]() {
+				return module->vcoMode;
+			},
+			[=](bool vco) {
+				module->vcoMode = vco;
+				module->onSampleRateChange();
+			}
+		));
 
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createIndexSubmenuItem("Look",
 			{ "Redrick", "OLED", "Rack", "Eva", "Purple", "Mono"},
-			[ = ]() {
+			[=]() {
 				return module->lookAndFeel.lookIndex;
 			},
-			[ = ](int i) {
+			[=](int i) {
 				module->lookAndFeel.lookIndex = i;
 			} 
 		));
 
 		menu->addChild(createIndexSubmenuItem("Cell Style",
 			{ "Circle", "Square"},
-			[ = ]() {
+			[=]() {
 				return module->lookAndFeel.cellStyleIndex;
 			},
-			[ = ](int i) {
+			[=](int i) {
 				module->lookAndFeel.cellStyleIndex = i;
 			}
 		));

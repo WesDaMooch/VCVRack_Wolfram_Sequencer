@@ -7,17 +7,18 @@ public:
 	AlgoEngine() {}
 	~AlgoEngine() {}
 
-	// Sequencer
+	// SEQUENCER
 	void tick() { displayMatrixUpdated = false; }
 	virtual void updateMatrix(int length, int offset, bool advance) = 0;
 	virtual void generate() = 0;
 	virtual void pushSeed(bool w) = 0;
 	virtual void inject(bool add, bool w) = 0;
 	
-	// Updaters
+	// UPDATERS
+	// Generic updater for Select encoder
 	int updateSelect(int value, int MAX_VALUE,
 		int defaultValue, int delta, bool reset) {
-		// Generic updater for Select encoder
+		
 
 		if (reset)
 			return defaultValue;
@@ -29,8 +30,7 @@ public:
 	virtual void updateSeed(int d, bool r) = 0;
 	virtual void upateMode(int d, bool r) = 0;
 
-	// Setters
-	//void setDisplayMatrix(uint64_t newDisplayMatrix) { displayMatrix = newDisplayMatrix; }
+	// SETTERS
 	void setReadHead(int newReadHead) { readHead = newReadHead; }
 	void setWriteHead(int newWriteHead) { writeHead = newWriteHead; }
 
@@ -40,8 +40,8 @@ public:
 	virtual void setSeed(int newSeed) = 0;
 	virtual void setMode(int newMode) = 0;
 
-	// Getters
-	//uint64_t getDisplayMatrix() { return displayMatrix; }
+	// GETTERS
+	std::string getAlgoName() { return name; }
 	int getReadHead() { return readHead; };
 	int getWriteHead() { return writeHead; };
 
@@ -60,7 +60,6 @@ public:
 	virtual std::string getRuleName() = 0;
 	virtual std::string getSeedName() = 0;
 	virtual std::string getModeName() = 0;
-	std::string getAlgoName() { return name; }
 
 protected:
 	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
@@ -75,14 +74,13 @@ protected:
 
 	void advanceHeads(int length) {
 		readHead = writeHead;
-		//writeHead = (writeHead + 1) % length;
 		writeHead++; 
 		if (writeHead >= length)
 			writeHead -= length;
 	}
 
 	uint8_t applyOffset(uint8_t row, int offset) {
-		// Apply a horizontal offset to a given row.
+		// Apply a horizontal offset to a given row
 		int shift = clamp(offset, -4, 4);
 		if (shift < 0) {
 			shift = -shift;
@@ -99,32 +97,20 @@ class WolfEngine : public AlgoEngine {
 public:
 	WolfEngine() { 
 		name = "WOLF";
-		rowBuffer[readHead] = seed;	// Init seed
+		rowBuffer[readHead] = seed;
 	}
 
-	// Sequencer
+	// SEQUENCER
 	void updateMatrix(int length, int offset, bool advance) override {
-		if (advance) {
+		if (advance)
 			advanceHeads(length);
-			// Shift matrix up
-			displayMatrix <<= 8;	
-		}
 
-		// Apply offset
 		uint64_t tempMatrix = 0;
-		int offsetDifference = offset - prevOffset;
-
-		for (int i = 1	; i < 8; i++) {
-			uint8_t row = (displayMatrix >> (i * 8)) & 0xFF;
-			tempMatrix |= static_cast<uint64_t>(applyOffset(row, offsetDifference)) << (i * 8);
+		for (int i = 0; i < 8; i++) {
+			uint8_t row = rowBuffer[((readHead - i) + length) % length];
+			tempMatrix |= uint64_t(applyOffset(row, offset)) << (i * 8);
 		}
-
 		displayMatrix = tempMatrix;
-		prevOffset = offset;
-		
-		// Push latest row
-		displayMatrix &= ~0xFFULL;
-		displayMatrix |= static_cast<uint64_t>(applyOffset(rowBuffer[readHead], offset));
 		displayMatrixUpdated = true;
 	}
 
@@ -174,9 +160,9 @@ public:
 	void pushSeed(bool w) override {
 		uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
 		size_t head = readHead;
-		if (w) {
+		if (w)
 			head = writeHead;
-		}
+
 		rowBuffer[head] = resetRow;
 	}
 
@@ -209,7 +195,7 @@ public:
 		rowBuffer[head] = row;
 	}
 
-	// Setters
+	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
 		if (index == -1)
 			displayMatrix = frame;
@@ -273,7 +259,7 @@ public:
 		modeIndex = updateSelect(modeIndex, NUM_MODES, defaultMode, d, r);
 	}
 
-	// Getters
+	// GETTERS
 	uint64_t getBufferFrame(int index) override {
 		if (index == -1)
 			return displayMatrix;
@@ -362,7 +348,7 @@ protected:
 	static constexpr float voltageScaler = 1.f / UINT8_MAX;
 	static constexpr float modeScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
-	// Helpers
+	// HELPER
 	void onRuleChange() { rule = static_cast<uint8_t>(clamp(ruleSelect + ruleCV, 0, UINT8_MAX)); }
 };
 
@@ -373,6 +359,7 @@ public:
 		matrixBuffer[readHead] = seeds[seedIndex].value; 
 	}
 
+	// SEQUENCER
 	void updateMatrix(int length, int offset, bool advance) override {
 		if (advance)
 			advanceHeads(length);
@@ -618,7 +605,7 @@ public:
 			NUM_MODES, modeDefault, d, r);
 	}
 
-	// Settters
+	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
 		if (index == -1)
 			displayMatrix = frame;
@@ -640,7 +627,7 @@ public:
 	void setSeed(int newSeed) override { seedIndex = newSeed; }
 	void setMode(int newMode) override { modeIndex = newMode; }
 
-	// Getters
+	// GETTERS
 	uint64_t getBufferFrame(int index) override { 
 		if (index == -1)
 			return displayMatrix;
