@@ -12,14 +12,8 @@
 // Could have different structs or class for each algo with a void setParameters()
 // See Befaco NoisePlethora
 
-// TODO: The panel
-// TODO: LED svg overlay
-// TODO: Save state
-// TODO: onReset and onRandomize
-// TODO: inject puts 4 in when in life algo? context menu (maybe nah idk)
+// TODO: onRandomize
 // TODO: Font - new O, < or >, new % maybe, and L - to close togther
-// TODO: when sync is on and cv is changing algo (and maybe rule) it glitches,
-// if CV is HIGH algo should = LIFE, but it seems to switch from WOLF to LIFE ever trigger
 // TODO: Log slew params
 // TODO: In WOLF when sync is off, X and Y Pulse triggering when changing rule in mini Menu
 
@@ -325,7 +319,7 @@ struct WolframModule : Module {
 	void setAlgoCV(float cv) {
 		int newCV = std::round(cv * (NUM_ALGOS - 1));
 
-		if (newCV == algoCV)
+		if (algoCV == newCV)
 			return;
 
 		if (sync) {
@@ -402,7 +396,6 @@ struct WolframModule : Module {
 	}
 
 	json_t* dataToJson() override {
-		// TODO: Slew bools
 		json_t* rootJ = json_object();
 		
 		// Save sequencer settings
@@ -693,25 +686,23 @@ struct WolframModule : Module {
 				gen = random::get<float>() < prob;
 
 			if (sync) {
-				algoCV = algoCvPending;
-				onAlgoChange();
-
+				if (algoCV != algoCvPending) {
+					algoCV = algoCvPending;
+					onAlgoChange();
+				}
+				
 				offset = offsetPending;
 
-				if (injectPending == 1) {
+				if (injectPending == 1)
 					a->inject(true, true);
-				}
-				else if (injectPending == 2) {
+				else if (injectPending == 2)
 					a->inject(false, true);
-				}
 
 				if (resetPending || seedPushPending) {
-					if (gen) {
+					if (gen)
 						a->pushSeed(true);
-					}
-					else if (!seedPushPending) {
+					else if (!seedPushPending)
 						a->setWriteHead(0);
-					}
 				}
 			}
 
@@ -726,7 +717,6 @@ struct WolframModule : Module {
 			resetPending = false;
 			seedPushPending = false;
 			injectPending = 0;
-			algoCvPending = 0;
 		}
 
 		// OUTPUT
@@ -856,10 +846,6 @@ struct Display : TransparentWidget {
 	float widgetSize = 0;
 	float fontSize = 0;
 
-	std::vector<std::pair<int, int>> livingCellCords{};
-
-	// TODO: frameBuffer crash fix
-
 	Display(WolframModule* m, float y, float w, float s) {
 		module = m;
 
@@ -889,17 +875,11 @@ struct Display : TransparentWidget {
 		lookAndFeel->init();
 	}
 
-	void getCellPreviewPath(NVGcontext* vg, int row, int col) {
-		// Only used in preview window
-		float space = (cellPadding * 0.5f) + padding;
-		nvgCircle(vg, (cellPadding * col) + space, (cellPadding * row) + space, 5.f);
-	}
-
-	void drawMenu(NVGcontext* vg, int layer) {
+	void drawMenu(NVGcontext* vg, int layer, bool menu, bool miniMenu) {
 		if (!module)
 			return;
 
-		if (module->menuActive) {
+		if (menu) {
 			int pageIndex = module->pageIndex;
 
 			if ((pageIndex < 0) || (pageIndex >= static_cast<int>(module->menuPages.size())))
@@ -913,7 +893,7 @@ struct Display : TransparentWidget {
 			return;
 		}
 
-		if (module->miniMenuActive) {
+		if (miniMenu) {
 			int algoIndex = module->algoIndex;
 
 			if ((algoIndex < 0) || (algoIndex >= static_cast<int>(module->NUM_ALGOS)))
@@ -928,8 +908,94 @@ struct Display : TransparentWidget {
 		}
 	}
 
+	void drawDisplay(NVGcontext* vg, int layer) {
+		// Layer colour
+		NVGcolor colour = nvgRGB(0, 0, 0);
+		if (module) {
+			colour = (layer == 1) ?
+				*lookAndFeel->getForegroundColour() :
+				*lookAndFeel->getBackgroundColour();
+		}
+		else {
+			colour = (layer == 1) ?
+				nvgRGB(228, 7, 7) :
+				nvgRGB(78, 12, 9);
+		}
+
+		// Menu
+		int firstRow = 0;
+
+		bool menuActive = module ? module->menuActive : false;
+		bool miniMenuActive = module ? module->miniMenuActive : false;
+		if (menuActive || miniMenuActive) {
+
+			nvgFontSize(vg, fontSize);
+			nvgFontFaceId(vg, font->handle);
+			nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+
+			if (menuActive) {
+				int pageIndex = module->pageIndex;
+				if ((pageIndex >= 0) || (pageIndex < static_cast<int>(module->menuPages.size()))) {
+					if (layer == 1)
+						module->menuPages[pageIndex]->fg(vg, module->algoMod);
+					else
+						module->menuPages[pageIndex]->bg(vg);
+				}
+				return;
+			}
+			else {
+				// Mini menu
+				int algoIndex = module->algoIndex;
+				if ((algoIndex >= 0) || (algoIndex < static_cast<int>(module->NUM_ALGOS))) {
+					LookAndFeel::Page* miniPage = module->ui[algoIndex]->getMiniPage();
+
+					if (layer == 1)
+						miniPage->fg(vg, false);
+					else
+						miniPage->bg(vg);
+				}
+				firstRow = rows - 4;
+			}
+		}
+
+		// Cells
+		uint64_t matrix = module ? module->a->getBufferFrame(-1) : 0x81C326F48FCULL;
+
+		nvgBeginPath(vg);
+		nvgFillColor(vg, colour);
+
+		for (int row = firstRow; row < 8; row++) {
+			int rowInvert = 7 - row;
+
+			uint8_t rowBits = (matrix >> (rowInvert * 8)) & 0xFF;
+
+			if (layer == 0)
+				rowBits = ~rowBits;
+
+			rowBits &= 0xFF;
+
+			while (rowBits) {
+				int colInvert = __builtin_ctz(rowBits);
+				rowBits &= rowBits - 1;
+
+				int col = 7 - colInvert;
+
+				if (module) {
+					lookAndFeel->getCellPath(vg, col, row);
+				}
+				else {
+					// Preview window drawing
+					float a = (cellPadding * 0.5f) + padding;
+					nvgCircle( vg, (cellPadding * col) + a,
+						(cellPadding * row) + a, 5.f );
+				}
+			}
+		}
+		nvgFill(vg);
+	}
+
 	void draw(const DrawArgs& args) override {
-		// Draw background & border.
+		// Draw background & border
 		NVGcolor backgroundColour = module ? *lookAndFeel->getScreenColour() : nvgRGB(58, 16, 19);
 
 		nvgBeginPath(args.vg);
@@ -943,23 +1009,29 @@ struct Display : TransparentWidget {
 		nvgStroke(args.vg);
 		nvgClosePath(args.vg);
 
+		drawDisplay(args.vg, 0);
+
 		// Draw dead cells & menu background,
 		// setup drawing alive cells on the self-illuminating layer
-		livingCellCords.clear();
-
+		//livingCellCords.clear();
+		
+		/*
 		int firstRow = 0;
 		if (module) {
-			if (module->menuActive || module->miniMenuActive)
-				drawMenu(args.vg, 0);
+			bool menuActive = module->menuActive;
+			bool miniMenuActive = module->miniMenuActive;
 
-			if (module->menuActive)
+			if (menuActive || miniMenuActive)
+				drawMenu(args.vg, 0, menuActive, miniMenuActive);
+
+			if (menuActive)
 				return;
 
-			firstRow = module->miniMenuActive ? (rows - 4) : 0;
+			firstRow = miniMenuActive ? (rows - 4) : 0;
 		}
 
 		// Requires flipping
-		uint64_t matrix = module ? module->a->getBufferFrame(-1) : 0x81C326F48FCULL;
+		uint64_t matrix = module ? module->a->getBufferFrame(-1) : previewMatrix;
 
 		// Draw dead cell, store alive cell 
 		nvgBeginPath(args.vg);
@@ -971,11 +1043,21 @@ struct Display : TransparentWidget {
 				int colInvert = 7 - col;
 				int cellIndex = rowInvert * 8 + colInvert;
 
-				if ((matrix >> cellIndex) & 1ULL) {
-					// Store living cell coordinates
-					livingCellCords.emplace_back(col, row);
-				}
-				else {
+				// old
+				//if ((matrix >> cellIndex) & 1ULL) {
+				//	// Store living cell coordinates
+				//	livingCellCords.emplace_back(col, row);
+				//}
+				//else {
+				//	// Draw dead cells
+				//	if (module)
+				//		lookAndFeel->getCellPath(args.vg, col, row);
+				//	else
+				//		getCellPreviewPath(args.vg, row, col);
+				//}
+				
+
+				if (!((matrix >> cellIndex) & 1ULL)) {
 					// Draw dead cells
 					if (module)
 						lookAndFeel->getCellPath(args.vg, col, row);
@@ -985,36 +1067,87 @@ struct Display : TransparentWidget {
 			}
 		}
 		nvgFill(args.vg);
+		*/
 	}
 
 	void drawLayer(const DrawArgs& args, int layer) override {
 		if (layer != 1)
 			return;
 
-		nvgFontSize(args.vg, fontSize);
-		nvgFontFaceId(args.vg, font->handle);
-		nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+		drawDisplay(args.vg, layer);
 
-		if (module && (module->menuActive || module->miniMenuActive))
-			drawMenu(args.vg, layer);
+		Widget::drawLayer(args, layer);
 
-		// Draw living cells
-		if (livingCellCords.empty())
-			return;
+		//bool menuActive = module ? module->menuActive : false;
+		//bool miniMenuActive = module ? module->miniMenuActive : false;
+		//if (menuActive || miniMenuActive)
+		//	drawMenu(args.vg, layer, menuActive, miniMenuActive);
+		/*
+		int firstRow = 0;
+		if (module) {
+			bool menuActive = module->menuActive;
+			bool miniMenuActive = module->miniMenuActive;
 
+			if (menuActive || miniMenuActive)
+				drawMenu(args.vg, layer, menuActive, miniMenuActive);
+
+			if (menuActive)
+				return;
+
+			firstRow = miniMenuActive ? (rows - 4) : 0;
+		}
+		
+		//if (livingCellCords.empty())
+		//	return;
+
+		uint64_t matrix = module ? module->a->getBufferFrame(-1) : previewMatrix;
 		nvgBeginPath(args.vg);
 		nvgFillColor(args.vg, module ? *lookAndFeel->getForegroundColour() : nvgRGB(228, 7, 7));
-		for (const auto& cords : livingCellCords) {
-			int col = cords.first;
-			int row = cords.second;
+		
+		// old
+		//for (const auto& cords : livingCellCords) {
+		//	int col = cords.first;
+		//	int row = cords.second;
 
-			if (module)
-				lookAndFeel->getCellPath(args.vg, col, row);
-			else
-				getCellPreviewPath(args.vg, row, col);
+		//	if (module)
+		//		lookAndFeel->getCellPath(args.vg, col, row);
+		//	else
+		//		getCellPreviewPath(args.vg, row, col);
+		//}
+		
+
+		for (int row = firstRow; row < rows; row++) {
+			int rowInvert = (row - 7) * -1;
+			for (int col = 0; col < cols; col++) {
+				int colInvert = 7 - col;
+				int cellIndex = rowInvert * 8 + colInvert;
+
+				// old
+				//if ((matrix >> cellIndex) & 1ULL) {
+				//	// Store living cell coordinates
+				//	livingCellCords.emplace_back(col, row);
+				//}
+				//else {
+				//	// Draw dead cells
+				//	if (module)
+				//		lookAndFeel->getCellPath(args.vg, col, row);
+				//	else
+				//		getCellPreviewPath(args.vg, row, col);
+				//}
+				
+
+				if ((matrix >> cellIndex) & 1ULL) {
+					// Draw living cells
+					if (module)
+						lookAndFeel->getCellPath(args.vg, col, row);
+					else
+						getCellPreviewPath(args.vg, row, col);
+				}
+			}
 		}
+
 		nvgFill(args.vg);
-		Widget::drawLayer(args, layer);
+		*/
 	}
 };
 
@@ -1109,19 +1242,20 @@ struct WolframModuleWidget : ModuleWidget {
 		
 
 		void rotate(const DrawArgs& args) {
-			nvgSave(args.vg);
 			nvgTranslate(args.vg, this->box.size.x / 2.f, this->box.size.y / 2.f);
 			nvgRotate(args.vg, rotation);
 			nvgTranslate(args.vg, -this->box.size.x / 2.f, -this->box.size.y / 2.f);
 		}
 
 		void drawBackground(const DrawArgs& args) override {
+			nvgSave(args.vg);
 			rotate(args);
 			LuckyLight<TBase>::drawBackground(args);
 			nvgRestore(args.vg);
 		}
 
 		void drawLight(const DrawArgs& args) override {
+			nvgSave(args.vg);
 			rotate(args);
 			LuckyLight<TBase>::drawLight(args);
 			nvgRestore(args.vg);
@@ -1166,8 +1300,7 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		
 		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(19.05f, 90.225f)), module, WolframModule::X_PULSE_LIGHT));	
 		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
-		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));		
-
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));
 		
 		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
 		addChild(display);

@@ -781,7 +781,7 @@ protected:
 	static constexpr float yVoltageScaler = 1.f / UINT64_MAX;
 	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
-	// Helpers
+	// HELPERS
 	void onRuleChange() { ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1); }
 
 	static inline void halfadder(uint8_t a, uint8_t b,
@@ -830,7 +830,6 @@ protected:
 			break;
 		}
 	}
-	
 };
 
 struct LookAndFeel {
@@ -878,7 +877,6 @@ struct LookAndFeel {
 	} };
 
 	void init() {
-
 		textBgSize = fontSize - 2.f;
 		textBgPadding = (fontSize * 0.5f) - (textBgSize * 0.5f) + padding;
 
@@ -963,11 +961,13 @@ struct LookAndFeel {
 
 	void drawTextBg(NVGcontext* vg, int row) {
 		// Draw one row of four square text character backgrounds
+		if ((row < 0) || (row >= 4))
+			return;
+
 		float textBgBevel = 3.f;
 
 		nvgBeginPath(vg);
 		nvgFillColor(vg, *getBackgroundColour());
-
 		for (int col = 0; col < 4; col++) {
 			int i = row * 4 + col;
 			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y,
@@ -976,7 +976,7 @@ struct LookAndFeel {
 		nvgFill(vg);
 	}
 
-	void drawWolfSeedDisplay(NVGcontext* vg, int row, bool layer, uint8_t seed) {
+	void drawWolfSeedDisplay(NVGcontext* vg, bool layer, uint8_t seed) {
 
 		nvgFillColor(vg, layer ? *getForegroundColour() : *getBackgroundColour());
 
@@ -1002,6 +1002,7 @@ struct LookAndFeel {
 			}
 			nvgStrokeWidth(vg, 0.5f);
 			nvgStroke(vg);
+			//nvgClosePath(args.vg); ?
 		}
 
 		nvgBeginPath(vg);
@@ -1119,29 +1120,23 @@ public:
 			lookAndFeel->drawText(vg, "SEED", 1);
 
 			int seed = engine->getSeed();
-			if (seed >= 256) {
+			if (seed >= 256)
 				lookAndFeel->drawText(vg, "RAND", 2);
-			}
-			else {
-				lookAndFeel->drawWolfSeedDisplay(vg, 2, true, static_cast<uint8_t>(seed));
-			}
+			else
+				lookAndFeel->drawWolfSeedDisplay(vg, true, static_cast<uint8_t>(seed));
 
 			lookAndFeel->drawText(vg, "<#@>", 3);
 		};
 		seedPage.bg = [this](NVGcontext* vg) {
-
 			int seed = engine->getSeed();
 			lookAndFeel->drawTextBg(vg, 0);
 			lookAndFeel->drawTextBg(vg, 1);
 			lookAndFeel->drawTextBg(vg, 3);
 
-			if (seed == 256) {
+			if (seed == 256)
 				lookAndFeel->drawTextBg(vg, 2);
-			}
-			else {
-				lookAndFeel->drawWolfSeedDisplay(vg, 2, false, static_cast<uint8_t>(seed));
-				
-			}
+			else
+				lookAndFeel->drawWolfSeedDisplay(vg, false, static_cast<uint8_t>(seed));
 			
 			//for (int i = 0; i < 4; i++) {}
 		};
