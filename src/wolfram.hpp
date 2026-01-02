@@ -9,7 +9,7 @@ public:
 
 	// SEQUENCER
 	void tick() { displayMatrixUpdated = false; }
-	virtual void updateMatrix(int length, int offset, bool advance) = 0;
+	virtual void updateMatrix(int length, int offset, bool advance, bool retrigger) = 0;
 	virtual void generate() = 0;
 	virtual void pushSeed(bool w) = 0;
 	virtual void inject(bool add, bool w) = 0;
@@ -101,7 +101,7 @@ public:
 	}
 
 	// SEQUENCER
-	void updateMatrix(int length, int offset, bool advance) override {
+	void updateMatrix(int length, int offset, bool advance, bool retrigger) override {
 		if (advance)
 			advanceHeads(length);
 
@@ -111,7 +111,9 @@ public:
 			tempMatrix |= uint64_t(applyOffset(row, offset)) << (i * 8);
 		}
 		displayMatrix = tempMatrix;
-		displayMatrixUpdated = true;
+
+		if (retrigger)
+			displayMatrixUpdated = true;
 	}
 
 	void generate() override {
@@ -358,7 +360,7 @@ public:
 	}
 
 	// SEQUENCER
-	void updateMatrix(int length, int offset, bool advance) override {
+	void updateMatrix(int length, int offset, bool advance, bool retrigger) override {
 		if (advance)
 			advanceHeads(length);
 
@@ -372,7 +374,8 @@ public:
 		// Count living cells
 		population = __builtin_popcountll(displayMatrix);
 
-		displayMatrixUpdated = true;
+		if (retrigger)
+			displayMatrixUpdated = true;
 	}
 
 	void generate() override {

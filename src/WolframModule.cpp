@@ -13,6 +13,7 @@
 // See Befaco NoisePlethora
 
 // TODO: onRandomize
+// TODO: Wolf (maybe life) not write correct seed when cloned
 // TODO: Font - new O, < or >, new % maybe, and L - to close togther
 // TODO: Log slew params
 // TODO: In WOLF when sync is off, X and Y Pulse triggering when changing rule in mini Menu
@@ -194,7 +195,7 @@ struct WolframModule : Module {
 		a = engine[algoIndex];
 
 		// Init display matrix
-		engine[algoIndex]->updateMatrix(sequenceLength, offset, false);
+		engine[algoIndex]->updateMatrix(sequenceLength, offset, false, true);
 		
 		// Algo, Slew menu pages
 		lookAndFeel.makeMenuPage(
@@ -312,7 +313,7 @@ struct WolframModule : Module {
 	void onAlgoChange() {
 		algoIndex = clamp(algoSelect + algoCV, 0, (NUM_ALGOS - 1));
 		a = engine[algoIndex];
-		engine[algoIndex]->updateMatrix(sequenceLength, offset, false);
+		engine[algoIndex]->updateMatrix(sequenceLength, offset, false, true);
 		updateMenu();
 	}
 
@@ -343,14 +344,16 @@ struct WolframModule : Module {
 	}
 
 	void setSlewSelect(int delta, bool reset) {
-		slewParam = clamp(slewParam + delta, 0, 200);
-
 		if (reset)
 			slewParam = 0;
+		else
+			slewParam = clamp(slewParam + delta, 0, 100);
+		
+		// Skew slewParam (0 - 100) -> (0 - 1)
+		// Convert to ms, if VCO mode (0 - 10ms) else (0 - 1000ms)
+		float slewSkew = std::pow(slewParam * 0.01f, 2.f);
+		float slew = vcoMode ? (slewSkew * 10.f) : (slewSkew * 1000.f);
 
-		// Convert slewParam (0 - 200) to ms (0, 2000),
-		// or (0 - 20) if vcoMode is true.
-		float slew = vcoMode ? (slewParam * 0.1f) : (slewParam * 10.f);
 		for (int i = 0; i < 2; i++)
 			slewLimiter[i].setSlewAmountMs(slew, samplerate);
 	}
@@ -383,7 +386,7 @@ struct WolframModule : Module {
 			engine[i]->updateSeed(0, true);
 			engine[i]->upateMode(0, true);
 			engine[i]->pushSeed(false);
-			engine[i]->updateMatrix(sequenceLength, offset, false);
+			engine[i]->updateMatrix(sequenceLength, offset, false, true);
 		}
 
 		sync = true;
@@ -573,7 +576,7 @@ struct WolframModule : Module {
 				seedPushPending = false;
 				if (gen) {
 					a->pushSeed(false);
-					a->updateMatrix(sequenceLength, offset, false);
+					a->updateMatrix(sequenceLength, offset, false, false);
 				}
 			}
 			if (!encoderReset || (miniMenuActive && encoderReset)) {
@@ -581,12 +584,10 @@ struct WolframModule : Module {
 				ruleDisplayTimer.reset();
 			}
 		}
-		
 		encoderReset = false;
 	}
 
 	void process(const ProcessArgs& args) override {
-
 		// Knobs & CV inputs
 		bool newAlgoMod = inputs[ALGO_CV_INPUT].isConnected();
 		if (newAlgoMod != algoMod) {
@@ -611,7 +612,7 @@ struct WolframModule : Module {
 		}
 		else if (offset != newOffset) {
 			offset = newOffset;
-			a->updateMatrix(sequenceLength, offset, false);
+			a->updateMatrix(sequenceLength, offset, false, true);
 		}
 
 		// Buttons
@@ -641,7 +642,7 @@ struct WolframModule : Module {
 			}
 			else {
 				a->inject(positiveInject ? true : false, false);
-				a->updateMatrix(sequenceLength, offset, false);
+				a->updateMatrix(sequenceLength, offset, false, true);
 				injectPending = 0;
 			}
 		}
@@ -662,7 +663,7 @@ struct WolframModule : Module {
 					a->setReadHead(0);
 					a->setWriteHead(1);
 				}
-				a->updateMatrix(sequenceLength, offset, false);
+				a->updateMatrix(sequenceLength, offset, false, true);
 			}
 		}
 
@@ -709,7 +710,7 @@ struct WolframModule : Module {
 			if (gen && !resetPending && !seedPushPending && !injectPending)
 				a->generate();
 
-			engine[algoIndex]->updateMatrix(sequenceLength, offset, true);
+			engine[algoIndex]->updateMatrix(sequenceLength, offset, true, true);
 
 			// Reset gen and sync penders
 			gen = false;
