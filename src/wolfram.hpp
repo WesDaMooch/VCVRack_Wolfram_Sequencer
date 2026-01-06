@@ -9,7 +9,7 @@ public:
 
 	// SEQUENCER
 	void tick() { displayMatrixUpdated = false; }
-	virtual void updateMatrix(int length, int offset, bool advance, bool retrigger) = 0;
+	virtual void updateMatrix(int length, int offset, bool advance) = 0;
 	virtual void generate() = 0;
 	virtual void pushSeed(bool w) = 0;
 	virtual void inject(bool add, bool w) = 0;
@@ -28,7 +28,7 @@ public:
 
 	virtual void updateRule(int d, bool r) = 0;
 	virtual void updateSeed(int d, bool r) = 0;
-	virtual void upateMode(int d, bool r) = 0;
+	virtual void updateMode(int d, bool r) = 0;
 
 	// SETTERS
 	void setReadHead(int newReadHead) { readHead = newReadHead; }
@@ -72,16 +72,15 @@ protected:
 
 	std::string name = "";
 
+	// TODO: Inline certain helpers?
 	void advanceHeads(int length) {
 		readHead = writeHead;
-		writeHead++; 
-		if (writeHead >= length)
-			writeHead -= length;
+		writeHead = (writeHead + 1) % length;
 	}
 
 	uint8_t applyOffset(uint8_t row, int offset) {
 		// Apply a horizontal offset to a given row
-		int shift = clamp(offset, -4, 4);
+		int shift = rack::clamp(offset, -4, 4);
 		if (shift < 0) {
 			shift = -shift;
 			row = ((row << shift) | (row >> (8 - shift))) & 0xFF;
@@ -101,19 +100,27 @@ public:
 	}
 
 	// SEQUENCER
-	void updateMatrix(int length, int offset, bool advance, bool retrigger) override {
-		if (advance)
+	void updateMatrix(int length, int offset, bool advance) override {
+		if (advance) {
 			advanceHeads(length);
+			displayMatrix <<= 8;	// Shift matrix up
+		}
 
+		// Apply lastest offset
+		int offsetDifference = offset - prevOffset;
 		uint64_t tempMatrix = 0;
-		for (int i = 0; i < 8; i++) {
-			uint8_t row = rowBuffer[((readHead - i) + length) % length];
-			tempMatrix |= uint64_t(applyOffset(row, offset)) << (i * 8);
+
+		for (int i = 1; i < 8; i++) {
+			uint8_t row = (displayMatrix >> (i * 8)) & 0xFF;
+			tempMatrix |= uint64_t(applyOffset(row, offsetDifference)) << (i * 8);
 		}
 		displayMatrix = tempMatrix;
+		prevOffset = offset;
 
-		if (retrigger)
-			displayMatrixUpdated = true;
+		// Push latest row
+		displayMatrix &= ~0xFFULL;
+		displayMatrix |= static_cast<uint64_t>(applyOffset(rowBuffer[readHead], offset));
+		displayMatrixUpdated = true;
 	}
 
 	void generate() override {
@@ -128,21 +135,21 @@ public:
 
 		switch (modeIndex) {
 		case 1: {
-			// Wrap.
+			// Wrap
 			west = (readRow >> 1) | (readRow << 7);
 			east = (readRow << 1) | (readRow >> 7);
 			break;
 		}
 
 		case 2: {
-			// Random.
+			// Random
 			west |= random::get<bool>() << 7;
 			east |= random::get<bool>();
 			break;
 		}
 
 		default:
-			// Clip.
+			// Clip
 			break;
 		}
 
@@ -199,13 +206,25 @@ public:
 
 	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
-		if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
 			rowBuffer[index] = static_cast<uint8_t>(frame);
+		else if (index == -1)
+			displayMatrix = frame;
 	}
 
-	void setRule(int newRule) override { ruleSelect = static_cast<uint8_t>(newRule); }
-	void setSeed(int newSeed) override { seedSelect = newSeed; }
-	void setMode(int newMode) override { modeIndex = newMode; }
+	void setRule(int newRule) override { 
+		ruleSelect = static_cast<uint8_t>(newRule); 
+		onRuleChange();
+	}
+
+	void setSeed(int newSeed) override { 
+		seedSelect = newSeed;
+		onSeedChange();
+	}
+
+	void setMode(int newMode) override { 
+		modeIndex = newMode; 
+	}
 
 	void setRuleCV(float cv) override {
 		int newCV = std::round(cv * 256);
@@ -233,38 +252,26 @@ public:
 	}
 
 	void updateSeed(int d, bool r) override {
-
 		if (r) {
 			seed = defaultSeed;
 			seedSelect = seed;
 			randSeed = false;
 			return;
 		}
-
-		// Seed options are 256 + 1 (RAND) 
 		seedSelect += d;
-
-		if (seedSelect > 256)
-			seedSelect -= 257;
-		else if (seedSelect < 0)
-			seedSelect += 257;
-
-		randSeed = (seedSelect == 256);
-
-		if (!randSeed)
-			seed = static_cast<uint8_t>(seedSelect);
+		onSeedChange();
 	}
 
-	void upateMode(int d, bool r) override {
+	void updateMode(int d, bool r) override {
 		modeIndex = updateSelect(modeIndex, NUM_MODES, defaultMode, d, r);
 	}
 
 	// GETTERS
 	uint64_t getBufferFrame(int index) override {
-		if (index == -1)
-			return displayMatrix;
-		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
 			return static_cast<uint64_t>(rowBuffer[index]);
+		else if (index == -1)
+			return displayMatrix;
 		else
 			return 0;
 	}
@@ -348,8 +355,22 @@ protected:
 	static constexpr float voltageScaler = 1.f / UINT8_MAX;
 	static constexpr float modeScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
-	// HELPER
-	void onRuleChange() { rule = static_cast<uint8_t>(clamp(ruleSelect + ruleCV, 0, UINT8_MAX)); }
+	// HELPERS
+	void onRuleChange() { rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCV, 0, UINT8_MAX)); }
+
+	void onSeedChange() {
+		// Seed options are 256 + 1 (RAND) 
+		// Wrap seedSelect
+		if (seedSelect > 256)
+			seedSelect -= 257;
+		else if (seedSelect < 0)
+			seedSelect += 257;
+		// Find randSeed
+		randSeed = (seedSelect == 256);
+		// Set seed
+		if (!randSeed)
+			seed = static_cast<uint8_t>(seedSelect);
+	}
 };
 
 class LifeEngine : public AlgoEngine {
@@ -360,7 +381,7 @@ public:
 	}
 
 	// SEQUENCER
-	void updateMatrix(int length, int offset, bool advance, bool retrigger) override {
+	void updateMatrix(int length, int offset, bool advance) override {
 		if (advance)
 			advanceHeads(length);
 
@@ -373,9 +394,7 @@ public:
 
 		// Count living cells
 		population = __builtin_popcountll(displayMatrix);
-
-		if (retrigger)
-			displayMatrixUpdated = true;
+		displayMatrixUpdated = true;
 	}
 
 	void generate() override {
@@ -601,15 +620,17 @@ public:
 			NUM_SEEDS, seedDefault, d, r);
 	}
 
-	void upateMode(int d, bool r) override {
+	void updateMode(int d, bool r) override {
 		modeIndex = updateSelect(modeIndex,
 			NUM_MODES, modeDefault, d, r);
 	}
 
 	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
-		if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
 			matrixBuffer[index] = frame;
+		else if (index == -1)
+			displayMatrix = frame;
 	}
 
 	void setRuleCV(float cv) override {
@@ -622,16 +643,25 @@ public:
 		onRuleChange();
 	}
 
-	void setRule(int newRule) override { ruleSelect = newRule; }
-	void setSeed(int newSeed) override { seedIndex = newSeed; }
-	void setMode(int newMode) override { modeIndex = newMode; }
+	void setRule(int newRule) override { 
+		ruleSelect = newRule; 
+		onRuleChange();
+	}
+
+	void setSeed(int newSeed) override { 
+		seedIndex = newSeed; 
+	}
+
+	void setMode(int newMode) override { 
+		modeIndex = newMode; 
+	}
 
 	// GETTERS
 	uint64_t getBufferFrame(int index) override { 
-		if (index == -1)
-			return displayMatrix;
-		else if ((index >= 0) || (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
 			return matrixBuffer[index];
+		else if (index == -1)
+			return displayMatrix;
 		else
 			return 0;
 	}
@@ -753,7 +783,7 @@ protected:
 			{ " RND", random::get<uint64_t>() },// True Random
 			{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
 			{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship				Rule: Life, HoneyLife
-			{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship	 					Rule: Virus									// TODO: move left 1 bit
+			{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship	 					Rule: Virus
 			{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship 						Rule: Live Free or Die, Seeds, Iceballs
 			{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship				Rule: Life, HoneyLife 
 			{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship					Rule: Move, Sqrt Replicator
@@ -785,7 +815,7 @@ protected:
 	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
 	// HELPERS
-	void onRuleChange() { ruleIndex = clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1); }
+	void onRuleChange() { ruleIndex = rack::clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1); }
 
 	static inline void halfadder(uint8_t a, uint8_t b,
 		uint8_t& sum, uint8_t& carry) {
@@ -870,13 +900,13 @@ struct LookAndFeel {
 	static constexpr int NUM_LOOKS = 7;
 	int displayStyleIndex = 0;
 	std::array<std::array<NVGcolor, 3>, NUM_LOOKS> looks{ {
-		{ nvgRGB(58, 16, 19),		nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
-		{ nvgRGB(37, 59, 99),		nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
-		{ SCHEME_DARK_GRAY,		SCHEME_YELLOW,			SCHEME_DARK_GRAY },				// Rack  
-		{ nvgRGB(4, 3, 8),			nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },			// Eva MORE red
-		{ nvgRGB(17, 3, 20),		nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },		// Purple
-		{ nvgRGBA(120, 255, 0, 10),	nvgRGB(210, 255, 0),	nvgRGBA(0, 0, 0, 0) },		// Lamp
-		{ nvgRGB(0, 0, 0),			nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
+		{ nvgRGB(58, 16, 19),	nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
+		{ nvgRGB(37, 59, 99),	nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
+		{ SCHEME_DARK_GRAY,		SCHEME_YELLOW,			SCHEME_DARK_GRAY },			// Rack  
+		{ nvgRGB(4, 3, 8),		nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },			// Eva MORE red
+		{ nvgRGB(17, 3, 20),	nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },		// Purple
+		{ nvgRGB(42, 47, 37),	nvgRGB(210, 255, 0),	nvgRGB(42, 47, 37) },		// Lamp 
+		{ nvgRGB(0, 0, 0),		nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
 	} };
 
 	void init() {
@@ -922,10 +952,10 @@ struct LookAndFeel {
 		}
 	};
 
-	// GETTERS TODO: return reference?
-	NVGcolor* getScreenColour() { return &looks[displayStyleIndex][0]; }
-	NVGcolor* getForegroundColour() { return &looks[displayStyleIndex][1]; }
-	NVGcolor* getBackgroundColour() { return &looks[displayStyleIndex][2]; }
+	// GETTERS
+	NVGcolor& getScreenColour() { return looks[displayStyleIndex][0]; }
+	NVGcolor& getForegroundColour() { return looks[displayStyleIndex][1]; }
+	NVGcolor& getBackgroundColour() { return looks[displayStyleIndex][2]; }
 
 	// Drawing
 	inline void getCellPath(NVGcontext* vg, int col, int row) {
@@ -958,7 +988,7 @@ struct LookAndFeel {
 			outputStr = std::string(4 - str.size(), ' ') + str;
 
 		nvgBeginPath(vg);
-		nvgFillColor(vg, *getForegroundColour());
+		nvgFillColor(vg, getForegroundColour());
 		nvgText(vg, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
 	}
 
@@ -970,7 +1000,7 @@ struct LookAndFeel {
 		float textBgBevel = 3.f;
 
 		nvgBeginPath(vg);
-		nvgFillColor(vg, *getBackgroundColour());
+		nvgFillColor(vg, getBackgroundColour());
 		for (int col = 0; col < 4; col++) {
 			int i = row * 4 + col;
 			nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y,
@@ -981,10 +1011,10 @@ struct LookAndFeel {
 
 	void drawWolfSeedDisplay(NVGcontext* vg, bool layer, uint8_t seed) {
 
-		nvgFillColor(vg, layer ? *getForegroundColour() : *getBackgroundColour());
+		nvgFillColor(vg, layer ? getForegroundColour() : getBackgroundColour());
 
 		if (layer) {
-			NVGcolor c = *getForegroundColour();
+			NVGcolor c = getForegroundColour();
 
 			// Special case colour for Eva look
 			if (displayStyleIndex == 3) 
@@ -1063,7 +1093,9 @@ public:
 		lookAndFeel(l)
 	{
 		// Mini page
-		miniPage.set = [this](int d, bool r) {};
+		miniPage.set = [this](int d, bool r) { 
+			engine->updateRule(d, r);
+		};
 		miniPage.fg = [this](NVGcontext* vg, bool displayHeader) {
 			lookAndFeel->drawText(vg, "RULE", 0);
 			lookAndFeel->drawText(vg, engine->getRuleName(), 1);
@@ -1080,7 +1112,6 @@ public:
 			[this] { return engine->getRuleName(); },
 			[this](int d, bool r) { engine->updateRule(d, r); }
 		);
-
 		lookAndFeel->makeMenuPage(
 			seedPage,
 			engine->getAlgoName(),
@@ -1088,13 +1119,12 @@ public:
 			[this] { return engine->getSeedName(); },
 			[this](int d, bool r) { engine->updateSeed(d, r); }
 		);
-
 		lookAndFeel->makeMenuPage(
 			modePage,
 			engine->getAlgoName(),
 			"MODE",
 			[this] { return engine->getModeName(); },
-			[this](int d, bool r) { engine->upateMode(d, r); }
+			[this](int d, bool r) { engine->updateMode(d, r); }
 		);
 	}
 
@@ -1123,7 +1153,7 @@ public:
 			lookAndFeel->drawText(vg, "SEED", 1);
 
 			int seed = engine->getSeed();
-			if (seed >= 256)
+			if (seed == 256)
 				lookAndFeel->drawText(vg, "RAND", 2);
 			else
 				lookAndFeel->drawWolfSeedDisplay(vg, true, static_cast<uint8_t>(seed));
@@ -1132,16 +1162,12 @@ public:
 		};
 		seedPage.bg = [this](NVGcontext* vg) {
 			int seed = engine->getSeed();
-			lookAndFeel->drawTextBg(vg, 0);
-			lookAndFeel->drawTextBg(vg, 1);
-			lookAndFeel->drawTextBg(vg, 3);
-
-			if (seed == 256)
-				lookAndFeel->drawTextBg(vg, 2);
-			else
-				lookAndFeel->drawWolfSeedDisplay(vg, false, static_cast<uint8_t>(seed));
-			
-			//for (int i = 0; i < 4; i++) {}
+			for (int i = 0; i < 4; i++) {
+				if ((i == 2) && (seed != 256))
+					lookAndFeel->drawWolfSeedDisplay(vg, false, static_cast<uint8_t>(seed));
+				else
+					lookAndFeel->drawTextBg(vg, i);
+			}
 		};
 	}
 };
