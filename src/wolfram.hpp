@@ -16,10 +16,9 @@ public:
 	
 	// UPDATERS
 	// Generic updater for Select encoder
+	// TODO: pass value as reference?
 	int updateSelect(int value, int MAX_VALUE,
 		int defaultValue, int delta, bool reset) {
-		
-
 		if (reset)
 			return defaultValue;
 
@@ -841,7 +840,6 @@ protected:
 	}
 
 	void getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& east) {
-
 		switch (modeIndex) {
 		case 0: {
 			// Clip
@@ -867,7 +865,7 @@ protected:
 
 struct LookAndFeel {
 	// Certain grahic elements are drawn on layer 1 (the foreground),
-	// these elements, such as text & alive cells.Background items, 
+	// these elements, such as text & alive cells. Background items, 
 	// such as dead cells, are drawn on layer 0. 
 
 	// Drawing variables
@@ -959,6 +957,7 @@ struct LookAndFeel {
 
 	// Drawing
 	inline void getCellPath(NVGcontext* vg, int col, int row) {
+		// Must call nvgBeginPath before and nvgFill after this function! 
 		int i = row * 8 + col;
 
 		if ((i < 0) || (i >= 64))
@@ -976,7 +975,7 @@ struct LookAndFeel {
 	}
 
 	void drawText(NVGcontext* vg, const std::string& str, int row) {
-		// Draw four character row of text
+		// Draw a four character row of text
 		if ((row < 0) || (row >= 4))
 			return;
 
@@ -990,6 +989,14 @@ struct LookAndFeel {
 		nvgBeginPath(vg);
 		nvgFillColor(vg, getForegroundColour());
 		nvgText(vg, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
+	}
+
+	void drawMenuText(NVGcontext* vg, std::string l1,
+		std::string l2, std::string l3, std::string l4) {
+		// Helper for drawing four lines of menu text
+		std::array<std::string, 4> text = { l1, l2, l3, l4 };
+		for (int i = 0; i < 4; i++)
+			drawText(vg, text[i], i);
 	}
 
 	void drawTextBg(NVGcontext* vg, int row) {
@@ -1025,7 +1032,6 @@ struct LookAndFeel {
 			nvgBeginPath(vg);
 			for (int col = 0; col < 8; col++) {
 				if ((col >= 1) && (col <= 7)) {
-					// TODO: pre compute?
 					nvgMoveTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y - 1);
 					nvgLineTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y + 1);
 
@@ -1050,7 +1056,9 @@ struct LookAndFeel {
 		}
 		nvgFill(vg);
 	}
+	
 
+	/*
 	// Menu pages
 	struct Page {
 		std::function<void(int, bool)> set;
@@ -1083,9 +1091,16 @@ struct LookAndFeel {
 			for (int i = 0; i < 4; i++)
 				drawTextBg(vg, i);
 		};
+
+
+		///////////
+		
+
 	}
+	*/
 };
 
+/*
 class AlgoUI {
 public:
 	AlgoUI(AlgoEngine* e, LookAndFeel* l)
@@ -1178,3 +1193,31 @@ public:
 		: AlgoUI(e, l)
 	{}
 };
+
+
+// TODO:
+// UI only does drawing as is only in module widget
+
+// setters are found in dps module 
+
+
+*/
+/*
+struct WolfUI2 : public UI {
+	void drawMenu(NVGcontext* vg, AlgoEngine* engine, LookAndFeel* lookAndFeel,
+		int layer, int pageNumber, bool algorithmModActive) override {
+		
+		if (!engine || !lookAndFeel)
+			return;
+
+		if (algorithmModActive) {
+			if (pageNumber == 0)
+				lookAndFeel->drawMenuText(vg, header, "SEED", engine->getSeedName(), footer);
+				
+		}
+
+	}
+
+	//std::string algorithmName = "wolf";
+};
+*/

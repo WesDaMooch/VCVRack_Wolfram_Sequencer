@@ -1,5 +1,10 @@
 // Make with: export RACK_DIR=/home/wes-l/Rack-SDK
 
+// Dev Mode:
+//	cd "/c/Program Files/VCV/Rack2Free"
+//	./Rack - d - u "C:\Users\wes-l\AppData\Local\Rack2"
+
+
 // Docs: https://vcvrack.com/docs-v2/
 // Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
@@ -10,10 +15,25 @@
 // Or do what SEQ3 does?
 
 // TODO: onRandomize
-// TODO: Font - new O, < or >, new % maybe, and L - to close togther (not 7 doe)
+// TODO: json saves to signed 64 bit number, i need unsigned (uint64_t), maybe not a issue
+
+// BUGS
+// TODO: algo cv still buggy when sync off
+// - make sure engine ref are set ever process call
+// TODO: on wolf vcomode, seed not init or something
+
+// CRASH
+// TODO: fix framebuffer crash
+// - Updated SDK fix?
+// - Wolfram crashing
+// - Crashes without Display and custom lights
+// - Crashes when data save / load is disabled
+// - Crashes when not being triggered
+// - Crashes faster when Display and custom lights are active (unconfirmed)
+// - Did not crash in dev mode (unconfirmed)
 
 #include "wolfram.hpp"
-#include <vector>
+#include <vector> // TODO: not using?
 
 class SlewLimiter {
 public:
@@ -78,31 +98,26 @@ struct WolframModule : Module {
 		INJECT_LIGHT,
 		LIGHTS_LEN
 	};
-	LookAndFeel lookAndFeel;
-	
-	// Engines
+	// Engine
 	WolfEngine wolfEngine;
 	LifeEngine lifeEngine;
-	WolfUI wolfUI;
-	LifeUI lifeUI;
 	static constexpr int NUM_ALGOS = 2;
 	std::array<AlgoEngine*, NUM_ALGOS> engine{};
-	std::array<AlgoUI*, NUM_ALGOS> ui{};
-	static constexpr int algoDefault = 0;
 	int eIndex = 0;
+	static constexpr int algoDefault = 0;
 	int algoSelect = algoDefault;
 	int algoCV = 0;
 	int algoCvPending = 0;
 
-	// Menu
-	LookAndFeel::Page algoPage;
-	LookAndFeel::Page slewPage;
-	LookAndFeel::Page* miniMenu;
-	std::vector<LookAndFeel::Page*> menuPages;
+	// UI
+	LookAndFeel lookAndFeel;
 	int pageCounter = 0;
-	int pageIndex = 0;
+	int pageNumber = 0;
 	bool menuActive = false;
-	
+
+	const int defaultMenuPageAmount = 4;
+	const int algoModMenuPageAmount = (NUM_ALGOS * 3) + 2;
+
 	// Parameters
 	int sequenceLength = 8;
 	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
@@ -133,7 +148,7 @@ struct WolframModule : Module {
 	bool algoMod = false;
 
 	// DPS
-	int samplerate = 44100;
+	int srate = 44100;	
 	dsp::PulseGenerator xPulse, yPulse;
 	dsp::SchmittTrigger trigTrigger, resetTrigger, posInjectTrigger, negInjectTrigger;
 	dsp::BooleanTrigger menuTrigger, modeTrigger;
@@ -141,10 +156,7 @@ struct WolframModule : Module {
 	dsp::RCFilter dcFilter[2];
 	SlewLimiter slewLimiter[2];
 
-	WolframModule() 
-		: wolfUI(&wolfEngine, &lookAndFeel),
-		lifeUI(&lifeEngine, &lookAndFeel)
-	{
+	WolframModule() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
@@ -178,12 +190,9 @@ struct WolframModule : Module {
 		configLight(TRIG_LIGHT, "Trigger");
 		configLight(INJECT_LIGHT, "Inject");
 
-		// Alogrithm engines
+		// Set alogrithm engines
 		engine[0] = &wolfEngine;
 		engine[1] = &lifeEngine;
-		ui[0] = &wolfUI;
-		ui[1] = &lifeUI;
-
 		// Init engines
 		for (int i = 0; i < NUM_ALGOS; i++) {
 			engine[i]->updateRule(0, true);
@@ -193,24 +202,6 @@ struct WolframModule : Module {
 
 		// Init display matrix
 		engine[eIndex]->updateMatrix(sequenceLength, offset, false);
-		
-		// Algo & Slew menu pages
-		lookAndFeel.makeMenuPage(
-			algoPage,
-			"menu",
-			"ALGO",
-			[this] { return engine[eIndex]->getAlgoName(); },
-			[this](int d, bool r) { setAlgoSelect(d, r); }
-		);
-		lookAndFeel.makeMenuPage(
-			slewPage,
-			"menu",
-			"SLEW",
-			[this] { return std::to_string(slewParam) + "%"; },
-			[this](int d, bool r) { setSlewSelect(d, r); }
-		);
-
-		updateMenu();
 		onSampleRateChange();
 	}
 
@@ -224,22 +215,22 @@ struct WolframModule : Module {
 			bool algoMod = m->algoMod;
 			bool ruleMod = m->ruleMod;
 			bool menuActive = m->menuActive;
-			int page = m->pageIndex;
+			int page = m->pageNumber;
 			int eIndex = m->eIndex;
 
-			std::string ruleStr = m->engine[eIndex]->getRuleName();
-			std::string selectStr = m->engine[eIndex]->getRuleSelectName();
+			std::string activeRuleString = m->engine[eIndex]->getRuleName();
+			std::string selectedRuleString = m->engine[eIndex]->getRuleSelectName();
 
 			// No algorithm modulation & no rule modulation
 			if (!algoMod && !ruleMod)
-				return selectStr;
+				return selectedRuleString;
 
 			// Menu closed or no algorithm modulation
 			if (!algoMod || !menuActive) {
 				if (!ruleMod)
-					return selectStr;
+					return selectedRuleString;
 
-				return selectStr + " ( " + ruleStr + " )";
+				return selectedRuleString + " ( " + activeRuleString + " )";
 			}
 
 			// Menu open & algorithm modulation
@@ -248,7 +239,7 @@ struct WolframModule : Module {
 				std::string s = m->engine[0]->getRuleSelectName();
 				std::string r = ruleMod ? 
 					m->engine[0]->getRuleName() :
-					ruleStr;
+					activeRuleString;
 
 				return s + " ( " + r + " )";
 			}
@@ -258,16 +249,16 @@ struct WolframModule : Module {
 				std::string s = m->engine[1]->getRuleSelectName();
 				std::string r = ruleMod ? 
 					m->engine[1]->getRuleName() :
-					ruleStr;
+					activeRuleString;
 
 				return s + " ( " + r + " )";
 			}
 
 			// Non-rule pages
 			if (!ruleMod)
-				return selectStr;
+				return selectedRuleString;
 
-			return selectStr + " ( " + ruleStr + " )";
+			return selectedRuleString + " ( " + activeRuleString + " )";
 		}
 
 		// Suppress behaviour
@@ -285,29 +276,9 @@ struct WolframModule : Module {
 		void setDisplayValueString(std::string s) override {}
 	};
 
-	void updateMenu() {
-		miniMenu = ui[eIndex]->getMiniPage();
-
-		menuPages.clear();
-		if (!algoMod) {
-			menuPages.push_back(ui[eIndex]->getSeedPage());
-			menuPages.push_back(ui[eIndex]->getModePage());
-		}
-		else {
-			for (int i = 0; i < NUM_ALGOS; i++) {
-				menuPages.push_back(ui[i]->getRulePage());
-				menuPages.push_back(ui[i]->getSeedPage());
-				menuPages.push_back(ui[i]->getModePage());
-			}
-		}
-		menuPages.push_back(&slewPage);
-		menuPages.push_back(&algoPage);
-	}
-
 	void onAlgoChange() {
-		eIndex = rack::clamp(algoSelect + algoCV, 0, (NUM_ALGOS - 1));
+		eIndex = rack::clamp(algoSelect + algoCV, 0, NUM_ALGOS - 1);
 		engine[eIndex]->updateMatrix(sequenceLength, offset, false);
-		updateMenu();
 	}
 
 	void setAlgoCV(float cv) {
@@ -348,11 +319,11 @@ struct WolframModule : Module {
 		float slew = vcoMode ? (slewSkew * 10.f) : (slewSkew * 1000.f);
 
 		for (int i = 0; i < 2; i++)
-			slewLimiter[i].setSlewAmountMs(slew, samplerate);
+			slewLimiter[i].setSlewAmountMs(slew, srate);
 	}
 
 	void onSampleRateChange() override {
-		samplerate = APP->engine->getSampleRate();
+		srate = APP->engine->getSampleRate();
 
 		// Set DC blocker to ~10Hz,
 		// Set Slew time (ms)
@@ -360,9 +331,9 @@ struct WolframModule : Module {
 		float slew = vcoMode ? (slewSkew * 10.f) : (slewSkew * 1000.f);
 
 		for (int i = 0; i < 2; i++) {
-			dcFilter[i].setCutoffFreq(10.f / samplerate);
+			dcFilter[i].setCutoffFreq(10.f / srate);
 			dcFilter[i].reset();
-			slewLimiter[i].setSlewAmountMs(slew, samplerate);
+			slewLimiter[i].setSlewAmountMs(slew, srate);
 			slewLimiter[i].reset();
 		}
 	}
@@ -393,6 +364,8 @@ struct WolframModule : Module {
 	json_t* dataToJson() override {
 		json_t* rootJ = json_object();
 		
+		// TODO: save in correct order
+
 		// Save sequencer settings
 		json_object_set_new(rootJ, "sync", json_boolean(sync));
 		json_object_set_new(rootJ, "vco", json_boolean(vcoMode));
@@ -442,7 +415,7 @@ struct WolframModule : Module {
 
 		return rootJ;
 	}
-
+	
 	void dataFromJson(json_t* rootJ) override {
 		// Load sequencer settings
 		json_t* syncJ = json_object_get(rootJ, "sync");
@@ -543,11 +516,11 @@ struct WolframModule : Module {
 		json_t* cellStyleJ = json_object_get(rootJ, "cellStyle");
 		if (cellStyleJ)
 			lookAndFeel.cellStyleIndex = json_integer_value(cellStyleJ);
-
 	}
+	
 
 	void processEncoder() {
-		const float encoderValue = params[SELECT_PARAM].getValue();
+		float encoderValue = params[SELECT_PARAM].getValue();
 		float difference = encoderValue - prevEncoderValue;
 		int delta = static_cast<int>(std::round(difference / encoderIndent));
 			
@@ -555,16 +528,45 @@ struct WolframModule : Module {
 			return;
 		
 		prevEncoderValue += delta * encoderIndent;
-		
+		int e = rack::clamp(eIndex, 0, NUM_ALGOS - 1);
+
 		if (menuActive) {
 			// Main menu
-			if ((pageIndex >= 0) && (pageIndex < static_cast<int>(menuPages.size())))
-				menuPages[pageIndex]->set(delta, encoderReset);
+			// TODO: Clean this up a bit
+			if (algoMod) {
+				int p = rack::clamp(pageNumber, 0, algoModMenuPageAmount);
+				if (p == 0)
+					engine[0]->updateRule(delta, encoderReset);
+				else if (p == 1)
+					engine[0]->updateSeed(delta, encoderReset);
+				else if (p == 2)
+					engine[0]->updateMode(delta, encoderReset);
+				else if (p == 3)
+					engine[1]->updateRule(delta, encoderReset);
+				else if (p == 4)
+					engine[1]->updateSeed(delta, encoderReset);
+				else if (p == 5)
+					engine[1]->updateMode(delta, encoderReset);
+				else if (p == 6)
+					setSlewSelect(delta, encoderReset);
+				else if (p == 7)
+					setAlgoSelect(delta, encoderReset);
+			}
+			else {
+				int p = rack::clamp(pageNumber, 0, defaultMenuPageAmount);
+				if (p == 0)
+					engine[e]->updateSeed(delta, encoderReset);
+				else if (p == 1)
+					engine[e]->updateMode(delta, encoderReset);
+				else if (p == 2)
+					setSlewSelect(delta, encoderReset);
+				else if (p == 3)
+					setAlgoSelect(delta, encoderReset);
+			}
 		}
 		else {
 			// Mini menu
-			if (miniMenu)
-				miniMenu->set(delta, miniMenuActive ? encoderReset : false);
+			engine[e]->updateRule(delta, miniMenuActive ? encoderReset : false);
 
 			if (sync && (delta || miniMenuActive)) {
 				seedPushPending = true;
@@ -588,12 +590,15 @@ struct WolframModule : Module {
 	}
 
 	void process(const ProcessArgs& args) override {
+
+		//DEBUG("process start");
+		
+
 		// Knobs & CV inputs
 		bool newAlgoMod = inputs[ALGO_CV_INPUT].isConnected();
-		if (newAlgoMod != algoMod) {
+		if (newAlgoMod != algoMod)
 			algoMod = newAlgoMod;
-			updateMenu();
-		}
+		
 
 		setAlgoCV(rack::clamp(inputs[ALGO_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f));
 
@@ -603,7 +608,7 @@ struct WolframModule : Module {
 		float probCV = rack::clamp(inputs[PROB_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
 		prob = rack::clamp(params[PROB_PARAM].getValue() + probCV, 0.f, 1.f);
 
-		int lengthParam = rack::clamp(static_cast<int>(params[LENGTH_PARAM].getValue()), 0, sequenceLengths.size() - 1);
+		int lengthParam = rack::clamp(static_cast<int>(params[LENGTH_PARAM].getValue()), 0, (sequenceLengths.size() - 1));
 		sequenceLength = sequenceLengths[lengthParam];
 
 		float offsetCv = rack::clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f; // cast to int here
@@ -626,7 +631,8 @@ struct WolframModule : Module {
 			else
 				engine[eIndex]->updateMode(1, false);
 		}
-		pageIndex = (pageCounter + menuPages.size()) % menuPages.size();
+		int menuPageAmount = algoMod ? algoModMenuPageAmount : defaultMenuPageAmount;
+		pageNumber = (pageCounter + menuPageAmount) % menuPageAmount;
 
 		processEncoder();
 
@@ -760,8 +766,8 @@ struct WolframModule : Module {
 		// LIGHTS
 		lights[MODE_LIGHT].setBrightnessSmooth(engine[eIndex]->getModeLEDValue(), args.sampleTime);
 		lights[X_CV_LIGHT].setBrightness(xCv * 0.1);
-		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_CV_LIGHT].setBrightness(yCv * 0.1);
+		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_PULSE_LIGHT].setBrightnessSmooth(yGate, args.sampleTime);
 		lights[TRIG_LIGHT].setBrightnessSmooth(trig, args.sampleTime);
 		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject | negativeInject, args.sampleTime);
@@ -870,6 +876,7 @@ struct Display : TransparentWidget {
 
 		// Set look & feel
 		lookAndFeel = &module->lookAndFeel;
+		// TODO: set in init
 		lookAndFeel->padding = padding;
 		lookAndFeel->fontSize = fontSize;
 		lookAndFeel->cellSpacing = cellPadding;
@@ -877,7 +884,21 @@ struct Display : TransparentWidget {
 	}
 
 	void drawDisplay(NVGcontext* vg, int layer) {
-		// Layer colour
+		int firstRow = 0;
+		bool menuActive = module ? module->menuActive : false;
+		bool miniMenuActive = module ? module->miniMenuActive : false;
+		int engineIndex = module ? rack::clamp(module->eIndex, 0, 2 - 1) : 0;
+
+		// TODO: use numalgo
+		std::array<AlgoEngine*, 2> engine{};
+		for (int i = 0; i < 2; i++) {
+			engine[i] = module ? module->engine[i] : nullptr;
+			// TODO: use numalgo
+			if ((menuActive || miniMenuActive) && !engine[i])
+				return;
+		}
+
+		// Set colour
 		NVGcolor colour = nvgRGB(0, 0, 0);
 		if (module) {
 			colour = (layer == 1) ?
@@ -891,37 +912,211 @@ struct Display : TransparentWidget {
 		}
 
 		// Menu
-		int firstRow = 0;
+		if (menuActive || miniMenuActive) {
+			// Set font
+			if (!font)
+				return;
 
+			nvgFontSize(vg, fontSize);
+			nvgFontFaceId(vg, font->handle);
+			nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+		}
+
+		if (menuActive) {
+			// Main menu
+			int pageNumber = module->pageNumber;
+			bool mod = module->algoMod;
+
+			// Text background
+			if (layer == 0) {
+				if (((pageNumber == 0) && (engineIndex == 0)) || ((pageNumber == 1) && mod)) {
+					// Special Wolf seed display
+					lookAndFeel->drawTextBg(vg, 0);	
+					lookAndFeel->drawTextBg(vg, 1);
+					lookAndFeel->drawWolfSeedDisplay(vg, layer, engine[0]->getSeed());
+					lookAndFeel->drawTextBg(vg, 3);
+				}
+				else {
+					for (int i = 0; i < 4; i++)
+						lookAndFeel->drawTextBg(vg, i);
+				}
+			}
+			// Text
+			else if (layer == 1) {
+				std::string header = "menu";
+				std::string footer = "<#@>";
+				if (mod) {
+					pageNumber = rack::clamp(pageNumber, 0, module->algoModMenuPageAmount - 1);
+
+					// Convert capitalised algorithm name to lower case
+					std::string wolfHeader = engine[0]->getAlgoName();
+					std::transform(wolfHeader.begin(),
+						wolfHeader.end(), wolfHeader.begin(), ::tolower);
+
+					std::string lifeHeader = engine[1]->getAlgoName();
+					std::transform(lifeHeader.begin(),
+						lifeHeader.end(), lifeHeader.begin(), ::tolower);
+
+					if (pageNumber == 0) {
+						lookAndFeel->drawMenuText(vg, wolfHeader, "RULE", engine[0]->getRuleName(), footer);
+					}
+					else if (pageNumber == 1) {
+						lookAndFeel->drawMenuText(vg, wolfHeader, "SEED", "", footer);
+						lookAndFeel->drawWolfSeedDisplay(vg, layer, engine[0]->getSeed());
+					}
+					else if (pageNumber == 2) {
+						lookAndFeel->drawMenuText(vg, wolfHeader, "MODE", engine[0]->getModeName(), footer);
+					}
+					else if (pageNumber == 3) {
+						lookAndFeel->drawMenuText(vg, lifeHeader, "RULE", engine[1]->getRuleName(), footer);
+					}
+					else if (pageNumber == 4) {
+						lookAndFeel->drawMenuText(vg, lifeHeader, "SEED", engine[1]->getSeedName(), footer);
+					}
+					else if (pageNumber == 5) {
+						lookAndFeel->drawMenuText(vg, lifeHeader, "MODE", engine[1]->getModeName(), footer);
+					}
+					else if (pageNumber == 6) {
+						lookAndFeel->drawMenuText(vg, header, "SLEW", std::to_string(module->slewParam) + "%", footer);
+					}
+					else if (pageNumber == 7) {
+						lookAndFeel->drawMenuText(vg, header, "ALGO", engine[engineIndex]->getAlgoName(), footer);
+					}
+				}
+				else {
+					pageNumber = rack::clamp(pageNumber, 0, module->defaultMenuPageAmount - 1);
+
+					if (pageNumber == 0) {
+						if (engineIndex == 0) {
+							lookAndFeel->drawMenuText(vg, header, "SEED", "", footer);
+							lookAndFeel->drawWolfSeedDisplay(vg, layer, engine[engineIndex]->getSeed());
+						}
+						else {
+							lookAndFeel->drawMenuText(vg, header, "SEED", engine[engineIndex]->getSeedName(), footer);
+						}
+					}
+					else if (pageNumber == 1) {
+						lookAndFeel->drawMenuText(vg, header, "MODE", engine[engineIndex]->getModeName(), footer);
+					}
+					else if (pageNumber == 2) {
+						lookAndFeel->drawMenuText(vg, header, "SLEW", std::to_string(module->slewParam) + "%", footer);
+					}
+					else if (pageNumber == 3) {
+						lookAndFeel->drawMenuText(vg, header, "ALGO", engine[engineIndex]->getAlgoName(), footer);
+					}
+				}
+			}
+			return;
+		}
+		else if (miniMenuActive) {
+			// Mini menu
+			firstRow = rows - 4;
+			// Text background
+			if (layer == 0) {
+				for (int i = 0; i < 2; i++)
+					lookAndFeel->drawTextBg(vg, i);
+			}
+			// Text
+			else if (layer == 1) {
+				lookAndFeel->drawText(vg, "RULE", 0);
+				lookAndFeel->drawText(vg, engine[engineIndex]->getRuleName(), 1);
+			}
+		}
+
+		// Cells
+		uint64_t matrix = 0x81C326F48FCULL;
+		if (engine[engineIndex])
+			matrix = engine[engineIndex]->getBufferFrame(-1);
+
+		nvgBeginPath(vg);
+		nvgFillColor(vg, colour);
+
+		for (int row = firstRow; row < 8; row++) {
+			int rowInvert = 7 - row;
+
+			uint8_t rowBits = (matrix >> (rowInvert * 8)) & 0xFF;
+
+			if (layer == 0)
+				rowBits = ~rowBits;
+
+			rowBits &= 0xFF;
+
+			// TODO: is __builtin_ctz ok?
+			int i = 0;
+			while (rowBits && (i < rows)) {
+				int colInvert = __builtin_ctz(rowBits);
+				rowBits &= rowBits - 1;
+
+				int c = 7 - colInvert;
+
+				if (module) {
+					lookAndFeel->getCellPath(vg, c, row);
+				}
+				else {
+					// Preview window drawing
+					float pad = (cellPadding * 0.5f) + padding;
+					nvgCircle(vg, (cellPadding * c) + pad,
+						(cellPadding * row) + pad, 5.f);
+				}
+				i++;
+			}
+		}
+		nvgFill(vg);
+
+		/*
+		// Menu
+		int firstRow = 0;
 		bool menuActive = module ? module->menuActive : false;
 		bool miniMenuActive = module ? module->miniMenuActive : false;
 
 		if ((menuActive || miniMenuActive) && font) {
+			// Set font
 			nvgFontSize(vg, fontSize);
 			nvgFontFaceId(vg, font->handle);
 			nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
 
-			if (menuActive) {
-				int pageIndex = module->pageIndex;
-				if ((pageIndex >= 0) && (pageIndex < static_cast<int>(module->menuPages.size()))) {
-					if (layer == 1)
-						module->menuPages[pageIndex]->fg(vg, module->algoMod);
-					else
-						module->menuPages[pageIndex]->bg(vg);
-				}
-				return;
-			}
-			else {
-				// Mini menu
-				int algoIndex = module->eIndex;
-				if ((algoIndex >= 0) && (algoIndex < static_cast<int>(module->NUM_ALGOS))) {
-					if (layer == 1)
-						module->miniMenu->fg(vg, false);
-					else
-						module->miniMenu->bg(vg);
-				}
-				firstRow = rows - 4;
-			}
+			//ui3.drawMenu(vg, module, layer);
+
+			
+			//bool mod = module->algoMod;
+			//int menuPageAmount = mod ? module->algoModMenuPageAmount : 
+			//	module->defaultMenuPageAmount;
+
+			//if (menuActive) {
+			//	int pageIndex = rack::clamp(module->pageIndex, 0, menuPageAmount);
+			//	int engineIndex = rack::clamp(module->eIndex, 0, module->NUM_ALGOS - 1);
+			//	// ui[i]->drawPage(pageIndex, algoMod)
+
+			//	//if (engineIndex == 0)
+			//		//wolfUI->drawMenu()
+			//	//else if (engineIndex == 1)
+			//}
+
+
+			//if (menuActive) {
+			//	int pageIndex = module->pageIndex;
+			//	if ((pageIndex >= 0) && (pageIndex < static_cast<int>(module->menuPages.size()))) {
+			//		if (module->menuPages[pageIndex]) {
+			//			if (layer == 1)
+			//				module->menuPages[pageIndex]->fg(vg, module->algoMod);
+			//			else
+			//				module->menuPages[pageIndex]->bg(vg);
+			//		}
+			//	}
+			//	return;
+			//}
+			//else {
+			//	// Mini menu
+			//	int eIndex = module->eIndex;
+			//	if ((eIndex >= 0) && (eIndex < static_cast<int>(module->NUM_ALGOS))) {
+			//		if (layer == 1)
+			//			module->miniMenu->fg(vg, false);
+			//		else
+			//			module->miniMenu->bg(vg);
+			//	}
+			//	firstRow = rows - 4;
+			//}
+			//
 		}
 
 		// Cells
@@ -940,6 +1135,7 @@ struct Display : TransparentWidget {
 
 			rowBits &= 0xFF;
 
+			// TODO: is __builtin_ctz ok?
 			while (rowBits) {
 				int colInvert = __builtin_ctz(rowBits);
 				rowBits &= rowBits - 1;
@@ -951,13 +1147,14 @@ struct Display : TransparentWidget {
 				}
 				else {
 					// Preview window drawing
-					float a = (cellPadding * 0.5f) + padding;
-					nvgCircle( vg, (cellPadding * col) + a,
-						(cellPadding * row) + a, 5.f );
+					float pad = (cellPadding * 0.5f) + padding;
+					nvgCircle( vg, (cellPadding * col) + pad,
+						(cellPadding * row) + pad, 5.f );
 				}
 			}
 		}
 		nvgFill(vg);
+		*/
 	}
 
 	void draw(const DrawArgs& args) override {
@@ -1010,7 +1207,6 @@ struct WolframModuleWidget : ModuleWidget {
 
 	struct SelectEncoder : M1900hBlackEncoder {
 		void onDoubleClick(const DoubleClickEvent& e) override {
-
 			// Reset Select encoder to default of current selection,
 			// see processEncoder for details
 			auto* m = static_cast<WolframModule*>(module);
