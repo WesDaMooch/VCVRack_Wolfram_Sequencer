@@ -16,7 +16,6 @@ public:
 	
 	// UPDATERS
 	// Generic updater for Select encoder
-	// TODO: pass value as reference?
 	int updateSelect(int value, int MAX_VALUE,
 		int defaultValue, int delta, bool reset) {
 		if (reset)
@@ -167,7 +166,7 @@ public:
 
 	void pushSeed(bool w) override {
 		uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
-		size_t head = readHead;
+		int head = readHead;
 		if (w)
 			head = writeHead;
 
@@ -193,10 +192,12 @@ public:
 		int target = random::get<uint8_t>() % targetCount;	// Random target index
 
 		// Find corresponding bit position, TODO: this is hard to read
-		uint8_t bitMask;
-		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
-			if (targetMask & bitMask)
+		uint8_t bitMask = 1;
+		for (int i = 0; i < 8; i++, bitMask <<= 1) {
+			if (targetMask & bitMask) {
+				if (target == 0) break;
 				target--;
+			}
 		}
 
 		row = add ? (row | bitMask) : (row & ~bitMask);
@@ -376,7 +377,8 @@ class LifeEngine : public AlgoEngine {
 public:
 	LifeEngine() {
 		name = "LIFE";
-		matrixBuffer[readHead] = seeds[seedIndex].value; 
+		seeds[seedDefault].value = random::get<uint64_t>();
+		matrixBuffer[readHead] = seeds[seedDefault].value; 
 	}
 
 	// SEQUENCER
@@ -575,24 +577,14 @@ public:
 		int target = random::get<uint8_t>() % targetCount;	// Random target index
 
 		// Find corresponding bit position
-		uint64_t bitMask;
-		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
-			if (targetMask & bitMask)
-				target--;
-		}
-
-		/*
-		// TODO: Safer way to to inject?
-		uint64_t bitMask = 1;
-		while (true) {
+		uint8_t bitMask = 1;
+		for (int i = 0; i < 8; i++, bitMask <<= 1) {
 			if (targetMask & bitMask) {
-				if (target == 0)
-					break;
+				if (target == 0) break;
 				target--;
 			}
-			bitMask <<= 1;
 		}
-		*/
+
 		tempMatrix = a ? (tempMatrix | bitMask) : (tempMatrix & ~bitMask);
 		matrixBuffer[head] = tempMatrix;
 	}
@@ -761,7 +753,7 @@ protected:
 			{ " 3-4", 0x3018U },			// 3-4 Life					B34/S34			
 			{ " 2X2", 0x4C48U },			// 2x2						B35/S125		
 			{ "24/7", 0x3B1C8U },			// Day & Night				B3678/S34678	
-		} };
+	} };
 	static constexpr int ruleDefault = 11;
 	int ruleSelect = ruleDefault;
 	int ruleCV = 0;
@@ -779,7 +771,7 @@ protected:
 			{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
 			{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random
 			{ "RNDH", 0xEFA8EFA474577557ULL },	// Half Density Random				
-			{ " RND", random::get<uint64_t>() },// True Random
+			{ " RND", 0 },// True Random
 			{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
 			{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship				Rule: Life, HoneyLife
 			{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship	 					Rule: Virus
@@ -800,7 +792,7 @@ protected:
 			{ " B&G", 0x30280C000000ULL },		// Block and Glider						Rule: Life
 			{ "34D3", 0x41E140C000000ULL },		// 3-4 Life Spaceship 					Rule: 3-4 Life
 			{ "34C3", 0x3C2464140000ULL },		// 3-4 Life Spaceship 					Rule: 3-4 Life
-		} };
+	} };
 	static constexpr int seedDefault = 9;
 	int seedIndex = seedDefault;
 
@@ -1016,19 +1008,18 @@ struct LookAndFeel {
 		nvgFill(vg);
 	}
 
-	void drawWolfSeedDisplay(NVGcontext* vg, bool layer, uint8_t seed) {
-
-		nvgFillColor(vg, layer ? getForegroundColour() : getBackgroundColour());
+	void drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed) {
+		// TODO: make layer int (layer == 1) and (layer == 0)
 
 		if (layer) {
-			NVGcolor c = getForegroundColour();
+			// Lines
+			NVGcolor colour = getForegroundColour();
 
 			// Special case colour for Eva look
 			if (displayStyleIndex == 3) 
-				c = nvgRGB(115, 255, 166);
+				colour = nvgRGB(115, 255, 166);
 		
-			nvgStrokeColor(vg, c);
-
+			nvgStrokeColor(vg, colour);
 			nvgBeginPath(vg);
 			for (int col = 0; col < 8; col++) {
 				if ((col >= 1) && (col <= 7)) {
@@ -1044,6 +1035,7 @@ struct LookAndFeel {
 			//nvgClosePath(args.vg); ?
 		}
 
+		nvgFillColor(vg, layer ? getForegroundColour() : getBackgroundColour());
 		nvgBeginPath(vg);
 		for (int col = 0; col < 8; col++) {
 			bool cell = (seed >> (7 - col)) & 1;
@@ -1056,48 +1048,6 @@ struct LookAndFeel {
 		}
 		nvgFill(vg);
 	}
-	
-
-	/*
-	// Menu pages
-	struct Page {
-		std::function<void(int, bool)> set;
-		std::function<void(NVGcontext*, bool)> fg;
-		std::function<void(NVGcontext*)> bg;
-	};
-
-	void makeMenuPage(Page& page,
-		std::string header,
-		const std::string& title,
-		std::function<std::string()> data,
-		std::function<void(int, bool)> setter) {
-
-		// Default page look
-		std::transform(header.begin(),
-			header.end(), header.begin(), ::tolower);
-
-		page.set = [setter](int d, bool r) {
-			setter(d, r);
-		};
-
-		page.fg = [this, header, title, data](NVGcontext* vg, bool displayHeader) {
-			drawText(vg, displayHeader ? header : "menu", 0);
-			drawText(vg, title, 1);
-			drawText(vg, data(), 2);
-			drawText(vg, "<#@>", 3);
-		};
-
-		page.bg = [this](NVGcontext* vg) {
-			for (int i = 0; i < 4; i++)
-				drawTextBg(vg, i);
-		};
-
-
-		///////////
-		
-
-	}
-	*/
 };
 
 /*
