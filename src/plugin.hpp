@@ -3,14 +3,11 @@
 
 using namespace rack;
 
-// Declare the Plugin, defined in plugin.cpp
 extern Plugin* pluginInstance;
 
-// Declare each Model, defined in each module source file
 extern Model* modelWolframModule;
 
-// Knobs
-
+// Custom components
 struct M1900hBlackKnob : RoundKnob {
 	widget::SvgWidget* fg;
 
@@ -35,7 +32,6 @@ struct M1900hBlackEncoder : RoundKnob {
 	}
 };
 
-// Jacks
 struct BananutBlack : app::SvgPort {
 	// Befaco style
 	BananutBlack() {

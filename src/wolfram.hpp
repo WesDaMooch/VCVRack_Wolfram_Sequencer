@@ -2,17 +2,17 @@
 #include "plugin.hpp"
 #include <array>
 
-class AlgoEngine {
+class Engine {
 public:
-	AlgoEngine() {}
-	~AlgoEngine() {}
+	Engine() {}
+	~Engine() {}
 
 	// SEQUENCER
 	void tick() { displayMatrixUpdated = false; }
 	virtual void updateMatrix(int length, int offset, bool advance) = 0;
 	virtual void generate() = 0;
-	virtual void pushSeed(bool w) = 0;
-	virtual void inject(bool add, bool w) = 0;
+	virtual void pushSeed(bool writeToNextRow) = 0;	
+	virtual void inject(bool add, bool writeToNextRow) = 0;
 	
 	// UPDATERS
 	// Generic updater for Select encoder
@@ -60,22 +60,21 @@ public:
 	virtual std::string getModeName() = 0;
 
 protected:
-	static constexpr size_t MAX_SEQUENCE_LENGTH = 64;
-	
+	static constexpr int MAX_SEQUENCE_LENGTH = 64;
 	uint64_t displayMatrix = 0;
 	bool displayMatrixUpdated = false;
-
 	int readHead = 0;
 	int writeHead = 1;
-
 	std::string name = "";
 
 	// TODO: Inline certain helpers?
 	void advanceHeads(int length) {
+		// TODO: err check if ok? idk
 		readHead = writeHead;
 		writeHead = (writeHead + 1) % length;
 	}
 
+	// TODO: ref of row?
 	uint8_t applyOffset(uint8_t row, int offset) {
 		// Apply a horizontal offset to a given row
 		int shift = rack::clamp(offset, -4, 4);
@@ -90,7 +89,7 @@ protected:
 	}
 };
 
-class WolfEngine : public AlgoEngine {
+class WolfEngine : public Engine {
 public:
 	WolfEngine() { 
 		name = "WOLF";
@@ -128,35 +127,26 @@ public:
 
 		// Clip
 		// TODO: this is different from life!
-		uint8_t west = readRow >> 1;
-		uint8_t east = readRow << 1;
-
-		switch (modeIndex) {
-		case 1: {
+		uint8_t left = readRow >> 1;
+		uint8_t right = readRow << 1;
+		
+		if (modeIndex == 1) {
 			// Wrap
-			west = (readRow >> 1) | (readRow << 7);
-			east = (readRow << 1) | (readRow >> 7);
-			break;
+			left = (readRow >> 1) | (readRow << 7);
+			right = (readRow << 1) | (readRow >> 7);
 		}
-
-		case 2: {
+		else if (modeIndex == 2) {
 			// Random
-			west |= random::get<bool>() << 7;
-			east |= random::get<bool>();
-			break;
-		}
-
-		default:
-			// Clip
-			break;
+			left |= random::get<bool>() << 7;
+			right |= random::get<bool>();
 		}
 
 		for (int col = 0; col < 8; col++) {
-			uint8_t westBit = (west >> col) & 1;
+			uint8_t leftBit = (left >> col) & 1;
 			uint8_t currentBit = (readRow >> col) & 1;
-			uint8_t eastBit = (east >> col) & 1;
+			uint8_t rightBit = (right >> col) & 1;
 
-			uint8_t tag = (westBit << 2) | (currentBit << 1) | eastBit;
+			uint8_t tag = (leftBit << 2) | (currentBit << 1) | rightBit;
 			uint8_t newBit = (rule >> tag) & 1;
 
 			writeRow |= newBit << col;
@@ -164,20 +154,14 @@ public:
 		rowBuffer[writeHead] = writeRow;
 	}
 
-	void pushSeed(bool w) override {
+	void pushSeed(bool writeToNextRow) override {
+		int head = writeToNextRow ? writeHead : readHead;
 		uint8_t resetRow = randSeed ? random::get<uint8_t>() : seed;
-		int head = readHead;
-		if (w)
-			head = writeHead;
-
 		rowBuffer[head] = resetRow;
 	}
 
-	void inject(bool add, bool w) override {
-		int head = readHead;
-		if (w)
-			head = writeHead;
-
+	void inject(bool add, bool writeToNextRow) override {
+		int head = writeToNextRow ? writeHead : readHead;
 		uint8_t row = rowBuffer[head];
 
 		// Check if row is already full or empty
@@ -195,7 +179,8 @@ public:
 		uint8_t bitMask = 1;
 		for (int i = 0; i < 8; i++, bitMask <<= 1) {
 			if (targetMask & bitMask) {
-				if (target == 0) break;
+				if (target == 0) 
+					break;
 				target--;
 			}
 		}
@@ -206,7 +191,7 @@ public:
 
 	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
-		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < MAX_SEQUENCE_LENGTH))
 			rowBuffer[index] = static_cast<uint8_t>(frame);
 		else if (index == -1)
 			displayMatrix = frame;
@@ -268,7 +253,7 @@ public:
 
 	// GETTERS
 	uint64_t getBufferFrame(int index) override {
-		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < MAX_SEQUENCE_LENGTH))
 			return static_cast<uint64_t>(rowBuffer[index]);
 		else if (index == -1)
 			return displayMatrix;
@@ -356,7 +341,9 @@ protected:
 	static constexpr float modeScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
 	// HELPERS
-	void onRuleChange() { rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCV, 0, UINT8_MAX)); }
+	void onRuleChange() { 
+		rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCV, 0, UINT8_MAX)); 
+	}
 
 	void onSeedChange() {
 		// Seed options are 256 + 1 (RAND) 
@@ -373,7 +360,7 @@ protected:
 	}
 };
 
-class LifeEngine : public AlgoEngine {
+class LifeEngine : public Engine {
 public:
 	LifeEngine() {
 		name = "LIFE";
@@ -416,33 +403,25 @@ public:
 			row[i] = (readMatrix >> ((i - 1) * 8)) & 0xFFULL;
 
 		// Fill top & bottom padding rows
-		switch (modeIndex) {
-		case 0: {
+		if (modeIndex == 0) {
 			// Clip
 			row[0] = 0;
 			row[9] = 0;
-			break;
 		}
-
-		case 2: {
-			// Klein bottle
-			row[0] = reverseRow(row[8]);
-			row[9] = reverseRow(row[1]);
-			break;
-		}
-
-		case 3: {
-			// Random
-			row[0] = random::get<uint8_t>();
-			row[9] = random::get<uint8_t>();
-			break;
-		}
-
-		default:
+		else if (modeIndex == 1) {
 			// Wrap
 			row[0] = row[8];
 			row[9] = row[1];
-			break;
+		}
+		else if (modeIndex == 2) {
+			// Klein bottle
+			row[0] = reverseRow(row[8]);
+			row[9] = reverseRow(row[1]);
+		}
+		else if (modeIndex == 3) {
+			// Random
+			row[0] = random::get<uint8_t>();
+			row[9] = random::get<uint8_t>();
 		}
 
 		for (int i = 1; i < 9; i++) {
@@ -522,26 +501,14 @@ public:
 		matrixBuffer[writeHead] = writeMatrix;
 	}
 
-	void pushSeed(bool w) override {
-		size_t head = w ? writeHead : readHead;
+	void pushSeed(bool writeToNextRow) override {
+		int head = writeToNextRow ? writeHead : readHead;
 		uint64_t resetMatrix = 0;
 
-		switch (seedIndex) {
-		case 9: {
-			// True random
-			resetMatrix = random::get<uint64_t>();
-			break;
+		if (seedIndex == 7) {		// Sparse / half density random 	
+			resetMatrix = random::get<uint64_t>() & random::get<uint64_t>();
 		}
-
-		case 8: {
-			// Half desity random
-			resetMatrix = random::get<uint64_t>() &
-				random::get<uint64_t>();
-			break;
-		}
-
-		case 7: {
-			// Symmetrical / mirrored random
+		else if (seedIndex == 8) {	// Symmetrical / mirrored random
 			uint32_t randomHalf = random::get<uint32_t>();
 			uint64_t mirroredRandomHalf = 0;
 			for (int i = 0; i < 4; i++) {
@@ -549,34 +516,41 @@ public:
 				mirroredRandomHalf |= static_cast<uint64_t>(row) << ((i - 3) * -8);
 			}
 			resetMatrix = randomHalf | (mirroredRandomHalf << 32);
-			break;
+		}
+		else if (seedIndex == 9) {	// True random
+			resetMatrix = random::get<uint64_t>();
+		}
+		else {
+			resetMatrix = seeds[seedIndex].value;
 		}
 
-		default:
-			resetMatrix = seeds[seedIndex].value;
-			break;
-		}
-		
 		matrixBuffer[head] = resetMatrix;
 	}
 
-	void inject(bool a, bool w) override {
-		size_t head = w ? writeHead : readHead;
+	void inject(bool add, bool writeToNextRow) override {
+		// TODO: this dont work!
+		int head = writeToNextRow ? writeHead : readHead;
 		uint64_t tempMatrix = matrixBuffer[head];
 
 		// Check to see if row is already full or empty
-		if ((a & (tempMatrix == UINT64_MAX)) | (!a & (tempMatrix == 0)))
+		if ((add & (tempMatrix == UINT64_MAX)) | (!add & (tempMatrix == 0)))
 			return;
 
-		//uint64_t targetMask = a ? ~tempMatrix : tempMatrix;
 		uint64_t targetMask = tempMatrix;
-		if (a)
+		if (add)
 			targetMask = ~tempMatrix;	// Flip row
 
 		int targetCount = __builtin_popcountll(targetMask);	// Count target bits
 		int target = random::get<uint8_t>() % targetCount;	// Random target index
 
 		// Find corresponding bit position
+		uint64_t bitMask;
+		for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
+			if (targetMask & bitMask)
+				target--;
+		}
+
+		/*
 		uint8_t bitMask = 1;
 		for (int i = 0; i < 8; i++, bitMask <<= 1) {
 			if (targetMask & bitMask) {
@@ -584,8 +558,9 @@ public:
 				target--;
 			}
 		}
+		*/
 
-		tempMatrix = a ? (tempMatrix | bitMask) : (tempMatrix & ~bitMask);
+		tempMatrix = add ? (tempMatrix | bitMask) : (tempMatrix & ~bitMask);
 		matrixBuffer[head] = tempMatrix;
 	}
 	
@@ -618,7 +593,7 @@ public:
 
 	// SETTERS
 	void setBufferFrame(uint64_t frame, int index) override {
-		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < MAX_SEQUENCE_LENGTH))
 			matrixBuffer[index] = frame;
 		else if (index == -1)
 			displayMatrix = frame;
@@ -649,7 +624,7 @@ public:
 
 	// GETTERS
 	uint64_t getBufferFrame(int index) override { 
-		if ((index >= 0) && (index < static_cast<int>(MAX_SEQUENCE_LENGTH)))
+		if ((index >= 0) && (index < MAX_SEQUENCE_LENGTH))
 			return matrixBuffer[index];
 		else if (index == -1)
 			return displayMatrix;
@@ -769,9 +744,9 @@ protected:
 			{ "STEP", 0xC1830000000ULL },		// Stairstep Hexomino					Rule: Life, HoneyLife
 			{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship 					Rule: LowLife
 			{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
+			{ "RNDS", 0xEFA8EFA474577557ULL },	// Sparse Random / Half Density		
 			{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random
-			{ "RNDH", 0xEFA8EFA474577557ULL },	// Half Density Random				
-			{ " RND", 0 },// True Random
+			{ " RND", 0xFFFF81006618243CULL },	// True Random
 			{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
 			{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship				Rule: Life, HoneyLife
 			{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship	 					Rule: Virus
@@ -806,7 +781,9 @@ protected:
 	static constexpr float modesScaler = 1.f / (static_cast<float>(NUM_MODES) - 1.f);
 
 	// HELPERS
-	void onRuleChange() { ruleIndex = rack::clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1); }
+	void onRuleChange() {
+		ruleIndex = rack::clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1);
+	}
 
 	static inline void halfadder(uint8_t a, uint8_t b,
 		uint8_t& sum, uint8_t& carry) {
@@ -832,25 +809,20 @@ protected:
 	}
 
 	void getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& east) {
-		switch (modeIndex) {
-		case 0: {
+		if (modeIndex == 0) {
 			// Clip
 			west = row >> 1;
 			east = row << 1;
-			break;
 		}
-
-		case 3: {
+		else if (modeIndex == 1 || modeIndex == 2) {
+			// Wrap & klein bottle
+			west = (row >> 1) | (row << 7);
+			east = (row << 1) | (row >> 7);
+		}
+		else if (modeIndex == 3) {
 			// Random
 			west = (row >> 1) | (random::get<bool>() << 7);
 			east = (row << 1) | random::get<bool>();
-			break;
-		}
-
-		default: // Wrap & klein bottle
-			west = (row >> 1) | (row << 7);
-			east = (row << 1) | (row >> 7);
-			break;
 		}
 	}
 };
@@ -1049,125 +1021,3 @@ struct LookAndFeel {
 		nvgFill(vg);
 	}
 };
-
-/*
-class AlgoUI {
-public:
-	AlgoUI(AlgoEngine* e, LookAndFeel* l)
-		: engine(e),
-		lookAndFeel(l)
-	{
-		// Mini page
-		miniPage.set = [this](int d, bool r) { 
-			engine->updateRule(d, r);
-		};
-		miniPage.fg = [this](NVGcontext* vg, bool displayHeader) {
-			lookAndFeel->drawText(vg, "RULE", 0);
-			lookAndFeel->drawText(vg, engine->getRuleName(), 1);
-		};
-		miniPage.bg = [this](NVGcontext* vg) {
-			for (int i = 0; i < 2; i++)
-				lookAndFeel->drawTextBg(vg, i);
-		};
-
-		lookAndFeel->makeMenuPage(
-			rulePage,
-			engine->getAlgoName(),
-			"RULE",
-			[this] { return engine->getRuleName(); },
-			[this](int d, bool r) { engine->updateRule(d, r); }
-		);
-		lookAndFeel->makeMenuPage(
-			seedPage,
-			engine->getAlgoName(),
-			"SEED",
-			[this] { return engine->getSeedName(); },
-			[this](int d, bool r) { engine->updateSeed(d, r); }
-		);
-		lookAndFeel->makeMenuPage(
-			modePage,
-			engine->getAlgoName(),
-			"MODE",
-			[this] { return engine->getModeName(); },
-			[this](int d, bool r) { engine->updateMode(d, r); }
-		);
-	}
-
-	LookAndFeel::Page* getMiniPage() { return &miniPage; }
-	LookAndFeel::Page* getRulePage() { return &rulePage; }
-	LookAndFeel::Page* getSeedPage() { return &seedPage; }
-	LookAndFeel::Page* getModePage() { return &modePage; }
-
-protected:
-	AlgoEngine* engine;
-	LookAndFeel* lookAndFeel;
-
-	LookAndFeel::Page miniPage;
-	LookAndFeel::Page rulePage;
-	LookAndFeel::Page seedPage;
-	LookAndFeel::Page modePage;
-};
-
-class WolfUI : public AlgoUI {
-public:
-	WolfUI(WolfEngine* e, LookAndFeel* l)
-		: AlgoUI(e, l)
-	{
-		seedPage.fg = [this](NVGcontext* vg, bool displayHeader) {
-			lookAndFeel->drawText(vg, displayHeader ? "wolf" : "menu", 0);
-			lookAndFeel->drawText(vg, "SEED", 1);
-
-			int seed = engine->getSeed();
-			if (seed == 256)
-				lookAndFeel->drawText(vg, "RAND", 2);
-			else
-				lookAndFeel->drawWolfSeedDisplay(vg, true, static_cast<uint8_t>(seed));
-
-			lookAndFeel->drawText(vg, "<#@>", 3);
-		};
-		seedPage.bg = [this](NVGcontext* vg) {
-			int seed = engine->getSeed();
-			for (int i = 0; i < 4; i++) {
-				if ((i == 2) && (seed != 256))
-					lookAndFeel->drawWolfSeedDisplay(vg, false, static_cast<uint8_t>(seed));
-				else
-					lookAndFeel->drawTextBg(vg, i);
-			}
-		};
-	}
-};
-
-class LifeUI : public AlgoUI{
-public:
-	LifeUI(LifeEngine* e, LookAndFeel* l)
-		: AlgoUI(e, l)
-	{}
-};
-
-
-// TODO:
-// UI only does drawing as is only in module widget
-
-// setters are found in dps module 
-
-
-*/
-/*
-struct WolfUI2 : public UI {
-	void drawMenu(NVGcontext* vg, AlgoEngine* engine, LookAndFeel* lookAndFeel,
-		int layer, int pageNumber, bool algorithmModActive) override {
-		
-		if (!engine || !lookAndFeel)
-			return;
-
-		if (algorithmModActive) {
-			if (pageNumber == 0)
-				lookAndFeel->drawMenuText(vg, header, "SEED", engine->getSeedName(), footer);
-				
-		}
-
-	}
-
-	//std::string algorithmName = "wolf";
-};
-*/
