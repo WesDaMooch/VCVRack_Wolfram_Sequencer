@@ -3,30 +3,9 @@
 BaseEngine::BaseEngine() = default;
 BaseEngine::~BaseEngine() = default;
 
-void BaseEngine::tick() { 
-	displayMatrixUpdated = false; 
-}
-
-// SETTERS
-void BaseEngine::setReadHead(int newReadHead) { 
-	readHead = newReadHead; 
-}
-
 // SEQUENCER
-void BaseEngine::setWriteHead(int newWriteHead) { 
-	writeHead = newWriteHead; 
-}
-
-int BaseEngine::getReadHead() { 
-	return readHead; 
-}
-
-int BaseEngine::getWriteHead() { 
-	return writeHead; 
-}
-
-std::string& BaseEngine::getEngineString() { 
-	return engineName; 
+void BaseEngine::tick() {
+    displayMatrixUpdated = false;
 }
 
 void BaseEngine::advanceHeads(int length) {
@@ -35,7 +14,30 @@ void BaseEngine::advanceHeads(int length) {
     writeHead = (writeHead + 1) % length;
 }
 
-// HELPER
+// SETTERS
+void BaseEngine::setReadHead(int newReadHead) {
+    readHead = rack::clamp(newReadHead, 0, MAX_SEQUENCE_LENGTH - 1);
+}
+
+
+void BaseEngine::setWriteHead(int newWriteHead) { 
+	writeHead = rack::clamp(newWriteHead, 0, MAX_SEQUENCE_LENGTH - 1);
+}
+
+// GETTERS
+int BaseEngine::getReadHead() { 
+	return readHead; 
+}
+
+int BaseEngine::getWriteHead() { 
+	return writeHead; 
+}
+
+void BaseEngine::getEngineLabel(char out[5]) {
+    memcpy(out, engineLabel, 5);
+}
+
+// HELPERS
 uint8_t BaseEngine::applyOffset(uint8_t row, int offset) {
     int shift = rack::clamp(offset, -4, 4);
 

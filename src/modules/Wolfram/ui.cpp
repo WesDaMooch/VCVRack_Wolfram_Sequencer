@@ -1,6 +1,26 @@
 #include "ui.hpp"
 
-void UI::init() {
+// Other display styles
+// { nvgRGB(17, 3, 20),	nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },		// Purple 
+// { nvgRGB(4, 3, 8),		nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },		// Eva 
+
+// TODO: make redrick off cells darker
+// Screen, foreground, backgound 
+const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ {
+	{ nvgRGB(58, 16, 19),	nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
+	{ nvgRGB(37, 59, 99),	nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
+	{ SCHEME_DARK_GRAY,		SCHEME_YELLOW,			SCHEME_DARK_GRAY },			// Rack  
+	{ nvgRGB(200, 200, 200),	nvgRGB(0, 1, 220),	nvgRGB(200, 200, 200) },	// Windows
+	{ nvgRGB(42, 47, 37),	nvgRGB(210, 255, 0),	nvgRGB(42, 47, 37) },		// Lamp 
+	{ nvgRGB(0, 0, 0),		nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
+} };
+
+
+void UI::init(float newPadding, float newFontSize, float newCellPadding) {
+	padding = newPadding;
+	fontSize = newFontSize;
+	cellPadding = newCellPadding;
+
 	textBgSize = fontSize - 2.f;
 	textBgPadding = (fontSize * 0.5f) - (textBgSize * 0.5f) + padding;
 
@@ -23,13 +43,19 @@ void UI::init() {
 	for (int c = 0; c < 8; c++) {
 		for (int r = 0; r < 8; r++) {
 			int i = r * 8 + c;
-			float a = (cellSpacing * 0.5f) + padding;
-			cellCirclePos[i].x = (cellSpacing * c) + a;
-			cellCirclePos[i].y = (cellSpacing * r) + a;
+			float a = (cellPadding * 0.5f) + padding;
+			cellCirclePos[i].x = (cellPadding * c) + a;
+			cellCirclePos[i].y = (cellPadding * r) + a;
 
-			float b = (cellSpacing * 0.5f) - (squareCellSize * 0.5f) + padding;
-			cellSquarePos[i].x = (cellSpacing * c) + b;
-			cellSquarePos[i].y = (cellSpacing * r) + b;
+			//float b = (cellPadding * 0.5f) - (roundedSquareCellSize * 0.5f) + padding;
+			// TODO: dont like
+			cellSquarePos[i].x = (cellPadding * c) + padding;
+			cellSquarePos[i].y = (cellPadding * r) + padding;
+
+			float d = (cellPadding * 0.5f) - (roundedSquareCellSize * 0.5f) + padding;
+			cellRoundedSquarePos[i].x = (cellPadding * c) + d;
+			cellRoundedSquarePos[i].y = (cellPadding * r) + d;
+			
 		}
 	}
 
@@ -44,15 +70,15 @@ void UI::init() {
 };
 
 // GETTERS
-NVGcolor& UI::getScreenColour() { 
+const NVGcolor& UI::getScreenColour() const {
 	return displayStyle[displayStyleIndex][0]; 
 }
 
-NVGcolor& UI::getForegroundColour() { 
+const NVGcolor& UI::getForegroundColour() const {
 	return displayStyle[displayStyleIndex][1];
 }
 
-NVGcolor& UI::getBackgroundColour() { 
+const NVGcolor& UI::getBackgroundColour() const {
 	return displayStyle[displayStyleIndex][2];
 }
 
@@ -65,39 +91,38 @@ void UI::getCellPath(NVGcontext* vg, int col, int row) {
 		return;
 
 	if (cellStyleIndex == 1) {
-		// Square
-		nvgRoundedRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
-			squareCellSize, squareCellSize, squareCellBevel);
+		// Pixel - Rounded square
+		nvgRoundedRect(vg, cellRoundedSquarePos[i].x, cellRoundedSquarePos[i].y,
+			roundedSquareCellSize, roundedSquareCellSize, roundedSquareCellBevel);
+
+		//  - Square
+		//nvgRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
+		//	cellPadding, cellPadding);
 	}
 	else {
-		// Circle
+		// LED - Circle
 		nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
 	}
 }
 
-void UI::drawText(NVGcontext* vg, const std::string& string, int row) {
+void UI::drawText(NVGcontext* vg, const char* text, int row) {
 	// Draw a four character row of text
 	if ((row < 0) || (row >= 4))
 		return;
 
-	std::string outputStr;
-
-	if (string.size() >= 4)
-		outputStr = string.substr(string.size() - 4);
-	else
-		outputStr = std::string(4 - string.size(), ' ') + string;
-
 	nvgBeginPath(vg);
 	nvgFillColor(vg, getForegroundColour());
-	nvgText(vg, textPos[row].x, textPos[row].y, outputStr.c_str(), nullptr);
+	nvgText(vg, textPos[row].x, textPos[row].y, text, nullptr);
 }
 
-void UI::drawMenuText(NVGcontext* vg, std::string l1,
-	std::string l2, std::string l3, std::string l4) {
+void UI::drawMenuText(NVGcontext* vg, const char* l1,
+	const char* l2, const char* l3, const char* l4) {
+
 	// Helper for drawing four lines of menu text
-	std::array<std::string, 4> text = { l1, l2, l3, l4 };
-	for (int i = 0; i < 4; i++)
-		drawText(vg, text[i], i);
+    drawText(vg, l1, 0);
+    drawText(vg, l2, 1);
+    drawText(vg, l3, 2);
+    drawText(vg, l4, 3);
 }
 
 void UI::drawTextBg(NVGcontext* vg, int row) {
@@ -124,10 +149,6 @@ void UI::drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed) {
 		// Lines
 		NVGcolor colour = getForegroundColour();
 
-		// Special case colour for Eva look
-		if (displayStyleIndex == 3)
-			colour = nvgRGB(115, 255, 166);
-
 		nvgStrokeColor(vg, colour);
 		nvgBeginPath(vg);
 		for (int col = 0; col < 8; col++) {
@@ -141,7 +162,7 @@ void UI::drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed) {
 		}
 		nvgStrokeWidth(vg, 0.5f);
 		nvgStroke(vg);
-		//nvgClosePath(args.vg); ?
+		//TODO: nvgClosePath(args.vg); ?
 	}
 
 	nvgFillColor(vg, layer ? getForegroundColour() : getBackgroundColour());

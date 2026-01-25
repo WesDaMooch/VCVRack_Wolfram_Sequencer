@@ -1,11 +1,40 @@
 ﻿#pragma once
 #include "../../plugin.hpp"
 #include <array>
-#include <string>
+#include <cstdint>
 
-// TODO: clamp setters
+struct EngineState {
+	// Used to take a snapshot of the engine's current values,
+	// to be safely read by the UI
+	uint64_t display = 0;
+	int seed = 0;
+	char engineLabel[5]{};
+	char ruleActiveLabel[5]{};
+	char ruleSelectLabel[5]{};
+	char seedLabel[5]{};
+	char modeLabel[5]{};
+};
 
+// TODO: rename getXString to getXLabel
 class BaseEngine {
+protected:
+	static constexpr int MAX_SEQUENCE_LENGTH = 64;
+	uint64_t displayMatrix = 0;
+	bool displayMatrixUpdated = false;
+	int readHead = 0;
+	int writeHead = 1;
+	char engineLabel[5] = "BASE";
+
+	// SEQUENCER
+	void advanceHeads(int length);
+
+	// HELPERS
+	uint8_t applyOffset(uint8_t row, int offset);
+
+	// TODO: value, delta, reset, defaultValue, maxValue
+	int updateSelect(int value, int MAX_VALUE,
+		int defaultValue, int delta, bool reset);
+
 public:
 	BaseEngine();
 	virtual ~BaseEngine();
@@ -25,21 +54,19 @@ public:
 	// SETTERS
 	void setReadHead(int newReadHead);
 	void setWriteHead(int newWriteHead);
-
-	virtual void setBufferFrame(uint64_t frame, int index) = 0;
+	virtual void setBufferFrame(uint64_t newFrame, int index) = 0;
 	virtual void setRuleCV(float newCV) = 0;
-	virtual void setRule(int newRule) = 0;
+	virtual void setRule(int newRule) = 0; // set rule select
 	virtual void setSeed(int newSeed) = 0;
 	virtual void setMode(int newMode) = 0;
 
 	// GETTERS
 	int getReadHead();
 	int getWriteHead();
-	std::string& getEngineString();
-
+	void getEngineLabel(char out[5]);
 	virtual uint64_t getBufferFrame(int index) = 0;
 	virtual int getRuleSelect() = 0;
-	virtual int getRule() = 0;
+	virtual int getRule() = 0; // not needed?
 	virtual int getSeed() = 0;
 	virtual int getMode() = 0;
 	virtual float getXVoltage() = 0;
@@ -47,24 +74,8 @@ public:
 	virtual bool getXPulse() = 0;
 	virtual bool getYPulse() = 0;
 	virtual float getModeLEDValue() = 0;
-
-	virtual std::string getRuleSelectName() = 0;
-	virtual std::string getRuleName() = 0;
-	virtual std::string getSeedName() = 0;
-	virtual std::string getModeName() = 0;
-
-protected:
-	static constexpr int MAX_SEQUENCE_LENGTH = 64;
-	uint64_t displayMatrix = 0;
-	bool displayMatrixUpdated = false;
-	int readHead = 0;
-	int writeHead = 1;
-	std::string engineName = "BASE";
-
-	void advanceHeads(int length);
-	uint8_t applyOffset(uint8_t row, int offset);
-
-	// HELPERS
-	int updateSelect(int value, int MAX_VALUE,
-		int defaultValue, int delta, bool reset);
+	virtual void getRuleActiveLabel(char out[5]) = 0;
+	virtual void getRuleSelectLabel(char out[5]) = 0;
+	virtual void getSeedLabel(char out[5]) = 0;
+	virtual void getModeLabel(char out[5]) = 0;
 };

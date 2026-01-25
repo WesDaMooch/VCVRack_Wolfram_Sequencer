@@ -1,8 +1,34 @@
 #include "wolfEngine.hpp"
 
+const char WolfEngine::modeNames[WolfEngine::NUM_MODES][5] = {
+	"CLIP",
+	"WRAP",
+	"RAND"
+};
+
 WolfEngine::WolfEngine() {
-	engineName = "WOLF";
+	memcpy(engineLabel, "WOLF", 5);
 	rowBuffer[readHead] = seed;
+}
+
+// EVENT
+void WolfEngine::onRuleChange() {
+	rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCV, 0, UINT8_MAX));
+}
+
+void WolfEngine::onSeedChange() {
+	// Seed options are 256 + 1 (RAND) 
+	// Wrap seedSelect
+	if (seedSelect > 256)
+		seedSelect -= 257;
+	else if (seedSelect < 0)
+		seedSelect += 257;
+
+	// Find randSeed
+	randSeed = (seedSelect == 256);
+	// Set seed
+	if (!randSeed)
+		seed = static_cast<uint8_t>(seedSelect);
 }
 
 // SEQUENCER
@@ -35,7 +61,6 @@ void WolfEngine::generate() {
 	uint8_t writeRow = 0;
 
 	// Clip
-	// TODO: this is different from life!
 	uint8_t left = readRow >> 1;
 	uint8_t right = readRow << 1;
 
@@ -99,11 +124,11 @@ void WolfEngine::inject(bool add, bool writeToNextRow) {
 }
 
 // SETTERS
-void WolfEngine::setBufferFrame(uint64_t frame, int index) {
+void WolfEngine::setBufferFrame(uint64_t newFrame, int index) {
 	if ((index >= 0) && (index < MAX_SEQUENCE_LENGTH))
-		rowBuffer[index] = static_cast<uint8_t>(frame);
+		rowBuffer[index] = static_cast<uint8_t>(newFrame);
 	else if (index == -1)
-		displayMatrix = frame;
+		displayMatrix = newFrame;
 }
 
 void WolfEngine::setRule(int newRule) {
@@ -112,21 +137,21 @@ void WolfEngine::setRule(int newRule) {
 }
 
 void WolfEngine::setSeed(int newSeed) {
-	seedSelect = newSeed;
+	seedSelect = rack::clamp(newSeed, 0, NUM_SEEDS - 1);
 	onSeedChange();
 }
 
 void WolfEngine::setMode(int newMode) {
-	modeIndex = newMode;
+	modeIndex = rack::clamp(newMode, 0, NUM_MODES - 1);
 }
 
-void WolfEngine::setRuleCV(float cv) {
-	int newCV = std::round(cv * 256);
+void WolfEngine::setRuleCV(float newCv) {
+	int cv = std::round(newCv * 256);
 
-	if (newCV == ruleCV)
+	if (cv == ruleCV)
 		return;
 
-	ruleCV = newCV;
+	ruleCV = cv;
 	onRuleChange();
 }
 
@@ -229,38 +254,18 @@ float WolfEngine::getModeLEDValue() {
 	return static_cast<float>(modeIndex) * modeScaler; 
 }
 
-std::string WolfEngine::getRuleName() { 
-	return std::to_string(rule); 
+void WolfEngine::getRuleActiveLabel(char out[5]) {
+	snprintf(out, 5, "%4d", rule);
 }
 
-std::string WolfEngine::getRuleSelectName() { 
-	return std::to_string(ruleSelect); 
+void WolfEngine::getRuleSelectLabel(char out[5]) {
+	snprintf(out, 5, "%4d", ruleSelect);
 }
 
-std::string WolfEngine::getSeedName() { 
-	return ""; 
+void WolfEngine::getSeedLabel(char out[5]) {
+	memcpy(out, "    ", 5);
 }
 
-std::string WolfEngine::getModeName() { 
-	return modeNames[modeIndex]; 
-}
-
-// EVENT
-void WolfEngine::onRuleChange() {
-	rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCV, 0, UINT8_MAX));
-}
-
-void WolfEngine::onSeedChange() {
-	// Seed options are 256 + 1 (RAND) 
-	// Wrap seedSelect
-	if (seedSelect > 256)
-		seedSelect -= 257;
-	else if (seedSelect < 0)
-		seedSelect += 257;
-
-	// Find randSeed
-	randSeed = (seedSelect == 256);
-	// Set seed
-	if (!randSeed)
-		seed = static_cast<uint8_t>(seedSelect);
+void WolfEngine::getModeLabel(char out[5]) {
+	memcpy(out, modeNames[modeIndex], 5);
 }

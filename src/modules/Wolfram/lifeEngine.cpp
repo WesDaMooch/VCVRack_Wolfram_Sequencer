@@ -1,9 +1,130 @@
 #include "lifeEngine.hpp"
 
+const char LifeEngine::modeNames[LifeEngine::NUM_MODES][5] = {
+	"CLIP",	// A plane bounded by 0s
+	"WRAP",	// Donut-shaped torus
+	"BOTL",	// Klein bottle - One pair of opposite edges are reversed
+	"RAND"	// Plane is bounded by randomness
+};
+
+const std::array<LifeEngine::Rule, LifeEngine::NUM_RULES> LifeEngine::rule{ {
+	// Rules from the Hatsya catagolue & LifeWiki
+	{ "WALK", 0x1908U },			// Pedestrian Life			B38/S23
+	{ "VRUS", 0x5848U },			// Virus					B36/S235
+	{ "TREK", 0x22A08U },			// Star Trek				B3/S0248		
+	{ "SQRT", 0x6848U },			// Sqrt Replicator			B36/S245		
+	{ "SEED", 0x04U },				// Seeds					B2/S			
+	{ "RUGS", 0x1CU },				// Serviettes				B234/S			
+	{ "MOVE", 0x6948U },			// Move / Morley			B368/S245		
+	{ "MESS", 0x3D9C8U },			// Stains					B3678/S235678   
+	{ "MAZE", 0x3C30U },			// Mazectric non Static		B45/S1234 
+	{ " LOW", 0x1408U },			// LowLife					B3/S13		
+	{ "LONG", 0x4038U },			// LongLife					B345/S5			
+	{ "LIFE", 0x1808U },			// Conway's Game of Life	B3/S23			
+	{ "ICE9", 0x3C1E4U },			// Iceballs					B25678/S5678	
+	{ "HUNY", 0x21908U },			// HoneyLife				B38/S238		
+	{ "GNRL", 0x402U },				// Gnarl					B1/S1			
+	{ " GEO", 0x3A9A8U },			// Geology					B3578/S24678	
+	{ "GEMS", 0x2E0B8U },			// Gems						B3457/S4568		
+	{ "FREE", 0x204U },				// Live Free or Die			B2/S0			
+	{ "FORT", 0x3D5C8U },			// Castles					B3678/S135678   
+	{ "FLOK", 0xC08U },				// Flock					B3/S12
+	{ "DUPE", 0x154AAU },			// Replicator				B1357/S1357		
+	{ " DOT", 0x1A08U },			// DotLife					B3/S023
+	{ "DIRT", 0x1828U },			// Grounded Life			B35/S23
+	{ "DIAM", 0x3C1E8U },			// Diamoeba					B35678/S5678	
+	{ "DANC", 0x5018U },			// Dance					B34/S35			
+	{ "CLOT", 0x3D988U },			// Coagulations				B378/S235678	
+	{ "ACID", 0x2C08U },			// Corrosion of Conformity	B3/S124			
+	{ " 3-4", 0x3018U },			// 3-4 Life					B34/S34			
+	{ " 2X2", 0x4C48U },			// 2x2						B35/S125		
+	{ "24/7", 0x3B1C8U },			// Day & Night				B3678/S34678	
+} };
+
 LifeEngine::LifeEngine() {
-	engineName = "LIFE";
-	seeds[seedDefault].value = random::get<uint64_t>();
-	matrixBuffer[readHead] = seeds[seedDefault].value;
+	seed = { {
+		// Seeds from the Life Lexicon, Hatsya catagolue & LifeWiki
+		{ "WING", 0x1824140C0000ULL },		// Wing									Rule: Life
+		{ "WIND", 0x60038100000ULL },		// Sidewinder Spaceship					Rule: LowLife
+		{ "VONG", 0x283C3C343000ULL },		// Castles Spaceship 					Rule: Castles
+		{ "VELP", 0x20700000705000ULL },	// Virus Spaceship	 					Rule: Virus
+		{ "STEP", 0xC1830000000ULL },		// Stairstep Hexomino					Rule: Life, HoneyLife
+		{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship 					Rule: LowLife
+		{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
+		{ "RNDS", 0xEFA8EFA474577557ULL },	// Sparse Random / Half Density		
+		{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random
+		{ " RND", 0xFFFF81006618243CULL },	// True Random
+		{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
+		{ "MWSS", 0x50088808483800ULL },	// Middleweight Spaceship				Rule: Life, HoneyLife
+		{ "MORB", 0x38386C44200600ULL },	// Virus Spaceship	 					Rule: Virus
+		{ "MOON", 0x1008081000000000ULL },	// Moon Spaceship 						Rule: Live Free or Die, Seeds, Iceballs
+		{ "LWSS", 0x1220223C00000000ULL },	// Lightweight Spaceship				Rule: Life, HoneyLife 
+		{ "JELY", 0x203038000000ULL },		// Jellyfish Spaceship					Rule: Move, Sqrt Replicator
+		{ "HAND", 0xC1634180000ULL },		// Handshake							Rule: Life, HoneyLife
+		{ "G-BC", 0x1818000024A56600ULL },	// Glider-block Cycle					Rule: Life 					
+		{ " GSV", 0x10387C38D60010ULL },	// Xq4_gkevekgzx2 Spaceship 			Rule: Day & Night
+		{ "FUMA", 0x1842424224A5C3ULL },	// Fumarole								Rule: Life  						
+		{ "FLYR", 0x382010000000ULL },		// Glider								Rule: Life, HoneyLife			
+		{ "FIG8", 0x7070700E0E0E00ULL },	// Figure 8								Rule: Life 
+		{ "EPST", 0xBA7CEE440000ULL },		// Eppstein's Glider					Rule: Stains
+		{ "CRWL", 0x850001C0000ULL },		// Crawler								Rule: 2x2
+		{ "CHEL", 0x302C0414180000ULL },	// Herschel Descendant					Rule: Life
+		{ "BORG", 0x40304838380000ULL },	// Xq6_5qqs Spaceship 					Rule: Star Trek	
+		{ "BFLY", 0x38740C0C0800ULL },		// Butterfly 							Rule: Day & Night
+		{ " B&G", 0x30280C000000ULL },		// Block and Glider						Rule: Life
+		{ "34D3", 0x41E140C000000ULL },		// 3-4 Life Spaceship 					Rule: 3-4 Life
+		{ "34C3", 0x3C2464140000ULL },		// 3-4 Life Spaceship 					Rule: 3-4 Life
+	} };
+
+	memcpy(engineLabel, "LIFE", 5);
+	seed[seedDefault].value = random::get<uint64_t>();
+	matrixBuffer[readHead] = seed[seedDefault].value;
+}
+
+// EVENT
+void LifeEngine::onRuleChange() {
+	ruleIndex = rack::clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1);
+}
+
+// HELPERS
+void LifeEngine::halfadder(uint8_t a, uint8_t b,
+	uint8_t& sum, uint8_t& carry) {
+	sum = a ^ b;
+	carry = a & b;
+}
+
+void LifeEngine::fulladder(uint8_t a, uint8_t b, uint8_t c,
+	uint8_t& sum, uint8_t& carry) {
+
+	uint8_t t0, t1, t2;
+	halfadder(a, b, t0, t1);
+	halfadder(t0, c, sum, t2);
+	carry = t2 | t1;
+}
+
+uint8_t LifeEngine::reverseRow(uint8_t row) {
+	row = ((row & 0xF0) >> 4) | ((row & 0x0F) << 4);
+	row = ((row & 0xCC) >> 2) | ((row & 0x33) << 2);
+	row = ((row & 0xAA) >> 1) | ((row & 0x55) << 1);
+	return row;
+}
+
+void LifeEngine::getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& east) {
+	if (modeIndex == 0) {
+		// Clip
+		west = row >> 1;
+		east = row << 1;
+	}
+	else if (modeIndex == 1 || modeIndex == 2) {
+		// Wrap & klein bottle
+		west = (row >> 1) | (row << 7);
+		east = (row << 1) | (row >> 7);
+	}
+	else if (modeIndex == 3) {
+		// Random
+		west = (row >> 1) | (random::get<bool>() << 7);
+		east = (row << 1) | random::get<bool>();
+	}
 }
 
 // SEQUENCER
@@ -125,10 +246,10 @@ void LifeEngine::generate() {
 			int birthIndex = k;
 			int survivalIndex = k + 9;
 
-			if (rules[ruleIndex].value & (1 << birthIndex))
+			if (rule[ruleIndex].value & (1 << birthIndex))
 				birth |= alive[k];
 
-			if (rules[ruleIndex].value & (1 << survivalIndex))
+			if (rule[ruleIndex].value & (1 << survivalIndex))
 				survival |= alive[k];
 		}
 		uint8_t nextRow = (c & survival) | ((~c) & birth);
@@ -143,10 +264,12 @@ void LifeEngine::pushSeed(bool writeToNextRow) {
 	int head = writeToNextRow ? writeHead : readHead;
 	uint64_t resetMatrix = 0;
 
-	if (seedIndex == 7) {		// Sparse / half density random 	
+	if (seedIndex == 7) {
+		// Sparse / half density random 
 		resetMatrix = random::get<uint64_t>() & random::get<uint64_t>();
 	}
-	else if (seedIndex == 8) {	// Symmetrical / mirrored random
+	else if (seedIndex == 8) {
+		// Symmetrical / mirrored random
 		uint32_t randomHalf = random::get<uint32_t>();
 		uint64_t mirroredRandomHalf = 0;
 		for (int i = 0; i < 4; i++) {
@@ -155,11 +278,12 @@ void LifeEngine::pushSeed(bool writeToNextRow) {
 		}
 		resetMatrix = randomHalf | (mirroredRandomHalf << 32);
 	}
-	else if (seedIndex == 9) {	// True random
+	else if (seedIndex == 9) {
+		// True random
 		resetMatrix = random::get<uint64_t>();
 	}
 	else {
-		resetMatrix = seeds[seedIndex].value;
+		resetMatrix = seed[seedIndex].value;
 	}
 
 	matrixBuffer[head] = resetMatrix;
@@ -230,34 +354,34 @@ void LifeEngine::updateMode(int delta, bool reset) {
 }
 
 // SETTERS
-void LifeEngine::setBufferFrame(uint64_t frame, int index) {
+void LifeEngine::setBufferFrame(uint64_t newFrame, int index) {
 	if ((index >= 0) && (index < MAX_SEQUENCE_LENGTH))
-		matrixBuffer[index] = frame;
+		matrixBuffer[index] = newFrame;
 	else if (index == -1)
-		displayMatrix = frame;
+		displayMatrix = newFrame;
 }
 
-void LifeEngine::setRuleCV(float cv) {
-	int newCV = std::round(cv * NUM_RULES);
+void LifeEngine::setRuleCV(float newCv) {
+	int cv = std::round(newCv * NUM_RULES);
 
-	if (newCV == ruleCV)
+	if (cv == ruleCV)
 		return;
 
-	ruleCV = newCV;
+	ruleCV = cv;
 	onRuleChange();
 }
 
 void LifeEngine::setRule(int newRule) {
-	ruleSelect = newRule;
+	ruleSelect = rack::clamp(newRule, 0, NUM_RULES - 1);
 	onRuleChange();
 }
 
 void LifeEngine::setSeed(int newSeed) {
-	seedIndex = newSeed;
+	seedIndex = rack::clamp(newSeed, 0, NUM_SEEDS - 1);
 }
 
 void LifeEngine::setMode(int newMode) {
-	modeIndex = newMode;
+	modeIndex = rack::clamp(newMode, 0, NUM_MODES - 1);
 }
 
 // GETTERS
@@ -287,12 +411,12 @@ int LifeEngine::getMode() {
 }
 
 float LifeEngine::getXVoltage() {
-	// Returns the population (number of alive cells) scaled to 0-1
+	// Returns the population (number of alive cells) scaled to 0 - 1
 	return population * xVoltageScaler;
 }
 
 float LifeEngine::getYVoltage() {
-	// Returns the 64-bit number display matrix scaled to 0-1
+	// Returns the 64-bit number display matrix scaled to 0 - 1
 	return displayMatrix * yVoltageScaler;
 }
 
@@ -323,65 +447,18 @@ float LifeEngine::getModeLEDValue() {
 	return static_cast<float>(modeIndex) * modesScaler; 
 }
 
-std::string LifeEngine::getRuleName() { 
-	return rules[ruleIndex].name; 
+void LifeEngine::getRuleActiveLabel(char out[5]) {
+	memcpy(out, rule[ruleIndex].name, 5);
 }
 
-std::string LifeEngine::getRuleSelectName() { 
-	return rules[ruleSelect].name; 
+void LifeEngine::getRuleSelectLabel(char out[5]) {
+	memcpy(out, rule[ruleSelect].name, 5);
 }
 
-std::string LifeEngine::getSeedName() { 
-	return seeds[seedIndex].name; 
+void LifeEngine::getSeedLabel(char out[5]) {
+	memcpy(out, seed[seedIndex].name, 5);
 }
 
-std::string LifeEngine::getModeName() { 
-	return modeNames[modeIndex]; 
-}
-
-// EVENT
-void LifeEngine::onRuleChange() {
-	ruleIndex = rack::clamp(ruleSelect + ruleCV, 0, NUM_RULES - 1);
-}
-
-// HELPERS
-void LifeEngine::halfadder(uint8_t a, uint8_t b,
-	uint8_t& sum, uint8_t& carry) {
-	sum = a ^ b;
-	carry = a & b;
-}
-
-void LifeEngine::fulladder(uint8_t a, uint8_t b, uint8_t c,
-	uint8_t& sum, uint8_t& carry) {
-
-	uint8_t t0, t1, t2;
-	halfadder(a, b, t0, t1);
-	halfadder(t0, c, sum, t2);
-	carry = t2 | t1;
-}
-
-// TODO: pass row ref?
-uint8_t LifeEngine::reverseRow(uint8_t row) {
-	row = ((row & 0xF0) >> 4) | ((row & 0x0F) << 4);
-	row = ((row & 0xCC) >> 2) | ((row & 0x33) << 2);
-	row = ((row & 0xAA) >> 1) | ((row & 0x55) << 1);
-	return row;
-}
-
-void LifeEngine::getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& east) {
-	if (modeIndex == 0) {
-		// Clip
-		west = row >> 1;
-		east = row << 1;
-	}
-	else if (modeIndex == 1 || modeIndex == 2) {
-		// Wrap & klein bottle
-		west = (row >> 1) | (row << 7);
-		east = (row << 1) | (row >> 7);
-	}
-	else if (modeIndex == 3) {
-		// Random
-		west = (row >> 1) | (random::get<bool>() << 7);
-		east = (row << 1) | random::get<bool>();
-	}
+void LifeEngine::getModeLabel(char out[5]) {
+	memcpy(out, modeNames[modeIndex], 5);
 }
