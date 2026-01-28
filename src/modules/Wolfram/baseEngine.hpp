@@ -3,11 +3,18 @@
 #include <array>
 #include <cstdint>
 
-struct EngineState {
+static constexpr int MAX_SEQUENCE_LENGTH = 64;
+
+struct EngineStateSnapshot {
 	// Used to take a snapshot of the engine's current values,
-	// to be safely read by the UI
+	// to be safely read by the UI and patch autosaver
+	std::array<uint64_t, MAX_SEQUENCE_LENGTH> matrixBuffer{};
 	uint64_t display = 0;
+	int readHead = 0;
+	int writeHead = 0;
+	int ruleSelect = 0;
 	int seed = 0;
+	int mode = 0;
 	char engineLabel[5]{};
 	char ruleActiveLabel[5]{};
 	char ruleSelectLabel[5]{};
@@ -18,7 +25,6 @@ struct EngineState {
 // TODO: rename getXString to getXLabel
 class BaseEngine {
 protected:
-	static constexpr int MAX_SEQUENCE_LENGTH = 64;
 	uint64_t displayMatrix = 0;
 	bool displayMatrixUpdated = false;
 	int readHead = 0;
