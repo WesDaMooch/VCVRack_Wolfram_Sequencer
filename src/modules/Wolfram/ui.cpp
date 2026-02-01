@@ -1,0 +1,180 @@
+#include "ui.hpp"
+
+// Other display styles
+// { nvgRGB(17, 3, 20),	nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },		// Purple 
+// { nvgRGB(4, 3, 8),		nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },		// Eva 
+
+// TODO: make redrick off cells darker
+// Screen, foreground, backgound 
+const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ {
+	{ nvgRGB(58, 16, 19),	nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
+	{ nvgRGB(37, 59, 99),	nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
+	{ SCHEME_DARK_GRAY,		SCHEME_YELLOW,			SCHEME_DARK_GRAY },			// Rack  
+	{ nvgRGB(200, 200, 200),	nvgRGB(0, 1, 220),	nvgRGB(200, 200, 200) },	// Windows
+	{ nvgRGB(42, 47, 37),	nvgRGB(210, 255, 0),	nvgRGB(42, 47, 37) },		// Lamp 
+	{ nvgRGB(0, 0, 0),		nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
+} };
+
+
+void UI::init(float newPadding, float newFontSize, float newCellPadding) {
+	padding = newPadding;
+	fontSize = newFontSize;
+	cellPadding = newCellPadding;
+
+	textBgSize = fontSize - 2.f;
+	textBgPadding = (fontSize * 0.5f) - (textBgSize * 0.5f) + padding;
+
+	// Text positions. 
+	for (int i = 0; i < 4; i++) {
+		textPos[i].x = padding;
+		textPos[i].y = padding + (fontSize * i);
+	}
+
+	// Text background positions. 
+	for (int r = 0; r < 4; r++) {
+		for (int c = 0; c < 4; c++) {
+			int i = r * 4 + c;
+			textBgPos[i].x = (fontSize * c) + textBgPadding;
+			textBgPos[i].y = (fontSize * r) + textBgPadding;
+		}
+	}
+
+	// Cell positions
+	for (int c = 0; c < 8; c++) {
+		for (int r = 0; r < 8; r++) {
+			int i = r * 8 + c;
+			float a = (cellPadding * 0.5f) + padding;
+			cellCirclePos[i].x = (cellPadding * c) + a;
+			cellCirclePos[i].y = (cellPadding * r) + a;
+
+			//float b = (cellPadding * 0.5f) - (roundedSquareCellSize * 0.5f) + padding;
+			// TODO: dont like
+			cellSquarePos[i].x = (cellPadding * c) + padding;
+			cellSquarePos[i].y = (cellPadding * r) + padding;
+
+			float d = (cellPadding * 0.5f) - (roundedSquareCellSize * 0.5f) + padding;
+			cellRoundedSquarePos[i].x = (cellPadding * c) + d;
+			cellRoundedSquarePos[i].y = (cellPadding * r) + d;
+			
+		}
+	}
+
+	// Wolf seed display
+	float halfFs = fontSize * 0.5f;
+	wolfSeedSize = halfFs - 2.f;
+	for (int c = 0; c < 8; c++) {
+		float a = (halfFs * 0.5f) - (wolfSeedSize * 0.5f) + padding;
+		wolfSeedPos[c].x = (halfFs * c) + a;
+		wolfSeedPos[c].y = (halfFs * 4.f) + a;
+	}
+};
+
+// GETTERS
+const NVGcolor& UI::getScreenColour() const {
+	return displayStyle[displayStyleIndex][0]; 
+}
+
+const NVGcolor& UI::getForegroundColour() const {
+	return displayStyle[displayStyleIndex][1];
+}
+
+const NVGcolor& UI::getBackgroundColour() const {
+	return displayStyle[displayStyleIndex][2];
+}
+
+// DRAWING	
+void UI::getCellPath(NVGcontext* vg, int col, int row) {
+	// Must call nvgBeginPath before and nvgFill after this function! 
+	int i = row * 8 + col;
+
+	if ((i < 0) || (i >= 64))
+		return;
+
+	if (cellStyleIndex == 1) {
+		// Pixel - Rounded square
+		nvgRoundedRect(vg, cellRoundedSquarePos[i].x, cellRoundedSquarePos[i].y,
+			roundedSquareCellSize, roundedSquareCellSize, roundedSquareCellBevel);
+
+		//  - Square
+		//nvgRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
+		//	cellPadding, cellPadding);
+	}
+	else {
+		// LED - Circle
+		nvgCircle(vg, cellCirclePos[i].x, cellCirclePos[i].y, circleCellSize);
+	}
+}
+
+void UI::drawText(NVGcontext* vg, const char* text, int row) {
+	// Draw a four character row of text
+	if ((row < 0) || (row >= 4))
+		return;
+
+	nvgBeginPath(vg);
+	nvgFillColor(vg, getForegroundColour());
+	nvgText(vg, textPos[row].x, textPos[row].y, text, nullptr);
+}
+
+void UI::drawMenuText(NVGcontext* vg, const char* l1,
+	const char* l2, const char* l3, const char* l4) {
+
+	// Helper for drawing four lines of menu text
+    drawText(vg, l1, 0);
+    drawText(vg, l2, 1);
+    drawText(vg, l3, 2);
+    drawText(vg, l4, 3);
+}
+
+void UI::drawTextBg(NVGcontext* vg, int row) {
+	// Draw one row of four square text character backgrounds
+	if ((row < 0) || (row >= 4))
+		return;
+
+	float textBgBevel = 3.f;
+
+	nvgBeginPath(vg);
+	nvgFillColor(vg, getBackgroundColour());
+	for (int col = 0; col < 4; col++) {
+		int i = row * 4 + col;
+		nvgRoundedRect(vg, textBgPos[i].x, textBgPos[i].y,
+			textBgSize, textBgSize, textBgBevel);
+	}
+	nvgFill(vg);
+}
+
+void UI::drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed) {
+	// TODO: make layer int (layer == 1) and (layer == 0)
+
+	if (layer) {
+		// Lines
+		NVGcolor colour = getForegroundColour();
+
+		nvgStrokeColor(vg, colour);
+		nvgBeginPath(vg);
+		for (int col = 0; col < 8; col++) {
+			if ((col >= 1) && (col <= 7)) {
+				nvgMoveTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y - 1);
+				nvgLineTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y + 1);
+
+				nvgMoveTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) - 1);
+				nvgLineTo(vg, wolfSeedPos[col].x - padding, (wolfSeedPos[col].y + (fontSize - textBgPadding)) + 1);
+			}
+		}
+		nvgStrokeWidth(vg, 0.5f);
+		nvgStroke(vg);
+		//TODO: nvgClosePath(args.vg); ?
+	}
+
+	nvgFillColor(vg, layer ? getForegroundColour() : getBackgroundColour());
+	nvgBeginPath(vg);
+	for (int col = 0; col < 8; col++) {
+		bool cell = (seed >> (7 - col)) & 1;
+
+		if ((layer && !cell) || (!layer && cell))
+			continue;
+
+		nvgRoundedRect(vg, wolfSeedPos[col].x, wolfSeedPos[col].y,
+			wolfSeedSize, (wolfSeedSize * 2.f) + 2.f, wolfSeedBevel);
+	}
+	nvgFill(vg);
+}

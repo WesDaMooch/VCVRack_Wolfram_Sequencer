@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   height="1000"
+   width="1000"
+   sodipodi:docname="r.svg"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.3.2 (091e20e, 2023-11-25, custom)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.3"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="0.70710678"
+     inkscape:cx="386.78741"
+     inkscape:cy="328.80465"
+     inkscape:document-units="px"
+     inkscape:current-layer="layer1"
+     showgrid="true"
+     showguides="true"
+     inkscape:window-width="1920"
+     inkscape:window-height="974"
+     inkscape:window-x="-11"
+     inkscape:window-y="-11"
+     inkscape:window-maximized="1"
+     showborder="true"
+     inkscape:showpageshadow="false"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1">
+    <inkscape:grid
+       id="grid1"
+       units="px"
+       originx="0"
+       originy="0"
+       spacingx="25"
+       spacingy="25"
+       empcolor="#0099e5"
+       empopacity="0.30196078"
+       color="#0099e5"
+       opacity="0.14901961"
+       empspacing="4"
+       dotted="false"
+       gridanglex="30"
+       gridanglez="30"
+       visible="true" />
+  </sodipodi:namedview>
+  <defs
+     id="defs4">
+    <font
+       horiz-adv-x="1000"
+       id="font1"
+       inkscape:label="font 1">
+      <font-face
+         units-per-em="1000"
+         ascent="750"
+         cap-height="600"
+         x-height="400"
+         descent="200"
+         id="font-face1"
+         font-family="SVGFont 1" />
+      <missing-glyph
+         d="M0,0h1000v1000h-1000z"
+         id="missing-glyph1" />
+      <glyph
+         glyph-name=""
+         unicode=" "
+         id="glyph1" />
+      <glyph
+         glyph-name=""
+         unicode="!"
+         id="glyph2" />
+      <glyph
+         glyph-name=""
+         unicode="&quot;"
+         id="glyph3" />
+      <glyph
+         glyph-name=""
+         unicode="#"
+         id="glyph4" />
+      <glyph
+         glyph-name=""
+         unicode="$"
+         id="glyph5" />
+      <glyph
+         glyph-name=""
+         unicode="%"
+         id="glyph6" />
+      <glyph
+         glyph-name=""
+         unicode="&amp;"
+         id="glyph7" />
+      <glyph
+         glyph-name=""
+         unicode="'"
+         id="glyph8" />
+      <glyph
+         glyph-name=""
+         unicode="("
+         id="glyph9" />
+      <glyph
+         glyph-name=""
+         unicode=")"
+         id="glyph10" />
+      <glyph
+         glyph-name=""
+         unicode="*"
+         id="glyph11" />
+      <glyph
+         glyph-name=""
+         unicode="+"
+         id="glyph12" />
+      <glyph
+         glyph-name=""
+         unicode=","
+         id="glyph13" />
+      <glyph
+         glyph-name=""
+         unicode="-"
+         id="glyph14" />
+      <glyph
+         glyph-name=""
+         unicode="."
+         id="glyph15" />
+      <glyph
+         glyph-name=""
+         unicode="/"
+         id="glyph16" />
+      <glyph
+         glyph-name=""
+         unicode="0"
+         id="glyph17" />
+      <glyph
+         glyph-name=""
+         unicode="1"
+         id="glyph18" />
+      <glyph
+         glyph-name=""
+         unicode="2"
+         id="glyph19" />
+      <glyph
+         glyph-name=""
+         unicode="3"
+         id="glyph20" />
+      <glyph
+         glyph-name=""
+         unicode="4"
+         id="glyph21" />
+      <glyph
+         glyph-name=""
+         unicode="5"
+         id="glyph22" />
+      <glyph
+         glyph-name=""
+         unicode="6"
+         id="glyph23" />
+      <glyph
+         glyph-name=""
+         unicode="7"
+         id="glyph24" />
+      <glyph
+         glyph-name=""
+         unicode="8"
+         id="glyph25" />
+      <glyph
+         glyph-name=""
+         unicode="9"
+         id="glyph26" />
+      <glyph
+         glyph-name=""
+         unicode=":"
+         id="glyph27" />
+      <glyph
+         glyph-name=""
+         unicode=";"
+         id="glyph28" />
+      <glyph
+         glyph-name=""
+         unicode="&lt;"
+         id="glyph29" />
+      <glyph
+         glyph-name=""
+         unicode="="
+         id="glyph30" />
+      <glyph
+         glyph-name=""
+         unicode="&gt;"
+         id="glyph31" />
+      <glyph
+         glyph-name=""
+         unicode="?"
+         id="glyph32" />
+      <glyph
+         glyph-name=""
+         unicode="@"
+         id="glyph33" />
+      <glyph
+         glyph-name=""
+         unicode="A"
+         id="glyph34" />
+      <glyph
+         glyph-name=""
+         unicode="B"
+         id="glyph35" />
+      <glyph
+         glyph-name=""
+         unicode="C"
+         id="glyph36" />
+      <glyph
+         glyph-name=""
+         unicode="D"
+         id="glyph37" />
+      <glyph
+         glyph-name=""
+         unicode="E"
+         id="glyph38" />
+      <glyph
+         glyph-name=""
+         unicode="F"
+         id="glyph39" />
+      <glyph
+         glyph-name=""
+         unicode="G"
+         id="glyph40" />
+      <glyph
+         glyph-name=""
+         unicode="H"
+         id="glyph41" />
+      <glyph
+         glyph-name=""
+         unicode="I"
+         id="glyph42" />
+      <glyph
+         glyph-name=""
+         unicode="J"
+         id="glyph43" />
+      <glyph
+         glyph-name=""
+         unicode="K"
+         id="glyph44" />
+      <glyph
+         glyph-name=""
+         unicode="L"
+         id="glyph45" />
+      <glyph
+         glyph-name=""
+         unicode="M"
+         id="glyph46" />
+      <glyph
+         glyph-name=""
+         unicode="N"
+         id="glyph47" />
+      <glyph
+         glyph-name=""
+         unicode="O"
+         id="glyph48" />
+      <glyph
+         glyph-name=""
+         unicode="P"
+         id="glyph49" />
+      <glyph
+         glyph-name=""
+         unicode="Q"
+         id="glyph50" />
+      <glyph
+         glyph-name=""
+         unicode="R"
+         id="glyph51" />
+      <glyph
+         glyph-name=""
+         unicode="S"
+         id="glyph52" />
+      <glyph
+         glyph-name=""
+         unicode="T"
+         id="glyph53" />
+      <glyph
+         glyph-name=""
+         unicode="U"
+         id="glyph54" />
+      <glyph
+         glyph-name=""
+         unicode="V"
+         id="glyph55" />
+      <glyph
+         glyph-name=""
+         unicode="W"
+         id="glyph56" />
+      <glyph
+         glyph-name=""
+         unicode="X"
+         id="glyph57" />
+      <glyph
+         glyph-name=""
+         unicode="Y"
+         id="glyph58" />
+      <glyph
+         glyph-name=""
+         unicode="Z"
+         id="glyph59" />
+      <glyph
+         glyph-name=""
+         unicode="["
+         id="glyph60" />
+      <glyph
+         glyph-name=""
+         unicode="\"
+         id="glyph61" />
+      <glyph
+         glyph-name=""
+         unicode="]"
+         id="glyph62" />
+      <glyph
+         glyph-name=""
+         unicode="^"
+         id="glyph63" />
+      <glyph
+         glyph-name=""
+         unicode="_"
+         id="glyph64" />
+      <glyph
+         glyph-name=""
+         unicode="`"
+         id="glyph65" />
+      <glyph
+         glyph-name=""
+         unicode="a"
+         id="glyph66" />
+      <glyph
+         glyph-name=""
+         unicode="b"
+         id="glyph67" />
+      <glyph
+         glyph-name=""
+         unicode="c"
+         id="glyph68" />
+      <glyph
+         glyph-name=""
+         unicode="d"
+         id="glyph69" />
+      <glyph
+         glyph-name=""
+         unicode="e"
+         id="glyph70" />
+      <glyph
+         glyph-name=""
+         unicode="f"
+         id="glyph71" />
+      <glyph
+         glyph-name=""
+         unicode="g"
+         id="glyph72" />
+      <glyph
+         glyph-name=""
+         unicode="h"
+         id="glyph73" />
+      <glyph
+         glyph-name=""
+         unicode="i"
+         id="glyph74" />
+      <glyph
+         glyph-name=""
+         unicode="j"
+         id="glyph75" />
+      <glyph
+         glyph-name=""
+         unicode="k"
+         id="glyph76" />
+      <glyph
+         glyph-name=""
+         unicode="l"
+         id="glyph77" />
+      <glyph
+         glyph-name=""
+         unicode="m"
+         id="glyph78" />
+      <glyph
+         glyph-name=""
+         unicode="n"
+         id="glyph79" />
+      <glyph
+         glyph-name=""
+         unicode="o"
+         id="glyph80" />
+      <glyph
+         glyph-name=""
+         unicode="p"
+         id="glyph81" />
+      <glyph
+         glyph-name=""
+         unicode="q"
+         id="glyph82" />
+      <glyph
+         glyph-name=""
+         unicode="r"
+         id="glyph83"
+         d="M 199.69727,886 C 152.61564,885.995 114.00522,847.38476 114,800.30273 v -0.002 -200 -0.002 c 0.005,-47.08163 38.61524,-85.69205 85.69727,-85.69727 h 0.002 600 0.002 c 47.08144,0.005 85.69205,38.61524 85.69727,85.69727 v 0.002 200.00005 0.002 c -0.005,47.08139 -38.61534,85.692 -85.69737,85.69722 h -0.002 -599.99995 -0.002 z m 0.002,-40 h 0.002 599.99795 c 25.43221,-0.004 45.69534,-20.26753 45.69922,-45.69922 V 600.30273 c -0.003,-25.43314 -20.26686,-45.69729 -45.69922,-45.70117 h -599.99805 -0.002 C 174.26701,554.60544 154.00366,574.8693 154,600.30078 v 199.99805 0.002 c 0.004,25.43216 20.26774,45.69551 45.69922,45.69917 z m 65.69922,-91.39844 c -11.04524,-10e-4 -19.9989,-8.95476 -20,-20 V 666 c 10e-4,-11.04524 8.95476,-19.9989 20,-20 h 468.60156 c 11.04524,10e-4 19.9989,8.95476 20,20 v 68.60156 c -10e-4,11.04524 -8.95476,19.9989 -20,20 z m 20,-40 H 714.00005 V 686 H 285.39844 Z M 199.69922,486 C 152.61465,485.99948 114.00052,447.38547 114,400.30078 v -200 c 5.2e-4,-47.08461 38.61455,-85.6987 85.69922,-85.69922 47.08457,5.2e-4 85.6987,38.61453 85.69922,85.69922 v 200 c -5.2e-4,47.08461 -38.61455,85.6987 -85.69922,85.69922 z m 339.40039,-25.09965 c -33.29416,-33.29451 -33.2941,-87.90477 0,-121.19922 l 200,-200 c 33.29445,-33.2941 87.90475,-33.29412 121.19922,0 33.29409,33.29444 33.29413,87.90474 0,121.19922 l -200,200 c -33.14234,33.14403 -87.64145,33.55925 -121.19922,0 z M 199.69922,446 c 25.43365,-2.8e-4 45.69894,-20.26562 45.69922,-45.69922 v -200 c -2.8e-4,-25.43363 -20.26569,-45.69894 -45.69922,-45.69922 -25.43365,2.8e-4 -45.69894,20.26562 -45.69922,45.69922 v 200 c 2.8e-4,25.43363 20.26569,45.69894 45.69922,45.69922 z m 432.31445,-13.38481 200,-200 c 17.98423,-17.98442 17.9842,-46.64452 0,-64.6289 -17.98442,-17.98424 -46.6445,-17.98422 -64.6289,0 l -200,200 c -17.98427,17.98445 -17.98432,46.6444 0,64.6289 18.32024,18.32106 47.34795,17.28181 64.6289,0 z" />
+    </font>
+  </defs>
+  <metadata
+     id="metadata7">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="layer1"
+     inkscape:groupmode="layer"
+     inkscape:label="Layer 1">
+    <path
+       style="color:#000000;display:inline;fill:#000000;fill-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;-inkscape-stroke:none"
+       d="M 199.69727,114 C 152.61564,114.005 114.00522,152.61524 114,199.69727 v 0.002 200 0.002 c 0.005,47.08163 38.61524,85.69205 85.69727,85.69727 h 0.002 600 0.002 c 47.08144,-0.005 85.69205,-38.61524 85.69727,-85.69727 v -0.002 -200.00005 -0.002 C 885.39354,152.61583 846.7832,114.00522 799.70117,114 h -0.002 -599.99995 -0.002 z m 0.002,40 h 0.002 599.99795 c 25.43221,0.004 45.69534,20.26753 45.69922,45.69922 v 199.99805 c -0.003,25.43314 -20.26686,45.69729 -45.69922,45.70117 h -599.99805 -0.002 C 174.26701,445.39456 154.00366,425.1307 154,399.69922 v -199.99805 -0.002 C 154.004,174.26701 174.26774,154.00366 199.69922,154 Z m 65.69922,91.39844 c -11.04524,0.001 -19.9989,8.95476 -20,20 V 334 c 10e-4,11.04524 8.95476,19.9989 20,20 h 468.60156 c 11.04524,-10e-4 19.9989,-8.95476 20,-20 v -68.60156 c -10e-4,-11.04524 -8.95476,-19.9989 -20,-20 z m 20,40 H 714.00005 V 314 H 285.39844 Z M 199.69922,514 c -47.08457,5.2e-4 -85.6987,38.61453 -85.69922,85.69922 v 200 c 5.2e-4,47.08461 38.61455,85.6987 85.69922,85.69922 47.08457,-5.2e-4 85.6987,-38.61453 85.69922,-85.69922 v -200 C 285.39792,552.61461 246.78389,514.00052 199.69922,514 Z m 339.40039,25.09965 c -33.29416,33.29451 -33.2941,87.90477 0,121.19922 l 200,200 c 33.29445,33.2941 87.90475,33.29412 121.19922,0 33.29409,-33.29444 33.29413,-87.90474 0,-121.19922 l -200,-200 c -33.14234,-33.14403 -87.64145,-33.55925 -121.19922,0 z M 199.69922,554 c 25.43365,2.8e-4 45.69894,20.26562 45.69922,45.69922 v 200 c -2.8e-4,25.43363 -20.26569,45.69894 -45.69922,45.69922 C 174.26557,845.39816 154.00028,825.13282 154,799.69922 v -200 C 154.00028,574.26559 174.26569,554.00028 199.69922,554 Z m 432.31445,13.38481 200,200 c 17.98423,17.98442 17.9842,46.64452 0,64.6289 -17.98442,17.98424 -46.6445,17.98422 -64.6289,0 l -200,-200 c -17.98427,-17.98445 -17.98432,-46.6444 0,-64.6289 18.32024,-18.32106 47.34795,-17.28181 64.6289,0 z"
+       id="path112"
+       sodipodi:nodetypes="csccssccssccsscccccccccccsccssccccccccccccccccccccccccccccccccccccccccccc"
+       inkscape:label="r" />
+  </g>
+</svg>
