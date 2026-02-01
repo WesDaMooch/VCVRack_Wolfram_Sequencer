@@ -46,6 +46,7 @@
 // With contextMenu - NO crash up to 11274.010
 // With processEncoer - NO crash uo to 2326.813 
 
+// Everything active
 
 // Docs: https://vcvrack.com/docs-v2/
 // Fundimentals: https://github.com/VCVRack/Fundamental
@@ -147,7 +148,7 @@ struct WolframModule : Module {
 
 	struct EncoderParamQuantity : ParamQuantity {
 		// Custom behaviour to display rule when hovering over Select encoder 
-		/*
+		
 		std::string getDisplayValueString() override {
 			std::string defaultString = "30";
 
@@ -184,7 +185,7 @@ struct WolframModule : Module {
 
 			return defaultString;
 		}
-		*/
+		
 
 		// Suppress behaviour
 		void setDisplayValueString(std::string s) override {}
@@ -192,12 +193,12 @@ struct WolframModule : Module {
 
 	struct LengthParamQuantity : ParamQuantity {
 		// Custom behaviour to display sequence length when hovering over Length knob
-		/*
+		
 		float getDisplayValue() override {
 			auto* m = dynamic_cast<WolframModule*>(module);
 			return m ? m->sequenceLength : 8;
 		}
-		*/
+		
 		// Suppress behaviour
 		void setDisplayValueString(std::string s) override {}
 	};
@@ -304,7 +305,7 @@ struct WolframModule : Module {
 		for (int i = 0; i < NUM_ENGINES; i++) {
 			if (checkEngineIsNull(i))
 				continue;
-
+			
 			engines[i]->updateRule(0, true);
 			engines[i]->updateSeed(0, true);
 			engines[i]->updateMode(0, true);
@@ -425,7 +426,6 @@ struct WolframModule : Module {
 		json_t* rootJ = json_object();
 		// TODO: buffers saved as signed 64 bits, when unsigned is used
 		
-		/*
 		// Save sequencer settings
 		json_object_set_new(rootJ, "vco", json_boolean(vcoMode));
 		json_object_set_new(rootJ, "sync", json_boolean(sync));
@@ -467,6 +467,7 @@ struct WolframModule : Module {
 			json_array_append_new(buffersJ, rowJ);
 			
 			// OLD
+			/*
 			if (checkEngineIsNull(i))
 				continue;
 
@@ -482,10 +483,9 @@ struct WolframModule : Module {
 			for (int j = 0; j < MAX_SEQUENCE_LENGTH; j++)
 				json_array_append_new(rowJ, json_integer(engines[i]->getBufferFrame(j)));
 			json_array_append_new(buffersJ, rowJ);
-			
+			*/
 		}
 		
-
 		json_object_set_new(rootJ, "readHeads", readHeadsJ);
 		json_object_set_new(rootJ, "writeHeads", writeHeadsJ);
 		json_object_set_new(rootJ, "rules", rulesJ);
@@ -493,14 +493,13 @@ struct WolframModule : Module {
 		json_object_set_new(rootJ, "modes", modesJ);
 		json_object_set_new(rootJ, "displays", displaysJ);
 		json_object_set_new(rootJ, "buffers", buffersJ);
-		*/
 		
 		return rootJ;
 	}
 	
 	void dataFromJson(json_t* rootJ) override {
 		// Load sequencer settings
-		/*
+		
 		json_t* syncJ = json_object_get(rootJ, "sync");
 		if (syncJ)
 			sync = json_boolean_value(syncJ);
@@ -598,7 +597,6 @@ struct WolframModule : Module {
 				}
 			}
 		}
-		*/
 	}
 	
 	void processEncoder() {
@@ -874,7 +872,7 @@ struct WolframModule : Module {
 		lights[INJECT_LIGHT].setBrightnessSmooth(positiveInject | negativeInject, args.sampleTime);
 		
 		// Encoder
-		processEncoder();
+		//processEncoder();
 
 		// Mini menu display
 		if (miniMenuActive && (ruleDisplayTimer.process(args.sampleTime) >= miniMenuDisplayTime))
@@ -1300,14 +1298,14 @@ struct WolframModuleWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 99.852f)), module, WolframModule::Y_CV_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, WolframModule::Y_PULSE_OUTPUT));
 		// LEDs
-		//addChild(createLightCentered<DiagonalLuckyLight<RedLight>>(mm2px(Vec(53.34f, 47.767f)), module, WolframModule::MODE_LIGHT)); 
-		//addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		
-		//addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(19.05f, 90.225f)), module, WolframModule::X_PULSE_LIGHT));	
-		//addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
-		//addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));
+		addChild(createLightCentered<DiagonalLuckyLight<RedLight>>(mm2px(Vec(53.34f, 47.767f)), module, WolframModule::MODE_LIGHT)); 
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(19.05f, 90.225f)), module, WolframModule::X_PULSE_LIGHT));	
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));
 		
-		//Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
-		//addChild(display);
+		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
+		addChild(display);
 	}
 
 	
