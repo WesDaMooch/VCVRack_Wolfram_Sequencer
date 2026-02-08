@@ -2,17 +2,24 @@
 #include "../../plugin.hpp"
 #include <array>
 #include <cstdint>
-;
+
+static constexpr int NUM_ENGINES = 2;
 static constexpr int MAX_SEQUENCE_LENGTH = 64;
 
-struct EngineParameters {
-	enum MenuDelta {
+//enum EngineId {
+//	WOLF_ENGINE,
+//	LIFE_ENGINE,
+//	LEN_ENGINE
+//};
+
+struct EngineMenuParams {
+	enum MenuDeltas{
 		RULE_DELTA,
 		SEED_DELTA,
 		MODE_DELTA,
 		DELTA_LEN
 	};
-	enum MenuReset {
+	enum MenuResets {
 		RULE_RESET,
 		SEED_RESET,
 		MODE_RESET,
@@ -20,8 +27,9 @@ struct EngineParameters {
 	};
 	std::array<int, DELTA_LEN> menuDelta{};
 	std::array<bool, RESET_LEN> menuReset{};
+};
 
-	// Core params
+struct EngineCoreParams {
 	float ruleCv = 0.f;
 	float probability = 0.f;
 	int length = 0;
@@ -29,14 +37,13 @@ struct EngineParameters {
 	int inject = 0;
 	bool step = false;
 	bool reset = false;
-	bool miniMenuChanged = false;
 	bool sync = false;
+	bool miniMenuChanged = false;
 };
 
-// EngineUiLayer
-struct EngineStateSnapshot {
+struct EngineToUiLayer {
 	// Used to take a snapshot of the engine's current values,
-	// to be safely read by the UI and patch autosaver
+	// to be safely read by the UI and patch saver
 	std::array<uint64_t, MAX_SEQUENCE_LENGTH> matrixBuffer{};
 	uint64_t display = 0;
 	uint64_t displaySave = 0;
@@ -57,9 +64,10 @@ public:
 	BaseEngine();
 	virtual ~BaseEngine();
 
-	virtual void update(bool advance, int length=8) = 0;
+	virtual void updateDisplay(bool advance, int length = 8) = 0;
+	virtual void updateMenuParams(const EngineMenuParams& p) = 0;
 
-	virtual void process(const EngineParameters& p,
+	virtual void process(const EngineCoreParams& p,
 		float* xOut, float* yOut, 
 		bool* xPulse, bool* yPulse, 
 		float* modeLED) = 0;
@@ -69,20 +77,28 @@ public:
 	// Save setters
 	void setReadHead(int newReadHead);
 	void setWriteHead(int newWriteHead);
-	virtual void setBufferFrame(uint64_t newFrame, int index, bool setDisplayMatrix=false) = 0;
-	virtual void setRule(int newRule, float newRuleCv) = 0;
+
+	virtual void setBufferFrame(uint64_t newFrame, int index, 
+		bool setDisplayMatrix = false) = 0;
+
+	virtual void setRuleSelect(int newRule) = 0;
+	virtual void setRuleCv(float newRuleCv) = 0;
 	virtual void setSeed(int newSeed) = 0;
 	virtual void setMode(int newMode) = 0;
 
-	// Save Getters 
+	// Save getters 
 	int getReadHead();
 	int getWriteHead();
-	virtual uint64_t getBufferFrame(int index, bool getDisplayMatrix=false, bool getDisplayMatrixSave=false) = 0;
+
+	virtual uint64_t getBufferFrame(int index,
+		bool getDisplayMatrix = false,
+		bool getDisplayMatrixSave = false) = 0;
+
 	virtual int getRuleSelect() = 0;
 	virtual int getSeed() = 0;
 	virtual int getMode() = 0;
 
-	// UI Getters
+	// UI getters
 	void getEngineLabel(char out[5]);
 	virtual void getRuleActiveLabel(char out[5]) = 0;
 	virtual void getRuleSelectLabel(char out[5]) = 0;
@@ -90,8 +106,6 @@ public:
 	virtual void getModeLabel(char out[5]) = 0;
 
 protected:
-	virtual void inject(int inject, bool sync) = 0;
-
 	uint64_t displayMatrix = 0;
 	bool displayMatrixUpdated = false;
 
@@ -99,12 +113,15 @@ protected:
 	int writeHead = 1;
 	int offset = 0;
 	int injectPending = 0;
-	bool generate = false;
 	bool resetPending = false;
+	bool generate = false;
 	bool miniMenuChangePending = false;
 	char engineLabel[5] = "BASE";
 
-	// HELPERS
+	virtual void inject(int inject, bool sync) = 0;
+	virtual void onRuleChange() = 0;
+
+	// Helpers
 	inline void advanceHeads(int length) {
 		// TODO: this might be wrong or unsafe, could go out of range?
 		readHead = writeHead;

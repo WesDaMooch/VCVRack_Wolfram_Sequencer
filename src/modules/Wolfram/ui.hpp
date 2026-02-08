@@ -5,6 +5,30 @@
 
 static constexpr int NUM_DISPLAY_STYLES = 6;
 static constexpr int NUM_CELL_STYLES = 2;
+/*
+enum MenuPage {
+	RULE_PAGE,
+	SEED_PAGE,
+	MODE_PAGE,
+	SLEW_PAGE,
+	ALGO_PAGE
+};
+
+static constexpr MenuPage menuPagesDefault[] = {
+	SEED_PAGE,
+	MODE_PAGE,
+	SLEW_PAGE,
+	ALGO_PAGE
+};
+
+static constexpr MenuPage menuPagesEngineMod[] = {
+	RULE_PAGE,
+	SEED_PAGE,
+	MODE_PAGE,
+	SLEW_PAGE,
+	ALGO_PAGE
+};
+*/
 
 struct UI {
 	// VARIABLES

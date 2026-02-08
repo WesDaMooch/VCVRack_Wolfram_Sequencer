@@ -3,17 +3,16 @@
 BaseEngine::BaseEngine() = default;
 BaseEngine::~BaseEngine() = default;
 
-// SETTERS
+// Setters
 void BaseEngine::setReadHead(int newReadHead) {
     readHead = rack::clamp(newReadHead, 0, MAX_SEQUENCE_LENGTH - 1);
 }
-
 
 void BaseEngine::setWriteHead(int newWriteHead) {
     writeHead = rack::clamp(newWriteHead, 0, MAX_SEQUENCE_LENGTH - 1);
 }
 
-// GETTERS
+// Getters
 int BaseEngine::getReadHead() {
     return readHead;
 }
@@ -26,9 +25,13 @@ void BaseEngine::getEngineLabel(char out[5]) {
     memcpy(out, engineLabel, 5);
 }
 
-// HELPERS
+// Helpers
 uint8_t BaseEngine::applyOffset(uint8_t inputRow, int inputOffset) {
-    int shift = rack::clamp(inputOffset, -4, 4);
+    int shift = inputOffset % 8;
+    if (shift > 4)  
+        shift -= 8;
+    if (shift < -4) 
+        shift += 8;
 
     if (shift < 0) {
         shift = -shift;

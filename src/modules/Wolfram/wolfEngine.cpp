@@ -1,6 +1,6 @@
-#include "wolfEngine.hpp"
+﻿#include "wolfEngine.hpp"
 
-const char WolfEngine::modeNames[WolfEngine::NUM_MODES][5] = {
+const char WolfEngine::modeLabel[WolfEngine::NUM_MODES][5] = {
 	"CLIP",
 	"WRAP",
 	"RAND"
@@ -9,10 +9,10 @@ const char WolfEngine::modeNames[WolfEngine::NUM_MODES][5] = {
 WolfEngine::WolfEngine() {
 	memcpy(engineLabel, "WOLF", 5);
 	rowBuffer[readHead] = seed;
-	update(false);
+	updateDisplay(false);
 }
 
-void WolfEngine::update(bool step, int length) {
+void WolfEngine::updateDisplay(bool step, int length) {
 	if (step) {
 		advanceHeads(length);
 		internalDisplayMatrix <<= 8;	// Shift matrix up
@@ -21,14 +21,13 @@ void WolfEngine::update(bool step, int length) {
 	internalDisplayMatrix &= ~0xFFULL;
 	internalDisplayMatrix |= rowBuffer[readHead];
 
-	// Apply lastest offset
+	// Apply offset
 	uint64_t tempMatrix = 0;
 	for (int i = 0; i < 8; i++) {
 		uint8_t row = (internalDisplayMatrix >> (i * 8)) & 0xFFULL;
-		tempMatrix |= uint64_t(applyOffset(row, offset - 4)) << (i * 8);
+		tempMatrix |= uint64_t(applyOffset(row, offset)) << (i * 8);
 	}
 	displayMatrix = tempMatrix;
-
 	displayMatrixUpdated = true;
 }
 
@@ -67,35 +66,38 @@ void WolfEngine::inject(int inject, bool sync) {
 	}
 }
 
-void WolfEngine::process(const EngineParameters& p,
+void WolfEngine::updateMenuParams(const EngineMenuParams& p) {
+	// Rule
+	int newRuleSelect = ruleSelect;
+	if (p.menuReset[EngineMenuParams::RULE_RESET])
+		newRuleSelect = ruleDefault;
+	else if (p.menuDelta[EngineMenuParams::RULE_DELTA] != 0)
+		newRuleSelect = static_cast<uint8_t>(ruleSelect + p.menuDelta[EngineMenuParams::RULE_DELTA]);
+	setRuleSelect(newRuleSelect);
+
+	// Seed
+	int newSeedSelect = seedSelect;
+	if (p.menuReset[EngineMenuParams::SEED_RESET])
+		newSeedSelect = seedDefault;
+	else if (p.menuDelta[EngineMenuParams::SEED_DELTA] != 0)
+		newSeedSelect += p.menuDelta[EngineMenuParams::SEED_DELTA];
+	setSeed(newSeedSelect);
+
+	// Mode
+	int newModeSelect = updateSelect(p.menuDelta[EngineMenuParams::MODE_DELTA],
+		p.menuReset[EngineMenuParams::MODE_RESET],
+		modeIndex, modeDefault, NUM_MODES);
+	setMode(newModeSelect);
+};
+
+void WolfEngine::process(const EngineCoreParams& p,
 	float* xOut, float* yOut, 
 	bool* xPulse, bool* yPulse, 
 	float* modeLED) {
 
-	// Update Menu Parameters
-	// Rule
-	int newRuleSelect = ruleSelect;
-	if (p.menuReset[EngineParameters::RULE_RESET])
-		newRuleSelect = ruleDefault;
-	else if (p.menuDelta[EngineParameters::RULE_DELTA] != 0)
-		newRuleSelect = static_cast<uint8_t>(ruleSelect + p.menuDelta[EngineParameters::RULE_DELTA]);
-	setRule(newRuleSelect, p.ruleCv);
-
-	// Seed
-	int newSeedSelect = seedSelect;
-	if (p.menuReset[EngineParameters::SEED_RESET])
-		newSeedSelect = seedDefault;
-	else if (p.menuDelta[EngineParameters::SEED_DELTA] != 0)
-		newSeedSelect += p.menuDelta[EngineParameters::SEED_DELTA];
-	setSeed(newSeedSelect);
-
-	// Mode
-	int newModeIndex = updateSelect(p.menuDelta[EngineParameters::MODE_DELTA], 
-		p.menuReset[EngineParameters::MODE_RESET], 
-		modeIndex, modeDefault, NUM_MODES);
-	setMode(newModeIndex);
-
 	// Sequencer
+	setRuleCv(p.ruleCv);
+
 	bool refreshDisplay = p.step;
 	generate = (rack::random::get<float>() < p.probability);
 
@@ -179,14 +181,15 @@ void WolfEngine::process(const EngineParameters& p,
 	}
 
 	// Offset
-	if ((!p.sync && (offset != p.offset)) || (p.sync && p.step)) {
-		offset = p.offset;
+	int newOffset = p.offset - 4;
+	if ((!p.sync && (offset != newOffset)) || (p.sync && p.step)) {
+		offset = newOffset;
 		refreshDisplay = true;
 	}
-	
+
 	// Update
 	if (refreshDisplay)
-		update(p.step, p.length);
+		updateDisplay(p.step, p.length);
 
 	// Render output
 	// X - Returns bottom row of the display matrix scaled to 0-1	
@@ -205,7 +208,7 @@ void WolfEngine::process(const EngineParameters& p,
 	if (displayMatrixUpdated && bottonLeftCellState)
 		*xPulse = true;
 
-	// Returns true if top right cell state	of displayMatrix is living
+	// Y Pulse - Returns true if top right cell state	of displayMatrix is living
 	bool topRightCellState = ((displayMatrix >> 56) & 0xFFULL) & 1;
 	if (displayMatrixUpdated && topRightCellState)
 		*yPulse = true;
@@ -217,30 +220,41 @@ void WolfEngine::process(const EngineParameters& p,
 }
 
 void WolfEngine::reset() {
-	for (int i = -1; i < MAX_SEQUENCE_LENGTH; i++)
+	for (int i = 0; i < MAX_SEQUENCE_LENGTH; i++)
 		setBufferFrame(0, i);
 
+	setBufferFrame(0, 0, true);
 	setReadHead(0);
 	setWriteHead(0);
-	setRule(ruleDefault, 0.f);
+	setRuleSelect(ruleDefault);
 	setSeed(seedDefault);
 	setMode(modeDefault);
 
 	rowBuffer[readHead] = seed;
-	update(false);
+	updateDisplay(false);
 }
 
 // SETTERS
-void WolfEngine::setBufferFrame(uint64_t newFrame, int index, bool setDisplayMatrix) {
+void WolfEngine::setBufferFrame(uint64_t newFrame, int index, 
+	bool setDisplayMatrix) {
+
 	if (setDisplayMatrix)
 		internalDisplayMatrix = newFrame;
 	else if ((index >= 0) && (index < MAX_SEQUENCE_LENGTH))
-		rowBuffer[index] = static_cast<uint8_t>(newFrame);;
+		rowBuffer[index] = static_cast<uint8_t>(newFrame);
 }
 
-void WolfEngine::setRule(int newRule, float newRuleCv) {
-	ruleSelect = static_cast<uint8_t>(newRule);
-	int ruleCv = std::round(newRuleCv * 256);
+void WolfEngine::setRuleSelect(int newRule) {
+	ruleSelect = rack::clamp(newRule, 0, UINT8_MAX);
+	onRuleChange();
+}
+
+void WolfEngine::setRuleCv(float newRuleCv) {
+	ruleCv = static_cast<int>(newRuleCv * 256);
+	onRuleChange();
+}
+
+void WolfEngine::onRuleChange() {
 	rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCv, 0, UINT8_MAX));
 }
 
@@ -248,14 +262,13 @@ void WolfEngine::setSeed(int newSeed) {
 	if (newSeed == seedSelect)
 		return;
 
-	seedSelect = rack::clamp(newSeed, 0, NUM_SEEDS - 1);
-
 	// Seeds are 256 + 1 (0 to 255 + RAND) 
-	if (seedSelect > 256)
-		seedSelect -= 257;
-	else if (seedSelect < 0)
-		seedSelect += 257;
+	if (newSeed > 256)
+		newSeed -= 257;
+	else if (newSeed < 0)
+		newSeed += 257;
 
+	seedSelect = newSeed;
 	randSeed = (seedSelect == 256);
 	seed = static_cast<uint8_t>(seedSelect);
 }
@@ -268,7 +281,10 @@ void WolfEngine::setMode(int newMode) {
 }
 
 // GETTERS
-uint64_t WolfEngine::getBufferFrame(int index, bool getDisplayMatrix, bool getDisplayMatrixSave) {
+uint64_t WolfEngine::getBufferFrame(int index, 
+	bool getDisplayMatrix, 
+	bool getDisplayMatrixSave) {
+
 	if (getDisplayMatrix)
 		return displayMatrix;
 	else if (getDisplayMatrixSave)
@@ -304,5 +320,5 @@ void WolfEngine::getSeedLabel(char out[5]) {
 }
 
 void WolfEngine::getModeLabel(char out[5]) {
-	memcpy(out, modeNames[modeIndex], 5);
+	memcpy(out, modeLabel[modeIndex], 5);
 }

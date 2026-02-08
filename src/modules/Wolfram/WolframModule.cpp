@@ -1,67 +1,13 @@
 // Make with: export RACK_DIR=/home/wes-l/Rack-SDK
 
-// Dev Mode:
-//	cd "/c/Program Files/VCV/Rack2Free"
-//	./Rack - d - u "C:\Users\wes-l\AppData\Local\Rack2"
-
-// - Debug in terminal - 
-//
-// make clean
-// make DEBUG=1 install
-// objdump --syms plugin.dll | grep    // checking
-// cd "/c/Program Files/VCV/Rack2Free"
-// gdb ./Rack.exe  // use:  gdb --args "/c/Program Files/VCV/Rack2Free/Rack.exe"
-// 
-// set pagination off
-// catch throw
-// catch catch
-// 
-// run
-// bt
-// 
-//  - Inspect variables -
-// frame 0
-// print someVariable
-// 
-// quit
-
-// - Set breakpoints -
-// break WolframModule::process
-//  - or -
-// break src/Wolfram.cpp:214
-// run
-
-
-// The dreaded crash
-// No dataToJson - crashed on 2919.578
-// Running Wolf, default settings
-// No custom encoder text - 1244.122 
-// No custom length text - 2613.784
-// No dataFromJson - 75.442
-// No display - 150.421
-// No custom ligths - 205.329
-// No processEncoder - 5157.470
-// No contexMenu - NO crash up to 2186.513
-// No contexMenu - NO crash up to 12477.420 
-// With contextMenu - NO crash up to 11274.010
-// With processEncoer - NO crash uo to 2326.813 
-
-// Everything active
-
 // Docs: https://vcvrack.com/docs-v2/
 // Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
-
-// TODO: maybe this
-// Therefore, modules with a CLOCK and RESET input, or similar variants, should ignore CLOCK triggers up to 1 ms 
-// after receiving a RESET trigger.You can use dsp::Timer for keeping track of time.
-// Or do what SEQ3 does?
 
 // TODO: onRandomize
 // TODO: json saves to signed 64 bit number, i need unsigned (uint64_t), maybe not a issue
 // TODO: algo select context menu
 // TODO: clean up all all custom svgs
-// TODO: redrick off cells darker?
 
 // BUGS
 // TODO: on wolf vcomode, seed not init or something
@@ -76,11 +22,9 @@
 #include "ui.hpp"
 #include "baseEngine.hpp"
 #include "wolfEngine.hpp"
-//#include "lifeEngine.hpp"
+#include "lifeEngine.hpp"
 
-static constexpr int NUM_ENGINES = 2;
-static constexpr int NUM_MENU_PAGES_DEFAULT = 4;
-static constexpr int NUM_MENU_PAGES_ENGINE_MOD = (NUM_ENGINES * 3) + 2;
+static constexpr int NUM_MENU_PAGES = 4;
 
 class SlewLimiter {
 public:
@@ -161,29 +105,18 @@ struct WolframModule : Module {
 			int engineSelect = m->engineSelect;
 			int engineIndex = m->engineIndex;
 
-			EngineStateSnapshot* state = m->engineStateSnapshotPtr.load(std::memory_order_acquire);
-			//if (!readState)
-			//	return defaultString;
+			EngineToUiLayer* engineLayer = m->engineToUiLayerPtr.load(std::memory_order_acquire);
 
-			std::string ruleSelectString = std::string(state[engineIndex].ruleSelectLabel);
+			std::string ruleSelectString = std::string(engineLayer[engineSelect].ruleSelectLabel);
 			ruleSelectString.erase(0, ruleSelectString.find_first_not_of(" "));
 
 			if (!engineModulation && !ruleModulation)
 				return ruleSelectString;
 
-			std::string ruleActiveString = std::string(state[engineIndex].ruleActiveLabel);
+			std::string ruleActiveString = std::string(engineLayer[engineIndex].ruleActiveLabel);
 			ruleActiveString.erase(0, ruleActiveString.find_first_not_of(" "));
 
-			if (engineModulation) {
-				std::string ruleEngineSelectString = std::string(state[engineSelect].ruleActiveLabel);
-				ruleEngineSelectString.erase(0, ruleEngineSelectString.find_first_not_of(" "));
-				return ruleEngineSelectString + " ( " + ruleActiveString + " )";
-			}
-				
-			if (ruleModulation)
-				return ruleSelectString + " ( " + ruleActiveString + " )";
-
-			return defaultString;
+			return ruleSelectString + " ( " + ruleActiveString + " )";
 		}
 		
 
@@ -205,20 +138,20 @@ struct WolframModule : Module {
 
 	// Engine
 	WolfEngine wolfEngine;
-	//LifeEngine lifeEngine;
-	std::array<BaseEngine*, NUM_ENGINES> engines{};
-	std::array<EngineParameters, NUM_ENGINES> engineParameters{};
+	LifeEngine lifeEngine;
+	std::array<BaseEngine*, NUM_ENGINES> engine{};
+	std::array<EngineCoreParams, NUM_ENGINES> engineCoreParams{};
+	std::array<EngineMenuParams, NUM_ENGINES> engineMenuParams{};
 	static constexpr int engineDefault = 0;
 	int engineSelect = engineDefault;
-	int engineCv = 0;
 	int engineCvPending = 0;
 	int engineIndex = 0;
 
 	// UI
 	static constexpr int UI_UPDATE_INTERVAL = 512;
-	std::array<EngineStateSnapshot, NUM_ENGINES> engineStateSnapshotA{};
-	std::array<EngineStateSnapshot, NUM_ENGINES> engineStateSnapshotB{};
-	std::atomic<EngineStateSnapshot*> engineStateSnapshotPtr{ engineStateSnapshotA.data() };
+	std::array<EngineToUiLayer, NUM_ENGINES> engineToUiLayerA{};
+	std::array<EngineToUiLayer, NUM_ENGINES> engineToUiLayerB{};
+	std::atomic<EngineToUiLayer*> engineToUiLayerPtr{ engineToUiLayerA.data() };
 	int pageCounter = 0;
 	int pageNumber = 0;
 	bool menuActive = false;
@@ -228,18 +161,12 @@ struct WolframModule : Module {
 	// Parameters
 	int sequenceLength = 8;
 	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
-	float probability = 1.f;
 	int slewValue = 0;
 	bool slewX = true;
 	bool slewY = true;
 	bool sync = false;
 	bool vcoMode = false;
 	int offset = 0;
-	int offsetPending = 0;
-	bool resetPending = false;
-	bool seedPushPending = false;
-	int injectPending = 0;
-	bool generate = false;
 	float prevStepVoltage = 0.f;
 	
 	// Select encoder
@@ -298,37 +225,27 @@ struct WolframModule : Module {
 		onSampleRateChange();
 
 		// Engines
-		engines[0] = &wolfEngine;
-		//engines[1] = &lifeEngine;
-		engines[1] = &wolfEngine;
+		engine[0] = &wolfEngine;
+		engine[1] = &lifeEngine;
 	}
 
 	bool checkEngineIsNull(int index) {
-		if (engines[index] == nullptr) {
+		if (engine[index] == nullptr) {
 			DEBUG("error: %d : NULL ENGINE", errno);
 			return true;
 		}
 		return false;
 	}
 
-	void updateEngine() {
-		int newEngineIndex = rack::clamp(engineSelect + engineCv, 0, NUM_ENGINES - 1);
-		engineIndex = newEngineIndex;
+	void setEngine(int newEngineSelect, float newEngineCv) {
+		engineSelect = rack::clamp(newEngineSelect, 0, NUM_ENGINES - 1);
+		int engineCv = std::round(newEngineCv * (NUM_ENGINES - 1));
+		engineIndex = engineModulation ? engineCv : engineSelect;
 	}
 
-	void updateEngineSelect(int newSelect) {
-		newSelect = rack::clamp(newSelect, 0, NUM_ENGINES - 1);
-
-		if (engineSelect != newSelect) {
-			engineSelect = newSelect;
-			updateEngine();
-		}
-	}
-
-	void updateEngineStateSnapshot() {
-		// UI
+	void updateEngineToUiLayer() {
 		static bool flip = false;
-		EngineStateSnapshot* writeState = flip ? engineStateSnapshotA.data() : engineStateSnapshotB.data();
+		EngineToUiLayer* writeState = flip ? engineToUiLayerA.data() : engineToUiLayerB.data();
 		flip = !flip;
 
 		for (int i = 0; i < NUM_ENGINES; i++) {
@@ -336,27 +253,27 @@ struct WolframModule : Module {
 				continue;
 			
 			for (int j = 0; j < MAX_SEQUENCE_LENGTH; j++)
-				writeState[i].matrixBuffer[j] = engines[i]->getBufferFrame(j);
+				writeState[i].matrixBuffer[j] = engine[i]->getBufferFrame(j);
 
-			writeState[i].display = engines[i]->getBufferFrame(0, true);
-			writeState[i].displaySave = engines[i]->getBufferFrame(0, false, true);
-			writeState[i].readHead = engines[i]->getReadHead();
-			writeState[i].writeHead = engines[i]->getWriteHead();
-			writeState[i].ruleSelect = engines[i]->getRuleSelect();
-			writeState[i].seed = engines[i]->getSeed();
-			writeState[i].mode = engines[i]->getMode();
-			engines[i]->getEngineLabel(writeState[i].engineLabel);
-			engines[i]->getRuleActiveLabel(writeState[i].ruleActiveLabel);
-			engines[i]->getRuleSelectLabel(writeState[i].ruleSelectLabel);
-			engines[i]->getSeedLabel(writeState[i].seedLabel);
-			engines[i]->getModeLabel(writeState[i].modeLabel);
+			writeState[i].display = engine[i]->getBufferFrame(0, true);
+			writeState[i].displaySave = engine[i]->getBufferFrame(0, false, true);
+			writeState[i].readHead = engine[i]->getReadHead();
+			writeState[i].writeHead = engine[i]->getWriteHead();
+			writeState[i].ruleSelect = engine[i]->getRuleSelect();
+			writeState[i].seed = engine[i]->getSeed();
+			writeState[i].mode = engine[i]->getMode();
+			engine[i]->getEngineLabel(writeState[i].engineLabel);
+			engine[i]->getRuleActiveLabel(writeState[i].ruleActiveLabel);
+			engine[i]->getRuleSelectLabel(writeState[i].ruleSelectLabel);
+			engine[i]->getSeedLabel(writeState[i].seedLabel);
+			engine[i]->getModeLabel(writeState[i].modeLabel);
 			
 		}
-		engineStateSnapshotPtr.store(writeState, std::memory_order_release);
+		engineToUiLayerPtr.store(writeState, std::memory_order_release);
 	}
 
-	void updateSlewSelect(int newSelect) {
-		slewValue = rack::clamp(newSelect, 0, 100);
+	void setSlew(int newSlewSelect) {
+		slewValue = rack::clamp(newSlewSelect, 0, 100);
 
 		// Skew slewParam (0 - 100%) -> (0 - 1)
 		// Convert to ms, if VCO mode (0 - 10ms) else (0 - 1000ms)
@@ -372,7 +289,7 @@ struct WolframModule : Module {
 
 		// Set DC blocker to ~10Hz,
 		// Set Slew time (ms)
-		updateSlewSelect(slewValue);
+		setSlew(slewValue);
 
 		for (int i = 0; i < 2; i++) {
 			dcFilter[i].setCutoffFreq(10.f / srate);
@@ -387,17 +304,15 @@ struct WolframModule : Module {
 		sync = false;
 		vcoMode = false;
 		pageCounter = 0;
-		updateSlewSelect(0);
-		updateEngineSelect(0);
+		setSlew(0);
+		setEngine(0, 0.f);
 
 		for (int i = 0; i < NUM_ENGINES; i++) {
 			if (checkEngineIsNull(i))
 				continue;
-
-			engines[i]->reset();
+			engine[i]->reset();
 		}
 	}
-
 	
 	json_t* dataToJson() override {
 		json_t* rootJ = json_object();
@@ -419,7 +334,7 @@ struct WolframModule : Module {
 
 		
 		// Save engine specifics
-		EngineStateSnapshot* state = engineStateSnapshotPtr.load(std::memory_order_acquire);
+		EngineToUiLayer* engineLayer = engineToUiLayerPtr.load(std::memory_order_acquire);
 
 		json_t* readHeadsJ = json_array();
 		json_t* writeHeadsJ = json_array();
@@ -430,16 +345,16 @@ struct WolframModule : Module {
 		json_t* buffersJ = json_array();
 
 		for (int i = 0; i < NUM_ENGINES; i++) {
-			json_array_append_new(rulesJ, json_integer(state[i].ruleSelect));
-			json_array_append_new(seedsJ, json_integer(state[i].seed));
-			json_array_append_new(modesJ, json_integer(state[i].mode));
-			json_array_append_new(readHeadsJ, json_integer(state[i].readHead));
-			json_array_append_new(writeHeadsJ, json_integer(state[i].writeHead));
-			json_array_append_new(displaysJ, json_integer(state[i].displaySave));
+			json_array_append_new(rulesJ, json_integer(engineLayer[i].ruleSelect));
+			json_array_append_new(seedsJ, json_integer(engineLayer[i].seed));
+			json_array_append_new(modesJ, json_integer(engineLayer[i].mode));
+			json_array_append_new(readHeadsJ, json_integer(engineLayer[i].readHead));
+			json_array_append_new(writeHeadsJ, json_integer(engineLayer[i].writeHead));
+			json_array_append_new(displaysJ, json_integer(engineLayer[i].displaySave));
 
 			json_t* rowJ = json_array();
 			for (int j = 0; j < MAX_SEQUENCE_LENGTH; j++)
-				json_array_append_new(rowJ, json_integer(state[i].matrixBuffer[j]));
+				json_array_append_new(rowJ, json_integer(engineLayer[i].matrixBuffer[j]));
 			json_array_append_new(buffersJ, rowJ);
 		}
 		
@@ -474,12 +389,12 @@ struct WolframModule : Module {
 
 		json_t* slewValueJ = json_object_get(rootJ, "slewValue");
 		if (slewValueJ)
-			updateSlewSelect(json_integer_value(slewValueJ));
+			setSlew(json_integer_value(slewValueJ));
 
 		// Load engine index
 		json_t* engineSelectJ = json_object_get(rootJ, "engine");
 		if (engineSelectJ)
-			updateEngineSelect(json_integer_value(engineSelectJ));
+			setEngine(json_integer_value(engineSelectJ), 0.f);
 
 		json_t* displayStyleJ = json_object_get(rootJ, "displayStyle");
 		if (displayStyleJ)
@@ -506,37 +421,37 @@ struct WolframModule : Module {
 				json_t* valueJ = json_array_get(readHeadsJ, i);
 
 				if (valueJ)
-					engines[i]->setReadHead(json_integer_value(valueJ));
+					engine[i]->setReadHead(json_integer_value(valueJ));
 			}
 			if (writeHeadsJ) {
 				json_t* valueJ = json_array_get(writeHeadsJ, i);
 
 				if (valueJ)
-					engines[i]->setWriteHead(json_integer_value(valueJ));
+					engine[i]->setWriteHead(json_integer_value(valueJ));
 			}
 			if (rulesJ) {
 				json_t* valueJ = json_array_get(rulesJ, i);
 
 				if (valueJ)
-					engines[i]->setRule(json_integer_value(valueJ), 0.f);
+					engine[i]->setRuleSelect(json_integer_value(valueJ));
 			}
 			if (seedsJ) {
 				json_t* valueJ = json_array_get(seedsJ, i);
 
 				if (valueJ)
-					engines[i]->setSeed(json_integer_value(valueJ));
+					engine[i]->setSeed(json_integer_value(valueJ));
 			}
 			if (modesJ) {
 				json_t* valueJ = json_array_get(modesJ, i);
 
 				if (valueJ)
-					engines[i]->setMode(json_integer_value(valueJ));
+					engine[i]->setMode(json_integer_value(valueJ));
 			}
 			if (displaysJ) {
 				json_t* valueJ = json_array_get(displaysJ, i);
 
 				if (valueJ)
-					engines[i]->setBufferFrame(static_cast<uint64_t>(json_integer_value(valueJ)), 0, true);
+					engine[i]->setBufferFrame(static_cast<uint64_t>(json_integer_value(valueJ)), 0, true);
 			}
 
 			// Load Buffers
@@ -548,85 +463,15 @@ struct WolframModule : Module {
 						json_t* valueJ = json_array_get(rowJ, j);
 
 						if (valueJ)
-							engines[i]->setBufferFrame(static_cast<uint64_t>(json_integer_value(valueJ)), j);
+							engine[i]->setBufferFrame(static_cast<uint64_t>(json_integer_value(valueJ)), j);
 					}
 				}
 			}
 
-			engines[i]->update(false);
+			engine[i]->updateDisplay(false);
 		}
 	}
 	
-	
-	/*
-	void processEncoder() {
-		float encoderValue = params[SELECT_PARAM].getValue();
-		float difference = encoderValue - prevEncoderValue;
-		int delta = static_cast<int>(std::round(difference / encoderIndent)); //TODO: better way to do
-			
-		if ((delta == 0) && !encoderReset)
-			return;
-		
-		prevEncoderValue += delta * encoderIndent;
-
-		if (menuActive) {
-			// Main menu
-			// TODO: Clean this up a bit
-			if (engineModulation) {
-				if (pageNumber == 0)
-					engines[0]->updateRule(delta, encoderReset);
-				else if (pageNumber == 1)
-					engines[0]->updateSeed(delta, encoderReset);
-				else if (pageNumber == 2)
-					engines[0]->updateMode(delta, encoderReset);
-				else if (pageNumber == 3)
-					engines[1]->updateRule(delta, encoderReset);
-				else if (pageNumber == 4)
-					engines[1]->updateSeed(delta, encoderReset);
-				else if (pageNumber == 5)
-					engines[1]->updateMode(delta, encoderReset);
-				else if (pageNumber == 6)
-					updateSlewSelect(encoderReset ? 0 : (slewValue + delta));
-				else if (pageNumber == 7)
-					updateEngineSelect(encoderReset ? engineDefault : ((engineSelect + delta + NUM_ENGINES) % NUM_ENGINES));
-			}
-			else {
-				if (pageNumber == 0)
-					engines[engineIndex]->updateSeed(delta, encoderReset);
-				else if (pageNumber == 1)
-					engines[engineIndex]->updateMode(delta, encoderReset);
-				else if (pageNumber == 2)
-					updateSlewSelect(encoderReset ? 0 : (slewValue + delta));
-				else if (pageNumber == 3)
-					updateEngineSelect(encoderReset ? engineDefault : ((engineSelect + delta + NUM_ENGINES) % NUM_ENGINES));
-			}
-		}
-		else {
-			// Mini menu
-			engines[engineIndex]->updateRule(delta, miniMenuActive ? encoderReset : false);
-
-			if (sync && (delta || miniMenuActive)) {
-				seedPushPending = true;
-			}
-			else {
-				gen = random::get<float>() < probability;
-				genPending = true;
-				seedPushPending = false;
-
-				if (gen) {
-					engines[engineIndex]->pushSeed(false);
-					engines[engineIndex]->updateMatrix(sequenceLength, offset, false);
-				}
-			}
-			if (!encoderReset || (miniMenuActive && encoderReset)) {
-				miniMenuActive = true;
-				ruleDisplayTimer.reset();
-			}
-		}
-		encoderReset = false;
-	}
-	*/
-
 	void process(const ProcessArgs& args) override {
 		for (int i = 0; i < NUM_ENGINES; i++) {
 			if (checkEngineIsNull(i)) {
@@ -645,32 +490,32 @@ struct WolframModule : Module {
 			}
 		}
 
-		EngineParameters& parameters = engineParameters[engineIndex];
-		for (int menuParam = 0; menuParam < 3; menuParam++) {
-			parameters.menuDelta[menuParam] = 0;
-			parameters.menuReset[menuParam] = false;
+		//EngineCoreParams& parameters = engineParams[engineIndex];
+
+		for (int i = 0; i < NUM_ENGINES; i++) {
+			for (int j = 0; j < EngineMenuParams::DELTA_LEN; j++) {
+				engineMenuParams[i].menuDelta[j] = 0;
+				engineMenuParams[i].menuReset[j] = false;
+			}
 		}
 
+		// TODO: sync engine 
 		engineModulation = inputs[ENGINE_CV_INPUT].isConnected();
 		float newEngineCvVoltage = rack::clamp(inputs[ENGINE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
 		int newEngineCv = std::round(newEngineCvVoltage * (NUM_ENGINES - 1));
-		if (sync)
-			engineCvPending = newEngineCv;
-		else
-			engineCv = newEngineCv;
-		updateEngine();
+		setEngine(engineSelect, newEngineCv);
 
 		ruleModulation = inputs[RULE_CV_INPUT].isConnected();
-		parameters.ruleCv = rack::clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
-		parameters.length = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
-		parameters.reset = resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f);
-		parameters.sync = sync;
+		engineCoreParams[engineIndex].ruleCv = rack::clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
+		engineCoreParams[engineIndex].length = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
+		engineCoreParams[engineIndex].reset = resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f);
+		engineCoreParams[engineIndex].sync = sync;
 
 		float probabilityCv = rack::clamp(inputs[PROBABILITY_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
-		parameters.probability = rack::clamp(params[PROBABILITY_PARAM].getValue() + probabilityCv, 0.f, 1.f);
+		engineCoreParams[engineIndex].probability = rack::clamp(params[PROBABILITY_PARAM].getValue() + probabilityCv, 0.f, 1.f);
 
 		float offsetCv = rack::clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f; // TODO: cast to int here?
-		parameters.offset = rack::clamp(static_cast<int>(std::round(params[OFFSET_PARAM].getValue() + offsetCv)), 0, 8);
+		engineCoreParams[engineIndex].offset = rack::clamp(static_cast<int>(std::round(params[OFFSET_PARAM].getValue() + offsetCv)), 0, 8);
 
 		// Menu and mode buttons
 		if (menuTrigger.process(params[MENU_PARAM].getValue()))
@@ -680,58 +525,58 @@ struct WolframModule : Module {
 			if (menuActive)
 				pageCounter++;
 			else
-				parameters.menuDelta[2] += 1;
+				engineMenuParams[engineSelect].menuDelta[EngineMenuParams::MODE_DELTA] += 1;
 		}
-		int menuPageAmount = engineModulation ? NUM_MENU_PAGES_ENGINE_MOD : NUM_MENU_PAGES_DEFAULT;
-		pageNumber = pageCounter % menuPageAmount;
+		pageNumber = pageCounter % NUM_MENU_PAGES;
 		if (pageNumber < 0)
-			pageNumber += menuPageAmount;
+			pageNumber += NUM_MENU_PAGES;
 
 		// Encoder
-		parameters.miniMenuChanged = false;
+		engineCoreParams[engineIndex].miniMenuChanged = false;
 		float encoderValue = params[SELECT_PARAM].getValue();
 		float difference = encoderValue - prevEncoderValue;
-		int delta = static_cast<int>(std::round(difference / encoderIndent)); //TODO: better way to do
+		int delta = static_cast<int>(std::round(difference / encoderIndent));
 
 		if ((delta != 0) || encoderReset) {
 			prevEncoderValue += delta * encoderIndent;
 
 			if (menuActive) {
-				if (engineModulation) {
-					if ((pageNumber > 0) && (pageNumber < 6)) {
-						int parameterIndex = (pageNumber >= 3) ? (pageNumber / 2) : pageNumber;
-						int enginePage = (pageNumber >= 3) ? 1 : 0;
-						engineParameters[enginePage].menuDelta[parameterIndex] = delta;
-						engineParameters[enginePage].menuReset[parameterIndex] = encoderReset;
+				switch (pageNumber) {
+					case 0: {
+						// Seed page
+						engineMenuParams[engineSelect].menuDelta[EngineMenuParams::SEED_DELTA] = delta;
+						engineMenuParams[engineSelect].menuReset[EngineMenuParams::SEED_RESET] = encoderReset;
+						break;
 					}
-					else if (pageNumber == 6)
-						updateSlewSelect(encoderReset ? 0 : (slewValue + delta));
-					else if (pageNumber == 7)
-						updateEngineSelect(encoderReset ? engineDefault : ((engineSelect + delta + NUM_ENGINES) % NUM_ENGINES));	
-				}
-				else {
-
-					if (pageNumber == 0) {
-						parameters.menuDelta[EngineParameters::SEED_DELTA] = delta;
-						parameters.menuReset[EngineParameters::SEED_RESET] = encoderReset;
+					case 1: {
+						// Mode page
+						engineMenuParams[engineSelect].menuDelta[EngineMenuParams::MODE_DELTA] = delta;
+						engineMenuParams[engineSelect].menuReset[EngineMenuParams::MODE_RESET] = encoderReset;
+						break;
 					}
-					else if (pageNumber == 1) {
-						parameters.menuDelta[EngineParameters::MODE_DELTA] = delta;
-						parameters.menuReset[EngineParameters::MODE_RESET] = encoderReset;
+					case 2: {
+						// Slew page
+						setSlew(encoderReset ? 0 : (slewValue + delta));
+						break;
 					}
-					else if (pageNumber == 2) {
-						updateSlewSelect(encoderReset ? 0 : (slewValue + delta));
+					case 3: {
+						// Algo page
+						if (encoderReset)
+							engineSelect = engineDefault;
+						else
+							engineSelect = (engineSelect + delta + NUM_ENGINES) % NUM_ENGINES;
+						break;
 					}
-					else if (pageNumber == 3) {
-						updateEngineSelect(encoderReset ? engineDefault : ((engineSelect + delta + NUM_ENGINES) % NUM_ENGINES));
-					}
+					default: { break; }
 				}
 			}
 			else {
 				// Mini menu
-				parameters.miniMenuChanged = true;
-				parameters.menuDelta[EngineParameters::RULE_DELTA] = delta;
-				parameters.menuReset[EngineParameters::RULE_RESET] = encoderReset;
+				if (engineSelect == engineIndex)
+					engineCoreParams[engineIndex].miniMenuChanged = true;
+
+				engineMenuParams[engineSelect].menuDelta[EngineMenuParams::RULE_DELTA] = delta;
+				engineMenuParams[engineSelect].menuReset[EngineMenuParams::RULE_RESET] = encoderReset;
 				if (!encoderReset || (miniMenuActive && encoderReset)) {
 					miniMenuActive = true;
 					ruleDisplayTimer.reset();
@@ -746,15 +591,15 @@ struct WolframModule : Module {
 			injectState = 1;
 		else if (negInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), -2.f, -0.1f))
 			injectState = -1;
-		parameters.inject = injectState;
+		engineCoreParams[engineIndex].inject = injectState;
 
 		// Step
-		parameters.step = false;
+		engineCoreParams[engineIndex].step = false;
 		float stepVoltage = inputs[TRIG_INPUT].getVoltage();
 		if (vcoMode)// Zero crossing
-			parameters.step = (stepVoltage > 0.f && prevStepVoltage <= 0.f) || (stepVoltage < 0.f && prevStepVoltage >= 0.f);
+			engineCoreParams[engineIndex].step = (stepVoltage > 0.f && prevStepVoltage <= 0.f) || (stepVoltage < 0.f && prevStepVoltage >= 0.f);
 		else		// Trigger pulse		
-			parameters.step = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+			engineCoreParams[engineIndex].step = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
 		prevStepVoltage = stepVoltage;
 		
 		// OUTPUT
@@ -763,7 +608,11 @@ struct WolframModule : Module {
 		bool xBit = false;
 		bool yBit = false;
 		float modeLED = 0.f;
-		engines[engineIndex]->process(parameters, &xCv, &yCv, &xBit, &yBit, &modeLED);
+	
+		for (int i = 0; i < NUM_ENGINES; i++)
+			engine[i]->updateMenuParams(engineMenuParams[i]);
+
+		engine[engineIndex]->process(engineCoreParams[engineIndex], &xCv, &yCv, &xBit, &yBit, &modeLED);
 
 		float xCvSlew = slewLimiter[0].process(xCv);
 		float yCvSlew = slewLimiter[1].process(yCv);
@@ -803,7 +652,7 @@ struct WolframModule : Module {
 		lights[Y_CV_LIGHT].setBrightness(yOut * 0.1);
 		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_PULSE_LIGHT].setBrightnessSmooth(yGate, args.sampleTime);
-		lights[TRIG_LIGHT].setBrightnessSmooth(parameters.step, args.sampleTime);
+		lights[TRIG_LIGHT].setBrightnessSmooth(engineCoreParams[engineIndex].step, args.sampleTime);
 		lights[INJECT_LIGHT].setBrightnessSmooth((injectState != 0), args.sampleTime);
 		
 		// Mini menu display
@@ -811,7 +660,7 @@ struct WolframModule : Module {
 			miniMenuActive = false;
 
 		if (((args.frame + this->id) % UI_UPDATE_INTERVAL) == 0)
-			updateEngineStateSnapshot();
+			updateEngineToUiLayer();
 	}
 };
 
@@ -862,14 +711,15 @@ struct Display : TransparentWidget {
 	}
 
 	void drawDisplay(NVGcontext* vg, int layer) {
-		EngineStateSnapshot* readState = nullptr;
+		EngineToUiLayer* engineLayer = nullptr;
 		if (module)
-			readState = module->engineStateSnapshotPtr.load(std::memory_order_acquire);
+			engineLayer = module->engineToUiLayerPtr.load(std::memory_order_acquire);
 
 		int firstRow = 0;
 		bool menuActive = module ? module->menuActive : false;
 		bool miniMenuActive = module ? module->miniMenuActive : false;
-		int engineIndex = module ? rack::clamp(module->engineIndex, 0, 2 - 1) : 0;
+		int engineSelect = module ? module->engineSelect : 0;
+		int engineIndex = module ? module->engineIndex : 0;
 
 		// Set colour
 		NVGcolor colour = nvgRGB(0, 0, 0);
@@ -902,17 +752,16 @@ struct Display : TransparentWidget {
 
 			// Text background
 			if (layer == 0) {
-				if (((pageNumber == 0) && (engineIndex == 0) && !engineMod) || ((pageNumber == 1) && engineMod)) {
+				if ((pageNumber == 0) && (engineSelect == 0)) {
 					// Special Wolf seed display
-					int seed = readState[0].seed;
+					int seed = engineLayer[0].seed;
 					if (seed == 256) {
 						ui.drawTextBg(vg, 2);
 					}
 					else {
 						ui.drawWolfSeedDisplay(vg, layer, seed);
 					}
-
-					ui.drawTextBg(vg, 0);	
+					ui.drawTextBg(vg, 0);
 					ui.drawTextBg(vg, 1);
 					ui.drawTextBg(vg, 3);
 				}
@@ -928,69 +777,38 @@ struct Display : TransparentWidget {
 				char value[5]{};
 				char footer[5] = "<#@>";
 
-				if (engineMod) {
-					// Engine modulation menu
-					// Convert capitalised engine name to lower case
-					char wolfName[5]{};
-					char lifeName[5]{};
-					for (int i = 0; i < 4; i++) {
-						wolfName[i] = std::tolower(static_cast<unsigned char>(readState[0].engineLabel[i]));
-						lifeName[i] = std::tolower(static_cast<unsigned char>(readState[1].engineLabel[i]));
-					}
-					wolfName[4] = '\0';
-					lifeName[4] = '\0';
-
-					int engineToDisplay = 0;
-					if (pageNumber >= 0 && pageNumber < 3) {
-						std::copy(wolfName, wolfName + 4, header);
-					}
-					else if (pageNumber >= 3 && pageNumber < 6) {
-						std::copy(lifeName, lifeName + 4, header);
-						engineToDisplay = 1;
-					}
-					
-					if (pageNumber == 0 || pageNumber == 3) {
-						std::copy("RULE", "RULE" + 4, title);
-						std::copy(readState[engineToDisplay].ruleActiveLabel, readState[engineToDisplay].ruleActiveLabel + 4, value);
-					}
-					else if (pageNumber == 1 || pageNumber == 4) {
-						std::copy("SEED", "SEED" + 4, title);
-
-						if (pageNumber == 1)
-							wolfSeedDisplayHelper(vg, readState[0].seed, value);
-						else
-							std::copy(readState[engineToDisplay].seedLabel, readState[engineToDisplay].seedLabel + 4, value);
-					}
-					else if (pageNumber == 2 || pageNumber == 5) {
-						std::copy("MODE", "MODE" + 4, title);
-						std::copy(readState[engineToDisplay].modeLabel, readState[engineToDisplay].modeLabel + 4, value);
-					}
-				}
-				else {
-					// Default menu
-					if (pageNumber == 0) {
-						std::copy("SEED", "SEED" + 4, title);
-						if (engineIndex == 0)
-							wolfSeedDisplayHelper(vg, readState[0].seed, value);
-						else 
-							std::copy(readState[engineIndex].seedLabel, readState[engineIndex].seedLabel + 4, value);
-					}
-					else if (pageNumber == 1) {
-						std::copy("MODE", "MODE" + 4, title);
-						std::copy(readState[engineIndex].modeLabel, readState[engineIndex].modeLabel + 4, value);
-					}
+				if (engineMod && (pageNumber < 2)) {
+					char engineLabel[5]{};
+					for (int i = 0; i < 4; i++)
+						engineLabel[i] = std::tolower(static_cast<unsigned char>(engineLayer[engineSelect].engineLabel[i]));
+					engineLabel[4] = '\0';
+					std::copy(engineLabel, engineLabel + 4, header);
 				}
 
-				// Slew & engine select menus
-				if (pageNumber == (engineMod ? NUM_ENGINES * 3 : 2)) {
+				// Default menu
+				if (pageNumber == 0) {
+					std::copy("SEED", "SEED" + 4, title);
+					if (engineSelect == 0)
+						wolfSeedDisplayHelper(vg, engineLayer[0].seed, value);
+					else
+						std::copy(engineLayer[engineSelect].seedLabel,
+							engineLayer[engineSelect].seedLabel + 4, value);
+				}
+				else if (pageNumber == 1) {
+					std::copy("MODE", "MODE" + 4, title);
+					std::copy(engineLayer[engineSelect].modeLabel,
+						engineLayer[engineSelect].modeLabel + 4, value);
+				}
+				else if (pageNumber == 2) {
 					std::copy("SLEW", "SLEW" + 4, title);
 					char slewString[5]{};
 					snprintf(slewString, sizeof(slewString), "%3d%%", module->slewValue);
 					std::copy(slewString, slewString + 4, value);
 				}
-				else if (pageNumber == (engineMod ? (NUM_ENGINES * 3) + 1 : 3)) {
+				else if (pageNumber == 3) {
 					std::copy("ALGO", "ALGO" + 4, title);
-					std::copy(readState[engineIndex].engineLabel, readState[engineIndex].engineLabel + 4, value);
+					std::copy(engineLayer[engineSelect].engineLabel,
+						engineLayer[engineSelect].engineLabel + 4, value);
 				}
 
 				ui.drawMenuText(vg, header, title, value, footer);
@@ -1008,14 +826,14 @@ struct Display : TransparentWidget {
 			// Text
 			else if (layer == 1) {
 				ui.drawText(vg, "RULE", 0);
-				ui.drawText(vg, readState[engineIndex].ruleActiveLabel, 1);
+				ui.drawText(vg, engineLayer[engineSelect].ruleSelectLabel, 1);
 			}
 		}
 
 		// Cells
 		uint64_t matrix = 0x81C326F48FCULL;
 		if (module)
-			matrix = readState[engineIndex].display;
+			matrix = engineLayer[engineIndex].display;
 
 		nvgBeginPath(vg);
 		nvgFillColor(vg, colour);
@@ -1103,8 +921,7 @@ struct WolframModuleWidget : ModuleWidget {
 
 	struct SelectEncoder : M1900hBlackEncoder {
 		void onDoubleClick(const DoubleClickEvent& e) override {
-			// Reset Select encoder to default of current selection,
-			// see processEncoder for details
+			// Reset Select encoder to default of current selection
 			auto* m = static_cast<WolframModule*>(module);
 			m->encoderReset = true;
 		}
