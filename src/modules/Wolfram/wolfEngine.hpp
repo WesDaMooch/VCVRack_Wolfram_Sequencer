@@ -16,7 +16,7 @@ public:
 
 	void reset() override;
 	
-	// SETTERS
+	// Setters
 	void setBufferFrame(uint64_t newFrame, int index, 
 		bool setDisplayMatrix=false) override;
 
@@ -25,7 +25,7 @@ public:
 	void setSeed(int newSeed) override;
 	void setMode(int newMode) override;
 
-	// GETTERS
+	// Getters
 	uint64_t getBufferFrame(int index, 
 		bool getDisplayMatrix = false, 
 		bool getDisplayMatrixSave = false) override;
@@ -43,7 +43,7 @@ protected:
 	uint64_t internalDisplayMatrix = 0;
 
 	static constexpr int NUM_MODES = 3;
-	static const char modeLabel[NUM_MODES][5]; // TODO: rename modeLabel
+	static const char modeLabel[NUM_MODES][5];
 	static constexpr int modeDefault = 1;
 	int modeIndex = modeDefault;
 

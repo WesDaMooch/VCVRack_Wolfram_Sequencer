@@ -38,14 +38,14 @@ struct UI {
 	float fontSize = 0;
 	float textBgSize = 0;
 	float textBgPadding = 0;
-	std::array<Vec, 4> textPos{};
-	std::array<Vec, 16> textBgPos{};
+	std::array<rack::math::Vec, 4> textPos{};
+	std::array<rack::math::Vec, 16> textBgPos{};
 
 	// Cell
 	float cellPadding = 0;
-	std::array<Vec, 64> cellCirclePos{};
-	std::array<Vec, 64> cellSquarePos{};
-	std::array<Vec, 64> cellRoundedSquarePos{};
+	std::array<rack::math::Vec, 64> cellCirclePos{};
+	std::array<rack::math::Vec, 64> cellSquarePos{};
+	std::array<rack::math::Vec, 64> cellRoundedSquarePos{};
 
 	// Cell styles
 	int cellStyleIndex = 0;
@@ -62,8 +62,7 @@ struct UI {
 	float wolfSeedSize = 0;
 	static constexpr float wolfSeedBevel = 3.f;
 	std::array<Vec, 8> wolfSeedPos{};
-	
-	// FUNCTIONS
+
 	void init(float newPadding, float newFontSize, float newCellPadding);
 
 	// GETTERS
@@ -73,13 +72,9 @@ struct UI {
 
 	// DRAW
 	void getCellPath(NVGcontext* vg, int col, int row);
-
 	void drawText(NVGcontext* vg, const char* text, int row);
-
 	void drawMenuText(NVGcontext* vg, const char* l1,
 		const char* l2, const char* l3, const char* l4);
-
 	void drawTextBg(NVGcontext* vg, int row);
-
 	void drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed);
 };

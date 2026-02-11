@@ -225,7 +225,7 @@ void WolfEngine::reset() {
 
 	setBufferFrame(0, 0, true);
 	setReadHead(0);
-	setWriteHead(0);
+	setWriteHead(1);
 	setRuleSelect(ruleDefault);
 	setSeed(seedDefault);
 	setMode(modeDefault);

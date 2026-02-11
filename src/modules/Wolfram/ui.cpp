@@ -1,20 +1,20 @@
 #include "ui.hpp"
 
-// Other display styles
-// { nvgRGB(17, 3, 20),	nvgRGB(177, 72, 198),	nvgRGB(38, 13, 43) },		// Purple 
-// { nvgRGB(4, 3, 8),		nvgRGB(244, 84, 22),	nvgRGB(26, 7, 0) },		// Eva 
 
-// TODO: make redrick off cells darker
+
 // Screen, foreground, backgound 
+// TODO: change to foreground, backgound, screen
 const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ {
-	{ nvgRGB(58, 16, 19),	nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
-	{ nvgRGB(37, 59, 99),	nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
-	{ SCHEME_DARK_GRAY,		SCHEME_YELLOW,			SCHEME_DARK_GRAY },			// Rack  
-	{ nvgRGB(200, 200, 200),	nvgRGB(0, 1, 220),	nvgRGB(200, 200, 200) },	// Windows
-	{ nvgRGB(42, 47, 37),	nvgRGB(210, 255, 0),	nvgRGB(42, 47, 37) },		// Lamp 
-	{ nvgRGB(0, 0, 0),		nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
+	{ nvgRGB(58, 16, 19),		nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
+	{ nvgRGB(37, 59, 99),		nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
+	{ SCHEME_DARK_GRAY,			SCHEME_YELLOW,			SCHEME_DARK_GRAY },			// Rack  
+	{ nvgRGB(200, 200, 200),	nvgRGB(0, 1, 220),		nvgRGB(200, 200, 200) },	// Windows
+	{ nvgRGB(42, 47, 37),		nvgRGB(210, 255, 0),	nvgRGB(42, 47, 37) },		// Lamp 
+	{ nvgRGB(0, 0, 0),			nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
 } };
-
+// Other display styles
+// Purple: (17, 3, 20), (177, 72, 198), (38, 13, 43)
+// Eva: (4, 3, 8), (244, 84, 22), (26, 7, 0) 
 
 void UI::init(float newPadding, float newFontSize, float newCellPadding) {
 	padding = newPadding;
@@ -69,7 +69,7 @@ void UI::init(float newPadding, float newFontSize, float newCellPadding) {
 	}
 };
 
-// GETTERS
+// Getters
 const NVGcolor& UI::getScreenColour() const {
 	return displayStyle[displayStyleIndex][0]; 
 }
@@ -82,7 +82,7 @@ const NVGcolor& UI::getBackgroundColour() const {
 	return displayStyle[displayStyleIndex][2];
 }
 
-// DRAWING	
+// Drawing
 void UI::getCellPath(NVGcontext* vg, int col, int row) {
 	// Must call nvgBeginPath before and nvgFill after this function! 
 	int i = row * 8 + col;
@@ -94,10 +94,6 @@ void UI::getCellPath(NVGcontext* vg, int col, int row) {
 		// Pixel - Rounded square
 		nvgRoundedRect(vg, cellRoundedSquarePos[i].x, cellRoundedSquarePos[i].y,
 			roundedSquareCellSize, roundedSquareCellSize, roundedSquareCellBevel);
-
-		//  - Square
-		//nvgRect(vg, cellSquarePos[i].x, cellSquarePos[i].y,
-		//	cellPadding, cellPadding);
 	}
 	else {
 		// LED - Circle
@@ -117,7 +113,6 @@ void UI::drawText(NVGcontext* vg, const char* text, int row) {
 
 void UI::drawMenuText(NVGcontext* vg, const char* l1,
 	const char* l2, const char* l3, const char* l4) {
-
 	// Helper for drawing four lines of menu text
     drawText(vg, l1, 0);
     drawText(vg, l2, 1);
@@ -143,9 +138,7 @@ void UI::drawTextBg(NVGcontext* vg, int row) {
 }
 
 void UI::drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed) {
-	// TODO: make layer int (layer == 1) and (layer == 0)
-
-	if (layer) {
+	if (layer == 1) {
 		// Lines
 		NVGcolor colour = getForegroundColour();
 

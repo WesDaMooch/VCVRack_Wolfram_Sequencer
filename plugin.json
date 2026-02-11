@@ -1,9 +1,9 @@
 {
-  "slug": "WolframPlugin",
-  "name": "Wolfram",
+  "slug": "ModularMooch",
+  "name": "Modular Mooch",
   "version": "2.0.0",
   "license": "proprietary",
-  "brand": "Wolfram",
+  "brand": "Modular Mooch",
   "author": "Wesley Lawrence Leggo-Morrell",
   "authorEmail": "wes.mm@outlook.com",
   "authorUrl": "",
@@ -14,11 +14,12 @@
   "changelogUrl": "",
   "modules": [
     {
-      "slug": "WolframModule",
+      "slug": "Wolfram",
       "name": "Wolfram",
-      "description": "Cellular Automata Sequencer",
+      "description": "Emergent Complexity Sequencer",
       "tags": [
-        "Sequencer"
+        "Sequencer", 
+        "VCO"
       ]
     }
   ]

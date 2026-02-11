@@ -4,18 +4,17 @@
 // Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
 
-// TODO: onRandomize
-// TODO: json saves to signed 64 bit number, i need unsigned (uint64_t), maybe not a issue
-// TODO: algo select context menu
-// TODO: clean up all all custom svgs
-
 // BUGS
-// TODO: on wolf vcomode, seed not init or something
-// TODO: not setting wolf rand seed?
+// TODO: on wolf vcomode, seed not init or something DONE?
+// TODO: not setting wolf rand seed?	DONE?
+// TODO: check all random, Vec, clamp have rack:: or rack::math::
 
-// Update
-// - multi channel triggers each engine...
-// - multi channel outs for each engine...
+// TODO:
+// - Encoder update interval.
+
+// V2:
+// - onRandomize.
+// - Polyphonic engines. Replace 'Algo' CV with Slew CV?
 
 #include <string>
 #include <atomic>
@@ -50,7 +49,7 @@ protected:
 	float slew = 20.f;
 };
 
-struct WolframModule : Module {
+struct Wolfram : Module {
 	enum ParamId {
 		SELECT_PARAM,
 		MENU_PARAM,
@@ -92,11 +91,10 @@ struct WolframModule : Module {
 
 	struct EncoderParamQuantity : ParamQuantity {
 		// Custom behaviour to display rule when hovering over Select encoder 
-		
 		std::string getDisplayValueString() override {
 			std::string defaultString = "30";
 
-			auto* m = dynamic_cast<WolframModule*>(module);
+			auto* m = dynamic_cast<Wolfram*>(module);
 			if (!m)
 				return defaultString;
 
@@ -119,16 +117,14 @@ struct WolframModule : Module {
 			return ruleSelectString + " ( " + ruleActiveString + " )";
 		}
 		
-
 		// Suppress behaviour
 		void setDisplayValueString(std::string s) override {}
 	};
 
 	struct LengthParamQuantity : ParamQuantity {
 		// Custom behaviour to display sequence length when hovering over Length knob
-		
 		float getDisplayValue() override {
-			auto* m = dynamic_cast<WolframModule*>(module);
+			auto* m = dynamic_cast<Wolfram*>(module);
 			return m ? m->sequenceLength : 8;
 		}
 		
@@ -144,11 +140,11 @@ struct WolframModule : Module {
 	std::array<EngineMenuParams, NUM_ENGINES> engineMenuParams{};
 	static constexpr int engineDefault = 0;
 	int engineSelect = engineDefault;
-	int engineCvPending = 0;
+	int syncedEngineCv = 0;
 	int engineIndex = 0;
 
 	// UI
-	static constexpr int UI_UPDATE_INTERVAL = 512;
+	static constexpr int ENGINE_TO_UI_UPDATE_INTERVAL = 512;
 	std::array<EngineToUiLayer, NUM_ENGINES> engineToUiLayerA{};
 	std::array<EngineToUiLayer, NUM_ENGINES> engineToUiLayerB{};
 	std::atomic<EngineToUiLayer*> engineToUiLayerPtr{ engineToUiLayerA.data() };
@@ -157,6 +153,13 @@ struct WolframModule : Module {
 	bool menuActive = false;
 	int displayStyleIndex = 0;
 	int cellStyleIndex = 0;
+	float miniMenuDisplayTime = 0.75f;
+	bool miniMenuActive = false;
+
+	// Select encoder
+	static constexpr float encoderIndent = 1.f / 30.f;
+	float prevEncoderValue = 0.f;
+	bool encoderReset = false;
 
 	// Parameters
 	int sequenceLength = 8;
@@ -166,19 +169,9 @@ struct WolframModule : Module {
 	bool slewY = true;
 	bool sync = false;
 	bool vcoMode = false;
-	int offset = 0;
-	float prevStepVoltage = 0.f;
-	
-	// Select encoder
-	static constexpr float encoderIndent = 1.f / 30.f;
-	float prevEncoderValue = 0.f;
-	bool encoderReset = false;
-	
-	// Display
-	float miniMenuDisplayTime = 0.75f;
-	bool miniMenuActive = false;
 	bool ruleModulation = false;
 	bool engineModulation = false;
+	float prevStepVoltage = 0.f;
 
 	// DSP
 	int srate = 44100;	
@@ -189,7 +182,7 @@ struct WolframModule : Module {
 	dsp::RCFilter dcFilter[2];
 	SlewLimiter slewLimiter[2];
 
-	WolframModule() {
+	Wolfram() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configButton(MENU_PARAM, "Menu");
 		configButton(MODE_PARAM, "Mode");
@@ -237,7 +230,8 @@ struct WolframModule : Module {
 		return false;
 	}
 
-	void setEngine(int newEngineSelect, float newEngineCv) {
+	void setEngine(int newEngineSelect, float newEngineCv = 0.f) {
+		// TODO: sort out clamp / int / round stuff
 		engineSelect = rack::clamp(newEngineSelect, 0, NUM_ENGINES - 1);
 		int engineCv = std::round(newEngineCv * (NUM_ENGINES - 1));
 		engineIndex = engineModulation ? engineCv : engineSelect;
@@ -273,10 +267,9 @@ struct WolframModule : Module {
 	}
 
 	void setSlew(int newSlewSelect) {
-		slewValue = rack::clamp(newSlewSelect, 0, 100);
-
 		// Skew slewParam (0 - 100%) -> (0 - 1)
 		// Convert to ms, if VCO mode (0 - 10ms) else (0 - 1000ms)
+		slewValue = rack::clamp(newSlewSelect, 0, 100);
 		float slewSkew = std::pow(slewValue * 0.01f, 2.f);
 		float slew = vcoMode ? (slewSkew * 10.f) : (slewSkew * 1000.f);
 
@@ -305,19 +298,23 @@ struct WolframModule : Module {
 		vcoMode = false;
 		pageCounter = 0;
 		setSlew(0);
-		setEngine(0, 0.f);
+		setEngine(0);
 
 		for (int i = 0; i < NUM_ENGINES; i++) {
 			if (checkEngineIsNull(i))
 				continue;
 			engine[i]->reset();
 		}
+
+		displayStyleIndex = 0;
+		cellStyleIndex = 0;
 	}
 	
 	json_t* dataToJson() override {
+		// Engine buffers & display use uint64_t, yet the patch json uses 'int'.
+		// There seems to be no issue at the moment with this conflict.
 		json_t* rootJ = json_object();
-		// TODO: buffers saved as signed 64 bits, when unsigned is used
-		
+
 		// Save sequencer settings
 		json_object_set_new(rootJ, "vco", json_boolean(vcoMode));
 		json_object_set_new(rootJ, "sync", json_boolean(sync));
@@ -325,14 +322,13 @@ struct WolframModule : Module {
 		json_object_set_new(rootJ, "slewY", json_boolean(slewY));
 		json_object_set_new(rootJ, "slewValue", json_integer(slewValue));
 
-		// Save engine index
+		// Save engine selection
 		json_object_set_new(rootJ, "engine", json_integer(engineSelect));
 
 		// Save UI settings
 		json_object_set_new(rootJ, "displayStyle", json_integer(displayStyleIndex));
 		json_object_set_new(rootJ, "cellStyle", json_integer(cellStyleIndex));
 
-		
 		// Save engine specifics
 		EngineToUiLayer* engineLayer = engineToUiLayerPtr.load(std::memory_order_acquire);
 
@@ -391,10 +387,10 @@ struct WolframModule : Module {
 		if (slewValueJ)
 			setSlew(json_integer_value(slewValueJ));
 
-		// Load engine index
+		// Load engine selection
 		json_t* engineSelectJ = json_object_get(rootJ, "engine");
 		if (engineSelectJ)
-			setEngine(json_integer_value(engineSelectJ), 0.f);
+			setEngine(json_integer_value(engineSelectJ));
 
 		json_t* displayStyleJ = json_object_get(rootJ, "displayStyle");
 		if (displayStyleJ)
@@ -467,7 +463,6 @@ struct WolframModule : Module {
 					}
 				}
 			}
-
 			engine[i]->updateDisplay(false);
 		}
 	}
@@ -490,21 +485,31 @@ struct WolframModule : Module {
 			}
 		}
 
-		//EngineCoreParams& parameters = engineParams[engineIndex];
-
 		for (int i = 0; i < NUM_ENGINES; i++) {
+			// Clear menu parameter's delta and reset
 			for (int j = 0; j < EngineMenuParams::DELTA_LEN; j++) {
 				engineMenuParams[i].menuDelta[j] = 0;
 				engineMenuParams[i].menuReset[j] = false;
 			}
 		}
 
-		// TODO: sync engine 
+		// Step
+		bool step = false;
+		float stepVoltage = inputs[TRIG_INPUT].getVoltage();
+		if (vcoMode)// Zero crossing
+			step = (stepVoltage > 0.f && prevStepVoltage <= 0.f) || (stepVoltage < 0.f && prevStepVoltage >= 0.f);
+		else		// Trigger pulse		
+			step = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
+		prevStepVoltage = stepVoltage;
+
 		engineModulation = inputs[ENGINE_CV_INPUT].isConnected();
 		float newEngineCvVoltage = rack::clamp(inputs[ENGINE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
 		int newEngineCv = std::round(newEngineCvVoltage * (NUM_ENGINES - 1));
-		setEngine(engineSelect, newEngineCv);
+		if (sync && step)
+			syncedEngineCv = newEngineCv;
+		setEngine(engineSelect, sync ? syncedEngineCv : newEngineCv);
 
+		engineCoreParams[engineIndex].step = step;
 		ruleModulation = inputs[RULE_CV_INPUT].isConnected();
 		engineCoreParams[engineIndex].ruleCv = rack::clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
 		engineCoreParams[engineIndex].length = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
@@ -513,7 +518,7 @@ struct WolframModule : Module {
 
 		float probabilityCv = rack::clamp(inputs[PROBABILITY_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
 		engineCoreParams[engineIndex].probability = rack::clamp(params[PROBABILITY_PARAM].getValue() + probabilityCv, 0.f, 1.f);
-
+		// TODO: sort out clamp / int / round stuff
 		float offsetCv = rack::clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f; // TODO: cast to int here?
 		engineCoreParams[engineIndex].offset = rack::clamp(static_cast<int>(std::round(params[OFFSET_PARAM].getValue() + offsetCv)), 0, 8);
 
@@ -572,11 +577,12 @@ struct WolframModule : Module {
 			}
 			else {
 				// Mini menu
-				if (engineSelect == engineIndex)
+				if (!engineModulation)
 					engineCoreParams[engineIndex].miniMenuChanged = true;
 
 				engineMenuParams[engineSelect].menuDelta[EngineMenuParams::RULE_DELTA] = delta;
-				engineMenuParams[engineSelect].menuReset[EngineMenuParams::RULE_RESET] = encoderReset;
+				engineMenuParams[engineSelect].menuReset[EngineMenuParams::RULE_RESET] = miniMenuActive ? encoderReset : false;
+
 				if (!encoderReset || (miniMenuActive && encoderReset)) {
 					miniMenuActive = true;
 					ruleDisplayTimer.reset();
@@ -592,15 +598,6 @@ struct WolframModule : Module {
 		else if (negInjectTrigger.process(inputs[INJECT_INPUT].getVoltage(), -2.f, -0.1f))
 			injectState = -1;
 		engineCoreParams[engineIndex].inject = injectState;
-
-		// Step
-		engineCoreParams[engineIndex].step = false;
-		float stepVoltage = inputs[TRIG_INPUT].getVoltage();
-		if (vcoMode)// Zero crossing
-			engineCoreParams[engineIndex].step = (stepVoltage > 0.f && prevStepVoltage <= 0.f) || (stepVoltage < 0.f && prevStepVoltage >= 0.f);
-		else		// Trigger pulse		
-			engineCoreParams[engineIndex].step = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
-		prevStepVoltage = stepVoltage;
 		
 		// OUTPUT
 		float xCv = 0.f; 
@@ -634,7 +631,7 @@ struct WolframModule : Module {
 		outputs[X_CV_OUTPUT].setVoltage(xOut);
 		outputs[Y_CV_OUTPUT].setVoltage(yOut);
 
-		// Pulse outputs - 0V to 10V
+		// Pulse outputs (0V to 10V)
 		if (xBit)
 			xPulse.trigger(vcoMode ? args.sampleTime : 1e-3f);
 
@@ -652,20 +649,18 @@ struct WolframModule : Module {
 		lights[Y_CV_LIGHT].setBrightness(yOut * 0.1);
 		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_PULSE_LIGHT].setBrightnessSmooth(yGate, args.sampleTime);
-		lights[TRIG_LIGHT].setBrightnessSmooth(engineCoreParams[engineIndex].step, args.sampleTime);
-		lights[INJECT_LIGHT].setBrightnessSmooth((injectState != 0), args.sampleTime);
 		
 		// Mini menu display
 		if (miniMenuActive && (ruleDisplayTimer.process(args.sampleTime) >= miniMenuDisplayTime))
 			miniMenuActive = false;
 
-		if (((args.frame + this->id) % UI_UPDATE_INTERVAL) == 0)
+		if (((args.frame + this->id) % ENGINE_TO_UI_UPDATE_INTERVAL) == 0)
 			updateEngineToUiLayer();
 	}
 };
 
 struct Display : TransparentWidget {
-	WolframModule* module;
+	Wolfram* module;
 	UI ui;
 
 	std::shared_ptr<Font> font;
@@ -680,7 +675,7 @@ struct Display : TransparentWidget {
 	float widgetSize = 0;
 	float fontSize = 0;
 
-	Display(WolframModule* m, float yPos, float w, float size) {
+	Display(Wolfram* m, float yPos, float w, float size) {
 		module = m;
 
 		// Wiget params
@@ -694,20 +689,10 @@ struct Display : TransparentWidget {
 		box.size = Vec(widgetSize, widgetSize);
 
 		// Get font 
-		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/wolf.otf"));
+		fontPath = std::string(asset::plugin(pluginInstance, "res/fonts/wolfram.otf"));
 		font = APP->window->loadFont(fontPath);
 		
 		ui.init(padding, fontSize, cellPadding);
-	}
-
-	void wolfSeedDisplayHelper(NVGcontext* vg, int seed, char* text) {
-		if (seed == 256) {
-			std::copy("RAND", "RAND" + 4, text);
-		}
-		else {
-			std::copy("    ", "    " + 4, text);
-			ui.drawWolfSeedDisplay(vg, 1, seed);
-		}
 	}
 
 	void drawDisplay(NVGcontext* vg, int layer) {
@@ -748,7 +733,6 @@ struct Display : TransparentWidget {
 		if (menuActive) {
 			// Main menu
 			int pageNumber = module->pageNumber;
-			bool engineMod = module->engineModulation;
 
 			// Text background
 			if (layer == 0) {
@@ -759,7 +743,8 @@ struct Display : TransparentWidget {
 						ui.drawTextBg(vg, 2);
 					}
 					else {
-						ui.drawWolfSeedDisplay(vg, layer, seed);
+						ui.drawWolfSeedDisplay(vg, layer, 
+							static_cast<uint8_t>(seed));
 					}
 					ui.drawTextBg(vg, 0);
 					ui.drawTextBg(vg, 1);
@@ -777,40 +762,63 @@ struct Display : TransparentWidget {
 				char value[5]{};
 				char footer[5] = "<#@>";
 
-				if (engineMod && (pageNumber < 2)) {
+				if (pageNumber < 2) {
 					char engineLabel[5]{};
-					for (int i = 0; i < 4; i++)
-						engineLabel[i] = std::tolower(static_cast<unsigned char>(engineLayer[engineSelect].engineLabel[i]));
+					for (int i = 0; i < 4; i++) {
+						engineLabel[i] = std::tolower(static_cast<unsigned char>(
+							engineLayer[engineSelect].engineLabel[i]));
+					}
 					engineLabel[4] = '\0';
 					std::copy(engineLabel, engineLabel + 4, header);
 				}
 
 				// Default menu
-				if (pageNumber == 0) {
+				switch (pageNumber) {
+				case 0: {
+					// Seed page
 					std::copy("SEED", "SEED" + 4, title);
-					if (engineSelect == 0)
-						wolfSeedDisplayHelper(vg, engineLayer[0].seed, value);
-					else
+					if (engineSelect == 0) {
+						// Special Wolf seed display
+						int seed = engineLayer[0].seed;
+						if (seed == 256) {
+							std::copy("RAND", "RAND" + 4, value);
+						}
+						else {
+							std::copy("    ", "    " + 4, value);
+							ui.drawWolfSeedDisplay(vg, layer,
+								static_cast<uint8_t>(seed));
+						}
+					}
+					else {
 						std::copy(engineLayer[engineSelect].seedLabel,
 							engineLayer[engineSelect].seedLabel + 4, value);
+					}
+					break;
 				}
-				else if (pageNumber == 1) {
+				case 1: {
+					// Mode page
 					std::copy("MODE", "MODE" + 4, title);
 					std::copy(engineLayer[engineSelect].modeLabel,
 						engineLayer[engineSelect].modeLabel + 4, value);
+					break;
 				}
-				else if (pageNumber == 2) {
+				case 2: {
+					// Slew page
 					std::copy("SLEW", "SLEW" + 4, title);
 					char slewString[5]{};
 					snprintf(slewString, sizeof(slewString), "%3d%%", module->slewValue);
 					std::copy(slewString, slewString + 4, value);
+					break;
 				}
-				else if (pageNumber == 3) {
+				case 3: {
+					// Algo page
 					std::copy("ALGO", "ALGO" + 4, title);
 					std::copy(engineLayer[engineSelect].engineLabel,
 						engineLayer[engineSelect].engineLabel + 4, value);
+					break;
 				}
-
+				default: { break; }
+				}
 				ui.drawMenuText(vg, header, title, value, footer);
 			}
 			return;
@@ -922,15 +930,14 @@ struct WolframModuleWidget : ModuleWidget {
 	struct SelectEncoder : M1900hBlackEncoder {
 		void onDoubleClick(const DoubleClickEvent& e) override {
 			// Reset Select encoder to default of current selection
-			auto* m = static_cast<WolframModule*>(module);
+			auto* m = static_cast<Wolfram*>(module);
 			m->encoderReset = true;
 		}
 	};
 
 	// Custom lights
-	// TODO: is this wrong
 	template <typename TBase>
-	struct LuckyLight : RectangleLight<TSvgLight<TBase>> {
+	struct LuckyLight : RectangleLight<TSvgLight<TBase>> {	// Cursed
 		// Count Modula's custom light code
 		LuckyLight() {
 			this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/RectangleLight.svg")));
@@ -1010,7 +1017,7 @@ struct WolframModuleWidget : ModuleWidget {
 		}
 	};
 
-	WolframModuleWidget(WolframModule* module) {
+	WolframModuleWidget(Wolfram* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/panels/wolfram.svg")));
 
@@ -1020,42 +1027,41 @@ struct WolframModuleWidget : ModuleWidget {
 		addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		// Buttons
-		addParam(createParamCentered<CKD6>(mm2px(Vec(7.62f, 38.14f)), module, WolframModule::MENU_PARAM));
-		addParam(createParamCentered<CKD6>(mm2px(Vec(53.34f, 38.14f)), module, WolframModule::MODE_PARAM));
+		addParam(createParamCentered<CKD6>(mm2px(Vec(7.62f, 38.14f)), module, Wolfram::MENU_PARAM));
+		addParam(createParamCentered<CKD6>(mm2px(Vec(53.34f, 38.14f)), module, Wolfram::MODE_PARAM));
 		// Dials
-		addParam(createParamCentered<SelectEncoder>(mm2px(Vec(53.34f, 22.14f)), module, WolframModule::SELECT_PARAM));
-		addParam(createParamCentered<LengthKnob>(mm2px(Vec(15.24f, 61.369f)), module, WolframModule::LENGTH_PARAM));
-		addParam(createParamCentered<ProbabilityKnob>(mm2px(Vec(45.72f, 61.369f)), module, WolframModule::PROBABILITY_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.597f)), module, WolframModule::OFFSET_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(7.62f, 80.597f)), module, WolframModule::X_SCALE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(53.34f, 80.597f)), module, WolframModule::Y_SCALE_PARAM));
+		addParam(createParamCentered<SelectEncoder>(mm2px(Vec(53.34f, 22.14f)), module, Wolfram::SELECT_PARAM));
+		addParam(createParamCentered<LengthKnob>(mm2px(Vec(15.24f, 61.369f)), module, Wolfram::LENGTH_PARAM));
+		addParam(createParamCentered<ProbabilityKnob>(mm2px(Vec(45.72f, 61.369f)), module, Wolfram::PROBABILITY_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(30.48f, 80.597f)), module, Wolfram::OFFSET_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(7.62f, 80.597f)), module, Wolfram::X_SCALE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(53.34f, 80.597f)), module, Wolfram::Y_SCALE_PARAM));
 		// Inputs
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 22.14f)), module, WolframModule::RESET_INPUT));
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 99.852f)), module, WolframModule::OFFSET_CV_INPUT));
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 114.852f)), module, WolframModule::PROBABILITY_CV_INPUT));
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(41.91f, 114.852f)), module, WolframModule::RULE_CV_INPUT));
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(53.34f, 114.852f)), module, WolframModule::ENGINE_CV_INPUT));
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 114.852f)), module, WolframModule::TRIG_INPUT));
-		addInput(createInputCentered<BananutBlack>(mm2px(Vec(19.05f, 114.852f)), module, WolframModule::INJECT_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 22.14f)), module, Wolfram::RESET_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 99.852f)), module, Wolfram::OFFSET_CV_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(30.48f, 114.852f)), module, Wolfram::PROBABILITY_CV_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(41.91f, 114.852f)), module, Wolfram::RULE_CV_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(53.34f, 114.852f)), module, Wolfram::ENGINE_CV_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(7.62f, 114.852f)), module, Wolfram::TRIG_INPUT));
+		addInput(createInputCentered<BananutBlack>(mm2px(Vec(19.05f, 114.852f)), module, Wolfram::INJECT_INPUT));
 		// Outputs
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 99.852f)), module, WolframModule::X_CV_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.05f, 99.852f)), module, WolframModule::X_PULSE_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 99.852f)), module, WolframModule::Y_CV_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, WolframModule::Y_PULSE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(7.62f, 99.852f)), module, Wolfram::X_CV_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.05f, 99.852f)), module, Wolfram::X_PULSE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(53.34f, 99.852f)), module, Wolfram::Y_CV_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, Wolfram::Y_PULSE_OUTPUT));
 		// LEDs
-		addChild(createLightCentered<DiagonalLuckyLight<RedLight>>(mm2px(Vec(53.34f, 47.767f)), module, WolframModule::MODE_LIGHT)); 
-		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, WolframModule::X_CV_LIGHT));		
-		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(19.05f, 90.225f)), module, WolframModule::X_PULSE_LIGHT));	
-		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(41.91f, 90.225f)), module, WolframModule::Y_PULSE_LIGHT));	
-		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, WolframModule::Y_CV_LIGHT));
+		addChild(createLightCentered<DiagonalLuckyLight<RedLight>>(mm2px(Vec(53.34f, 47.767f)), module, Wolfram::MODE_LIGHT)); 
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, Wolfram::X_CV_LIGHT));		
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(19.05f, 90.225f)), module, Wolfram::X_PULSE_LIGHT));	
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(41.91f, 90.225f)), module, Wolfram::Y_PULSE_LIGHT));	
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, Wolfram::Y_CV_LIGHT));
 		
 		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
 		addChild(display);
 	}
-
 	
 	void appendContextMenu(Menu* menu) override {
-		WolframModule* module = dynamic_cast<WolframModule*>(this->module);
+		Wolfram* module = dynamic_cast<Wolfram*>(this->module);
 		
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createIndexSubmenuItem("Algorithm",
@@ -1068,6 +1074,13 @@ struct WolframModuleWidget : ModuleWidget {
 			}
 		));
 
+		menu->addChild(createSubmenuItem("Slew", "",
+			[=](Menu* menu) {
+				menu->addChild(createBoolPtrMenuItem("X", "", &module->slewX));
+				menu->addChild(createBoolPtrMenuItem("Y", "", &module->slewY));
+			}
+		));
+
 		menu->addChild(createBoolPtrMenuItem("Sync", "", &module->sync));
 	
 		menu->addChild(createBoolMenuItem("VCO", "",
@@ -1077,13 +1090,6 @@ struct WolframModuleWidget : ModuleWidget {
 			[=](bool vco) {
 				module->vcoMode = vco;
 				module->onSampleRateChange();
-			}
-		));
-
-		menu->addChild(createSubmenuItem("Slew", "",
-			[=](Menu* menu) {
-				menu->addChild(createBoolPtrMenuItem("X", "", &module->slewX));
-				menu->addChild(createBoolPtrMenuItem("Y", "", &module->slewY));
 			}
 		));
 
@@ -1110,4 +1116,4 @@ struct WolframModuleWidget : ModuleWidget {
 	}
 };
 
-Model* modelWolframModule = createModel<WolframModule, WolframModuleWidget>("WolframModule");
+Model* modelWolfram = createModel<Wolfram, WolframModuleWidget>("Wolfram");

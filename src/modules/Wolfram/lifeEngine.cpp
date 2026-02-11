@@ -9,36 +9,36 @@ const char LifeEngine::modeLabel[LifeEngine::NUM_MODES][5] = {
 
 const std::array<LifeEngine::Rule, LifeEngine::NUM_RULES> LifeEngine::rule{ {
 	// Rules from the Hatsya catagolue & LifeWiki
-	{ "WALK", 0x1908U },			// Pedestrian Life			B38/S23
-	{ "VRUS", 0x5848U },			// Virus					B36/S235
-	{ "TREK", 0x22A08U },			// Star Trek				B3/S0248		
-	{ "SQRT", 0x6848U },			// Sqrt Replicator			B36/S245		
-	{ "SEED", 0x04U },				// Seeds					B2/S			
-	{ "RUGS", 0x1CU },				// Serviettes				B234/S			
-	{ "MOVE", 0x6948U },			// Move / Morley			B368/S245		
-	{ "MESS", 0x3D9C8U },			// Stains					B3678/S235678   
-	{ "MAZE", 0x3C30U },			// Mazectric non Static		B45/S1234 
-	{ " LOW", 0x1408U },			// LowLife					B3/S13		
-	{ "LONG", 0x4038U },			// LongLife					B345/S5			
-	{ "LIFE", 0x1808U },			// Conway's Game of Life	B3/S23			
-	{ "ICE9", 0x3C1E4U },			// Iceballs					B25678/S5678	
-	{ "HUNY", 0x21908U },			// HoneyLife				B38/S238		
-	{ "GNRL", 0x402U },				// Gnarl					B1/S1			
-	{ " GEO", 0x3A9A8U },			// Geology					B3578/S24678	
-	{ "GEMS", 0x2E0B8U },			// Gems						B3457/S4568		
-	{ "FREE", 0x204U },				// Live Free or Die			B2/S0			
-	{ "FORT", 0x3D5C8U },			// Castles					B3678/S135678   
-	{ "FLOK", 0xC08U },				// Flock					B3/S12
-	{ "DUPE", 0x154AAU },			// Replicator				B1357/S1357		
-	{ " DOT", 0x1A08U },			// DotLife					B3/S023
-	{ "DIRT", 0x1828U },			// Grounded Life			B35/S23
-	{ "DIAM", 0x3C1E8U },			// Diamoeba					B35678/S5678	
-	{ "DANC", 0x5018U },			// Dance					B34/S35			
-	{ "CLOT", 0x3D988U },			// Coagulations				B378/S235678	
-	{ "ACID", 0x2C08U },			// Corrosion of Conformity	B3/S124			
-	{ " 3-4", 0x3018U },			// 3-4 Life					B34/S34			
-	{ " 2X2", 0x4C48U },			// 2x2						B35/S125		
-	{ "24/7", 0x3B1C8U },			// Day & Night				B3678/S34678	
+	{ "WALK", 0x1908U },	// Pedestrian Life			B38/S23
+	{ "VRUS", 0x5848U },	// Virus					B36/S235
+	{ "TREK", 0x22A08U },	// Star Trek				B3/S0248		
+	{ "SQRT", 0x6848U },	// Sqrt Replicator			B36/S245		
+	{ "SEED", 0x04U },		// Seeds					B2/S			
+	{ "RUGS", 0x1CU },		// Serviettes				B234/S			
+	{ "MOVE", 0x6948U },	// Move / Morley			B368/S245		
+	{ "MESS", 0x3D9C8U },	// Stains					B3678/S235678   
+	{ "MAZE", 0x3C30U },	// Mazectric non Static		B45/S1234 
+	{ " LOW", 0x1408U },	// LowLife					B3/S13		
+	{ "LONG", 0x4038U },	// LongLife					B345/S5			
+	{ "LIFE", 0x1808U },	// Conway's Game of Life	B3/S23			
+	{ "ICE9", 0x3C1E4U },	// Iceballs					B25678/S5678	
+	{ "HUNY", 0x21908U },	// HoneyLife				B38/S238		
+	{ "GNRL", 0x402U },		// Gnarl					B1/S1			
+	{ " GEO", 0x3A9A8U },	// Geology					B3578/S24678	
+	{ "GEMS", 0x2E0B8U },	// Gems						B3457/S4568		
+	{ "FREE", 0x204U },		// Live Free or Die			B2/S0			
+	{ "FORT", 0x3D5C8U },	// Castles					B3678/S135678   
+	{ "FLOK", 0xC08U },		// Flock					B3/S12
+	{ "DUPE", 0x154AAU },	// Replicator				B1357/S1357		
+	{ " DOT", 0x1A08U },	// DotLife					B3/S023
+	{ "DIRT", 0x1828U },	// Grounded Life			B35/S23
+	{ "DIAM", 0x3C1E8U },	// Diamoeba					B35678/S5678	
+	{ "DANC", 0x5018U },	// Dance					B34/S35			
+	{ "CLOT", 0x3D988U },	// Coagulations				B378/S235678	
+	{ "ACID", 0x2C08U },	// Corrosion of Conformity	B3/S124			
+	{ " 3-4", 0x3018U },	// 3-4 Life					B34/S34			
+	{ " 2X2", 0x4C48U },	// 2x2						B35/S125		
+	{ "24/7", 0x3B1C8U },	// Day & Night				B3678/S34678	
 } };
 
 const std::array<LifeEngine::Seed, LifeEngine::NUM_SEEDS> LifeEngine::seed{ {
@@ -164,7 +164,6 @@ void LifeEngine::process(const EngineCoreParams& p,
 	bool* xPulse, bool* yPulse,
 	float* modeLED) {
 
-	// SEQUENCER
 	setRuleCv(p.ruleCv);
 
 	bool refreshDisplay = p.step;
@@ -367,8 +366,7 @@ void LifeEngine::process(const EngineCoreParams& p,
 	if (refreshDisplay)
 		updateDisplay(p.step, p.length);
 
-
-	// OUTPUT
+	// Output
 	// X - Returns the population (number of alive cells) scaled to 0 - 1
 	*xOut = population * xVoltageScaler;
 	
@@ -398,11 +396,10 @@ void LifeEngine::reset() {
 
 	setBufferFrame(0, 0, true);
 	setReadHead(0);
-	setWriteHead(0);
+	setWriteHead(1);
 	setRuleSelect(ruleDefault);
 	setSeed(seedDefault);
 	setMode(modeDefault);
-
 	matrixBuffer[readHead] = rack::random::get<uint64_t>();
 	updateDisplay(false);
 }
