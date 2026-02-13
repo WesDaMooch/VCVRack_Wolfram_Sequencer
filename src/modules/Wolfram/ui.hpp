@@ -5,33 +5,8 @@
 
 static constexpr int NUM_DISPLAY_STYLES = 6;
 static constexpr int NUM_CELL_STYLES = 2;
-/*
-enum MenuPage {
-	RULE_PAGE,
-	SEED_PAGE,
-	MODE_PAGE,
-	SLEW_PAGE,
-	ALGO_PAGE
-};
-
-static constexpr MenuPage menuPagesDefault[] = {
-	SEED_PAGE,
-	MODE_PAGE,
-	SLEW_PAGE,
-	ALGO_PAGE
-};
-
-static constexpr MenuPage menuPagesEngineMod[] = {
-	RULE_PAGE,
-	SEED_PAGE,
-	MODE_PAGE,
-	SLEW_PAGE,
-	ALGO_PAGE
-};
-*/
 
 struct UI {
-	// VARIABLES
 	float padding = 0;
 
 	// Text
@@ -54,23 +29,23 @@ struct UI {
 	static constexpr float roundedSquareCellSize = 10.f;
 	static constexpr float roundedSquareCellBevel = 1.f;
 
-	// Display Style Colours
+	// Display styles
 	int displayStyleIndex = 0;
 	static const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> displayStyle;
 
-	// Wolfram specific
+	// Wolfram specifics
 	float wolfSeedSize = 0;
 	static constexpr float wolfSeedBevel = 3.f;
 	std::array<Vec, 8> wolfSeedPos{};
 
 	void init(float newPadding, float newFontSize, float newCellPadding);
 
-	// GETTERS
+	// Colour getters
 	const NVGcolor& getScreenColour() const;
 	const NVGcolor& getForegroundColour() const;
 	const NVGcolor& getBackgroundColour() const;
 
-	// DRAW
+	// Drawers
 	void getCellPath(NVGcontext* vg, int col, int row);
 	void drawText(NVGcontext* vg, const char* text, int row);
 	void drawMenuText(NVGcontext* vg, const char* l1,

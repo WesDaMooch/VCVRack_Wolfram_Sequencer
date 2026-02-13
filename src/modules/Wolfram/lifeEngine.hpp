@@ -5,7 +5,7 @@ class LifeEngine : public BaseEngine {
 public:
 	LifeEngine();
 
-	void updateDisplay(bool advance, int length = 8) override;
+	void updateDisplay(bool advance, size_t length = 8) override;
 	void updateMenuParams(const EngineMenuParams& p) override;
 
 	void process(const EngineCoreParams& p,
@@ -15,7 +15,7 @@ public:
 
 	void reset() override;
 
-	// Setters
+	// Save setters
 	void setBufferFrame(uint64_t newFrame, int index, 
 		bool setDisplayMatrix = false) override;
 
@@ -24,7 +24,7 @@ public:
 	void setSeed(int newSeed) override;
 	void setMode(int newMode) override;
 
-	// Getters
+	// Save getters 
 	uint64_t getBufferFrame(int index, 
 		bool getDisplayMatrix = false,
 		bool getDisplayMatrixSave = false) override;
@@ -32,6 +32,8 @@ public:
 	int getRuleSelect() override;
 	int getSeed() override;
 	int getMode() override;
+
+	// UI getters
 	void getRuleActiveLabel(char out[5]) override;
 	void getRuleSelectLabel(char out[5]) override;
 	void getSeedLabel(char out[5]) override;

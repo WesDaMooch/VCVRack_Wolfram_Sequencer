@@ -1,20 +1,20 @@
-// Make with: export RACK_DIR=/home/wes-l/Rack-SDK
+// export RACK_DIR=/home/wes-l/Rack-SDK
 
-// Docs: https://vcvrack.com/docs-v2/
-// Fundimentals: https://github.com/VCVRack/Fundamental
 // NanoVG: https://github.com/memononen/nanovg
 
 // BUGS
 // TODO: on wolf vcomode, seed not init or something DONE?
 // TODO: not setting wolf rand seed?	DONE?
 // TODO: check all random, Vec, clamp have rack:: or rack::math::
+// TODO: add headers to all files
 
 // TODO:
 // - Encoder update interval.
 
 // V2:
 // - onRandomize.
-// - Polyphonic engines. Replace 'Algo' CV with Slew CV?
+// - Polyphonic engines. Replace 'Algo' CV with Slew CV
+//	 or an expander which opens up all Algos at once. 
 
 #include <string>
 #include <atomic>
@@ -125,7 +125,7 @@ struct Wolfram : Module {
 		// Custom behaviour to display sequence length when hovering over Length knob
 		float getDisplayValue() override {
 			auto* m = dynamic_cast<Wolfram*>(module);
-			return m ? m->sequenceLength : 8;
+			return m ? static_cast<float>(m->sequenceLength) : 8.f;
 		}
 		
 		// Suppress behaviour
@@ -140,7 +140,7 @@ struct Wolfram : Module {
 	std::array<EngineMenuParams, NUM_ENGINES> engineMenuParams{};
 	static constexpr int engineDefault = 0;
 	int engineSelect = engineDefault;
-	int syncedEngineCv = 0;
+	float syncedEngineCv = 0;
 	int engineIndex = 0;
 
 	// UI
@@ -162,8 +162,8 @@ struct Wolfram : Module {
 	bool encoderReset = false;
 
 	// Parameters
-	int sequenceLength = 8;
-	std::array<int, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
+	std::array<size_t, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
+	size_t sequenceLength = 8;
 	int slewValue = 0;
 	bool slewX = true;
 	bool slewY = true;
@@ -231,7 +231,6 @@ struct Wolfram : Module {
 	}
 
 	void setEngine(int newEngineSelect, float newEngineCv = 0.f) {
-		// TODO: sort out clamp / int / round stuff
 		engineSelect = rack::clamp(newEngineSelect, 0, NUM_ENGINES - 1);
 		int engineCv = std::round(newEngineCv * (NUM_ENGINES - 1));
 		engineIndex = engineModulation ? engineCv : engineSelect;
@@ -299,13 +298,13 @@ struct Wolfram : Module {
 		pageCounter = 0;
 		setSlew(0);
 		setEngine(0);
-
+		
 		for (int i = 0; i < NUM_ENGINES; i++) {
 			if (checkEngineIsNull(i))
 				continue;
 			engine[i]->reset();
 		}
-
+		
 		displayStyleIndex = 0;
 		cellStyleIndex = 0;
 	}
@@ -417,13 +416,13 @@ struct Wolfram : Module {
 				json_t* valueJ = json_array_get(readHeadsJ, i);
 
 				if (valueJ)
-					engine[i]->setReadHead(json_integer_value(valueJ));
+					engine[i]->setReadHead(static_cast<size_t>(json_integer_value(valueJ)));
 			}
 			if (writeHeadsJ) {
 				json_t* valueJ = json_array_get(writeHeadsJ, i);
 
 				if (valueJ)
-					engine[i]->setWriteHead(json_integer_value(valueJ));
+					engine[i]->setWriteHead(static_cast<size_t>(json_integer_value(valueJ)));
 			}
 			if (rulesJ) {
 				json_t* valueJ = json_array_get(rulesJ, i);
@@ -498,13 +497,12 @@ struct Wolfram : Module {
 		float stepVoltage = inputs[TRIG_INPUT].getVoltage();
 		if (vcoMode)// Zero crossing
 			step = (stepVoltage > 0.f && prevStepVoltage <= 0.f) || (stepVoltage < 0.f && prevStepVoltage >= 0.f);
-		else		// Trigger pulse		
+		else		// Pulse trigger	
 			step = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
 		prevStepVoltage = stepVoltage;
 
 		engineModulation = inputs[ENGINE_CV_INPUT].isConnected();
-		float newEngineCvVoltage = rack::clamp(inputs[ENGINE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
-		int newEngineCv = std::round(newEngineCvVoltage * (NUM_ENGINES - 1));
+		float newEngineCv = rack::clamp(inputs[ENGINE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
 		if (sync && step)
 			syncedEngineCv = newEngineCv;
 		setEngine(engineSelect, sync ? syncedEngineCv : newEngineCv);
@@ -512,15 +510,19 @@ struct Wolfram : Module {
 		engineCoreParams[engineIndex].step = step;
 		ruleModulation = inputs[RULE_CV_INPUT].isConnected();
 		engineCoreParams[engineIndex].ruleCv = rack::clamp(inputs[RULE_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
-		engineCoreParams[engineIndex].length = sequenceLengths[static_cast<int>(params[LENGTH_PARAM].getValue())];
 		engineCoreParams[engineIndex].reset = resetTrigger.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 2.f);
 		engineCoreParams[engineIndex].sync = sync;
 
-		float probabilityCv = rack::clamp(inputs[PROBABILITY_CV_INPUT].getVoltage() * 0.1f, -1.f, 1.f);
+		size_t lengthIndex = rack::clamp(static_cast<int>(params[LENGTH_PARAM].getValue()), 0, 8);
+		sequenceLength = sequenceLengths[lengthIndex];
+		engineCoreParams[engineIndex].length = sequenceLength;
+
+		float probabilityCv = inputs[PROBABILITY_CV_INPUT].getVoltage() * 0.1f;
 		engineCoreParams[engineIndex].probability = rack::clamp(params[PROBABILITY_PARAM].getValue() + probabilityCv, 0.f, 1.f);
-		// TODO: sort out clamp / int / round stuff
-		float offsetCv = rack::clamp(inputs[OFFSET_CV_INPUT].getVoltage(), -10.f, 10.f) * 0.8f; // TODO: cast to int here?
-		engineCoreParams[engineIndex].offset = rack::clamp(static_cast<int>(std::round(params[OFFSET_PARAM].getValue() + offsetCv)), 0, 8);
+
+		int offsetCv = std::round(inputs[OFFSET_CV_INPUT].getVoltage() * 0.8f);
+		int offsetParam = std::round(params[OFFSET_PARAM].getValue());
+		engineCoreParams[engineIndex].offset = rack::clamp(offsetParam + offsetCv, 0, 8);
 
 		// Menu and mode buttons
 		if (menuTrigger.process(params[MENU_PARAM].getValue()))
@@ -678,7 +680,7 @@ struct Display : TransparentWidget {
 	Display(Wolfram* m, float yPos, float w, float size) {
 		module = m;
 
-		// Wiget params
+		// Wiget parameters
 		widgetSize = size;
 		float screenSize = widgetSize - (padding * 2.f);
 		fontSize = (screenSize / cols) * 2.f;
@@ -838,7 +840,7 @@ struct Display : TransparentWidget {
 			}
 		}
 
-		// Cells
+		// Matrix display
 		uint64_t matrix = 0x81C326F48FCULL;
 		if (module)
 			matrix = engineLayer[engineIndex].display;
@@ -938,7 +940,7 @@ struct WolframModuleWidget : ModuleWidget {
 	// Custom lights
 	template <typename TBase>
 	struct LuckyLight : RectangleLight<TSvgLight<TBase>> {	// Cursed
-		// Count Modula's custom light code
+		// Count Modula's custom light
 		LuckyLight() {
 			this->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/RectangleLight.svg")));
 		}

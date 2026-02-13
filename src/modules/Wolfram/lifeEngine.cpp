@@ -81,8 +81,7 @@ LifeEngine::LifeEngine() {
 	updateDisplay(false);
 }
 
-// SEQUENCER
-void LifeEngine::updateDisplay(bool advance, int length) {
+void LifeEngine::updateDisplay(bool advance, size_t length) {
 	if (advance)
 		advanceHeads(length);
 
@@ -100,43 +99,37 @@ void LifeEngine::updateDisplay(bool advance, int length) {
 }
 
 void LifeEngine::inject(int inject, bool sync) {
-	// TODO: this dont work!
-
+	size_t head = sync ? writeHead : readHead;
+	uint64_t matrix = matrixBuffer[head];
 	bool addCell = (inject > 0);
+	int steps = inject < 0 ? -inject : inject;
 
-	int head = sync ? writeHead : readHead;
-	uint64_t tempMatrix = matrixBuffer[head];
+	for (int step = 0; step < steps; step++) {
 
-	// Check to see if row is already full or empty
-	if ((addCell & (tempMatrix == UINT64_MAX)) | (!addCell & (tempMatrix == 0)))
-		return;
+		// Check if row is already full or empty
+		if ((addCell && (matrix == UINT64_MAX)) || (!addCell && (matrix == 0)))
+			return;
 
-	uint64_t targetMask = tempMatrix;
-	if (addCell)
-		targetMask = ~tempMatrix;	// Flip row
+		// Flip row if removing cells
+		uint64_t targetMask = addCell ? ~matrix : matrix;
 
-	int targetCount = __builtin_popcountll(targetMask);			// Count target bits
-	int target = rack::random::get<uint8_t>() % targetCount;	// Random target index
+		// Count target bits
+		int targetCount = __builtin_popcountll(targetMask);
+		if (targetCount == 0)
+			return;
 
-	// Find corresponding bit position
-	uint64_t bitMask;
-	for (bitMask = 1; target || !(targetMask & bitMask); bitMask <<= 1) {
-		if (targetMask & bitMask)
-			target--;
+		// Random target index
+		int target = rack::random::get<uint32_t>() % targetCount;
+
+		uint64_t mask = targetMask;
+		while (target--)
+			mask &= (mask - 1);
+
+		uint64_t bitMask = mask & -mask;
+
+		matrix = addCell ? (matrix | bitMask) : (matrix & ~bitMask);
+		matrixBuffer[head] = matrix;
 	}
-
-	/*
-	uint8_t bitMask = 1;
-	for (int i = 0; i < 8; i++, bitMask <<= 1) {
-		if (targetMask & bitMask) {
-			if (target == 0) break;
-			target--;
-		}
-	}
-	*/
-
-	tempMatrix = addCell ? (tempMatrix | bitMask) : (tempMatrix & ~bitMask);
-	matrixBuffer[head] = tempMatrix;
 }
 
 void LifeEngine::updateMenuParams(const EngineMenuParams& p) {
@@ -404,7 +397,7 @@ void LifeEngine::reset() {
 	updateDisplay(false);
 }
 
-// setters
+// Save setters
 void LifeEngine::setBufferFrame(uint64_t newFrame, int index, 
 	bool setDisplayMatrix) {
 
@@ -414,18 +407,18 @@ void LifeEngine::setBufferFrame(uint64_t newFrame, int index,
 		matrixBuffer[index] = newFrame;
 }
 
+void LifeEngine::onRuleChange() {
+	ruleIndex = rack::clamp(ruleSelect + ruleCv, 0, NUM_RULES - 1);
+}
+
 void LifeEngine::setRuleSelect(int newRule) {
 	ruleSelect = rack::clamp(newRule, 0, NUM_RULES - 1);
 	onRuleChange();
 }
 
 void LifeEngine::setRuleCv(float newRuleCv) {
-	ruleCv = static_cast<int>(newRuleCv * NUM_RULES);
+	ruleCv = static_cast<int>(std::round(newRuleCv * NUM_RULES));
 	onRuleChange();
-}
-
-void LifeEngine::onRuleChange() {
-	ruleIndex = rack::clamp(ruleSelect + ruleCv, 0, NUM_RULES - 1);
 }
 
 void LifeEngine::setSeed(int newSeed) {
@@ -436,7 +429,7 @@ void LifeEngine::setMode(int newMode) {
 	modeIndex = rack::clamp(newMode, 0, NUM_MODES - 1);
 }
 
-// Getters
+// Save getters
 uint64_t LifeEngine::getBufferFrame(int index, 
 	bool getDisplayMatrix ,
 	bool getDisplayMatrixSave) {
@@ -463,6 +456,7 @@ int LifeEngine::getMode() {
 	return modeIndex; 
 }
 
+// UI getters
 void LifeEngine::getRuleActiveLabel(char out[5]) {
 	memcpy(out, rule[ruleIndex].label, 5);
 }

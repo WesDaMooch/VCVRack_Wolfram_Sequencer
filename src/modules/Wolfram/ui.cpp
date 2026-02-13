@@ -1,7 +1,5 @@
 #include "ui.hpp"
 
-
-
 // Screen, foreground, backgound 
 // TODO: change to foreground, backgound, screen
 const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ {
@@ -12,7 +10,7 @@ const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ 
 	{ nvgRGB(42, 47, 37),		nvgRGB(210, 255, 0),	nvgRGB(42, 47, 37) },		// Lamp 
 	{ nvgRGB(0, 0, 0),			nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
 } };
-// Other display styles
+// More display styles
 // Purple: (17, 3, 20), (177, 72, 198), (38, 13, 43)
 // Eva: (4, 3, 8), (244, 84, 22), (26, 7, 0) 
 
@@ -43,33 +41,31 @@ void UI::init(float newPadding, float newFontSize, float newCellPadding) {
 	for (int c = 0; c < 8; c++) {
 		for (int r = 0; r < 8; r++) {
 			int i = r * 8 + c;
-			float a = (cellPadding * 0.5f) + padding;
-			cellCirclePos[i].x = (cellPadding * c) + a;
-			cellCirclePos[i].y = (cellPadding * r) + a;
+			float circleCellPadding = (cellPadding * 0.5f) + padding;
+			cellCirclePos[i].x = (cellPadding * c) + circleCellPadding;
+			cellCirclePos[i].y = (cellPadding * r) + circleCellPadding;
 
-			//float b = (cellPadding * 0.5f) - (roundedSquareCellSize * 0.5f) + padding;
-			// TODO: dont like
 			cellSquarePos[i].x = (cellPadding * c) + padding;
 			cellSquarePos[i].y = (cellPadding * r) + padding;
 
-			float d = (cellPadding * 0.5f) - (roundedSquareCellSize * 0.5f) + padding;
-			cellRoundedSquarePos[i].x = (cellPadding * c) + d;
-			cellRoundedSquarePos[i].y = (cellPadding * r) + d;
+			float roundedSquareCellPadding = (cellPadding * 0.5f) - (roundedSquareCellSize * 0.5f) + padding;
+			cellRoundedSquarePos[i].x = (cellPadding * c) + roundedSquareCellPadding;
+			cellRoundedSquarePos[i].y = (cellPadding * r) + roundedSquareCellPadding;
 			
 		}
 	}
 
 	// Wolf seed display
-	float halfFs = fontSize * 0.5f;
-	wolfSeedSize = halfFs - 2.f;
+	float halfFontSize = fontSize * 0.5f;
+	wolfSeedSize = halfFontSize - 2.f;
 	for (int c = 0; c < 8; c++) {
-		float a = (halfFs * 0.5f) - (wolfSeedSize * 0.5f) + padding;
-		wolfSeedPos[c].x = (halfFs * c) + a;
-		wolfSeedPos[c].y = (halfFs * 4.f) + a;
+		float wolfSeedPadding = (halfFontSize * 0.5f) - (wolfSeedSize * 0.5f) + padding;
+		wolfSeedPos[c].x = (halfFontSize * c) + wolfSeedPadding;
+		wolfSeedPos[c].y = (halfFontSize * 4.f) + wolfSeedPadding;
 	}
 };
 
-// Getters
+// Colour getters
 const NVGcolor& UI::getScreenColour() const {
 	return displayStyle[displayStyleIndex][0]; 
 }
@@ -82,7 +78,7 @@ const NVGcolor& UI::getBackgroundColour() const {
 	return displayStyle[displayStyleIndex][2];
 }
 
-// Drawing
+// Drawers
 void UI::getCellPath(NVGcontext* vg, int col, int row) {
 	// Must call nvgBeginPath before and nvgFill after this function! 
 	int i = row * 8 + col;
@@ -146,6 +142,7 @@ void UI::drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed) {
 		nvgBeginPath(vg);
 		for (int col = 0; col < 8; col++) {
 			if ((col >= 1) && (col <= 7)) {
+				// TODO: move to init
 				nvgMoveTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y - 1);
 				nvgLineTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y + 1);
 

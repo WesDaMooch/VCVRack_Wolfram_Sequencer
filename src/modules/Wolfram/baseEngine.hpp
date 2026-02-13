@@ -6,12 +6,6 @@
 static constexpr int NUM_ENGINES = 2;
 static constexpr int MAX_SEQUENCE_LENGTH = 64;
 
-//enum EngineId {
-//	WOLF_ENGINE,
-//	LIFE_ENGINE,
-//	LEN_ENGINE
-//};
-
 struct EngineMenuParams {
 	enum MenuDeltas{
 		RULE_DELTA,
@@ -32,7 +26,7 @@ struct EngineMenuParams {
 struct EngineCoreParams {
 	float ruleCv = 0.f;
 	float probability = 0.f;
-	int length = 0;
+	size_t length = 0;
 	int offset = 0;
 	int inject = 0;
 	bool step = false;
@@ -64,7 +58,7 @@ public:
 	BaseEngine();
 	virtual ~BaseEngine();
 
-	virtual void updateDisplay(bool advance, int length = 8) = 0;
+	virtual void updateDisplay(bool advance, size_t length = 8) = 0;
 	virtual void updateMenuParams(const EngineMenuParams& p) = 0;
 
 	virtual void process(const EngineCoreParams& p,
@@ -75,8 +69,8 @@ public:
 	virtual void reset() = 0;
 
 	// Save setters
-	void setReadHead(int newReadHead);
-	void setWriteHead(int newWriteHead);
+	void setReadHead(size_t newReadHead);
+	void setWriteHead(size_t newWriteHead);
 
 	virtual void setBufferFrame(uint64_t newFrame, int index, 
 		bool setDisplayMatrix = false) = 0;
@@ -109,8 +103,8 @@ protected:
 	uint64_t displayMatrix = 0;
 	bool displayMatrixUpdated = false;
 
-	int readHead = 0;
-	int writeHead = 1;
+	size_t readHead = 0;
+	size_t	writeHead = 1;
 	int offset = 0;
 	int injectPending = 0;
 	bool resetPending = false;
@@ -122,12 +116,14 @@ protected:
 	virtual void onRuleChange() = 0;
 
 	// Helpers
-	inline void advanceHeads(int length) {
-		// TODO: this might be wrong or unsafe, could go out of range?
+	inline void advanceHeads(size_t length) {
 		readHead = writeHead;
-		writeHead = (writeHead + 1) % length;
-	}
+		writeHead += 1;
 
+		if (writeHead >= length)
+			writeHead = 0;
+	}
+	
 	inline void resetHeads(bool read, bool write) {
 		if (read)
 			readHead = 0;

@@ -9,17 +9,20 @@
   "authorUrl": "",
   "pluginUrl": "",
   "manualUrl": "",
-  "sourceUrl": "",
+  "sourceUrl": "https://github.com/WesDaMooch/Modular-Mooch-VCV",
   "donateUrl": "",
   "changelogUrl": "",
   "modules": [
     {
       "slug": "Wolfram",
       "name": "Wolfram",
-      "description": "Emergent Complexity Sequencer",
+      "description": "Sequence Emergent Complexity",
       "tags": [
-        "Sequencer", 
-        "VCO"
+        "Sequencer",
+        "Oscillator",
+        "Low-frequency oscillator", 
+        "Random",
+        "Digital"
       ]
     }
   ]

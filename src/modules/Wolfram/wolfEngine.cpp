@@ -12,7 +12,7 @@ WolfEngine::WolfEngine() {
 	updateDisplay(false);
 }
 
-void WolfEngine::updateDisplay(bool step, int length) {
+void WolfEngine::updateDisplay(bool step, size_t length) {
 	if (step) {
 		advanceHeads(length);
 		internalDisplayMatrix <<= 8;	// Shift matrix up
@@ -32,34 +32,34 @@ void WolfEngine::updateDisplay(bool step, int length) {
 }
 
 void WolfEngine::inject(int inject, bool sync) {
-	int steps = std::abs(inject);
-
+	size_t head = sync ? writeHead : readHead;
+	uint8_t row = rowBuffer[head];
+	bool addCell = (inject > 0);
+	int steps = inject < 0 ? -inject : inject;
+	
 	for (int step = 0; step < steps; step++) {
-		bool addCell = (inject > 0);
-		int head = sync ? writeHead : readHead;
-
-		uint8_t row = rowBuffer[head];
-
+		
 		// Check if row is already full or empty
-		if ((addCell & (row == UINT8_MAX)) | (!addCell & (row == 0)))
+		if ((addCell && (row == UINT8_MAX)) || (!addCell && (row == 0)))
 			return;
 
-		uint8_t targetMask = row;
-		if (addCell)
-			targetMask = ~row;	// Flip row
+		// Flip row if removing cells
+		uint8_t targetMask = addCell ? ~row : row; 
 
-		int targetCount = __builtin_popcount(targetMask);	// Count target bits
-		int target = random::get<uint8_t>() % targetCount;	// Random target index
+		// Count target bits
+		int targetCount = __builtin_popcount(targetMask);	
+		if (targetCount == 0)
+			return;
 
-		// Find corresponding bit position, TODO: this is hard to read
-		uint8_t bitMask = 1;
-		for (int i = 0; i < 8; i++, bitMask <<= 1) {
-			if (targetMask & bitMask) {
-				if (target == 0)
-					break;
-				target--;
-			}
-		}
+		// Random target index
+		int target = rack::random::get<uint8_t>() % targetCount;	
+
+		// Find corresponding bit position
+		uint8_t mask = targetMask;
+		while (target--)
+			mask &= (mask - 1);
+
+		uint8_t bitMask = mask & -mask;
 
 		row = addCell ? (row | bitMask) : (row & ~bitMask);
 		rowBuffer[head] = row;
@@ -234,7 +234,7 @@ void WolfEngine::reset() {
 	updateDisplay(false);
 }
 
-// SETTERS
+// Save setters
 void WolfEngine::setBufferFrame(uint64_t newFrame, int index, 
 	bool setDisplayMatrix) {
 
@@ -244,18 +244,18 @@ void WolfEngine::setBufferFrame(uint64_t newFrame, int index,
 		rowBuffer[index] = static_cast<uint8_t>(newFrame);
 }
 
+void WolfEngine::onRuleChange() {
+	rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCv, 0, UINT8_MAX));
+}
+
 void WolfEngine::setRuleSelect(int newRule) {
 	ruleSelect = rack::clamp(newRule, 0, UINT8_MAX);
 	onRuleChange();
 }
 
 void WolfEngine::setRuleCv(float newRuleCv) {
-	ruleCv = static_cast<int>(newRuleCv * 256);
+	ruleCv = static_cast<int>(std::round(newRuleCv * 256));
 	onRuleChange();
-}
-
-void WolfEngine::onRuleChange() {
-	rule = static_cast<uint8_t>(rack::clamp(ruleSelect + ruleCv, 0, UINT8_MAX));
 }
 
 void WolfEngine::setSeed(int newSeed) {
@@ -280,7 +280,7 @@ void WolfEngine::setMode(int newMode) {
 	modeIndex = rack::clamp(newMode, 0, NUM_MODES - 1);
 }
 
-// GETTERS
+// Save getters
 uint64_t WolfEngine::getBufferFrame(int index, 
 	bool getDisplayMatrix, 
 	bool getDisplayMatrixSave) {
@@ -307,6 +307,7 @@ int WolfEngine::getMode() {
 	return modeIndex;
 }
 
+// UI getters
 void WolfEngine::getRuleActiveLabel(char out[5]) {
 	snprintf(out, 5, "%4d", rule);
 }

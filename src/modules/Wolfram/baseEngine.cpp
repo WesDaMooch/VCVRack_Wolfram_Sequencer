@@ -4,21 +4,21 @@ BaseEngine::BaseEngine() = default;
 BaseEngine::~BaseEngine() = default;
 
 // Setters
-void BaseEngine::setReadHead(int newReadHead) {
+void BaseEngine::setReadHead(size_t newReadHead) {
     readHead = rack::clamp(newReadHead, 0, MAX_SEQUENCE_LENGTH - 1);
 }
 
-void BaseEngine::setWriteHead(int newWriteHead) {
+void BaseEngine::setWriteHead(size_t newWriteHead) {
     writeHead = rack::clamp(newWriteHead, 0, MAX_SEQUENCE_LENGTH - 1);
 }
 
 // Getters
 int BaseEngine::getReadHead() {
-    return readHead;
+    return static_cast<int>(readHead);
 }
 
 int BaseEngine::getWriteHead() {
-    return writeHead;
+    return static_cast<int>(writeHead);
 }
 
 void BaseEngine::getEngineLabel(char out[5]) {
