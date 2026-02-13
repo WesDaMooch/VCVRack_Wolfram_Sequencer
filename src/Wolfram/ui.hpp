@@ -1,9 +1,9 @@
 #pragma once
-#include "../../plugin.hpp"
+#include "../plugin.hpp"
 #include <array>
 #include <cstdint>
 
-static constexpr int NUM_DISPLAY_STYLES = 6;
+static constexpr int NUM_DISPLAY_STYLES = 5;
 static constexpr int NUM_CELL_STYLES = 2;
 
 struct UI {
@@ -36,14 +36,14 @@ struct UI {
 	// Wolfram specifics
 	float wolfSeedSize = 0;
 	static constexpr float wolfSeedBevel = 3.f;
-	std::array<Vec, 8> wolfSeedPos{};
+	std::array<rack::math::Vec, 8> wolfSeedPos{};
 
 	void init(float newPadding, float newFontSize, float newCellPadding);
 
 	// Colour getters
-	const NVGcolor& getScreenColour() const;
 	const NVGcolor& getForegroundColour() const;
 	const NVGcolor& getBackgroundColour() const;
+	const NVGcolor& getScreenColour() const;
 
 	// Drawers
 	void getCellPath(NVGcontext* vg, int col, int row);

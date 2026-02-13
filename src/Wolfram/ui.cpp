@@ -3,16 +3,16 @@
 // Screen, foreground, backgound 
 // TODO: change to foreground, backgound, screen
 const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ {
-	{ nvgRGB(58, 16, 19),		nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9) },		// Redrick
-	{ nvgRGB(37, 59, 99),		nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153) },		// Oled
-	{ SCHEME_DARK_GRAY,			SCHEME_YELLOW,			SCHEME_DARK_GRAY },			// Rack  
-	{ nvgRGB(200, 200, 200),	nvgRGB(0, 1, 220),		nvgRGB(200, 200, 200) },	// Windows
-	{ nvgRGB(42, 47, 37),		nvgRGB(210, 255, 0),	nvgRGB(42, 47, 37) },		// Lamp 
-	{ nvgRGB(0, 0, 0),			nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0) },			// Mono
+	{ nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9),		nvgRGB(58, 16, 19) },		// Redrick
+	{ nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153),	nvgRGB(37, 59, 99) },		// Oled
+	{ SCHEME_YELLOW,			SCHEME_DARK_GRAY,		SCHEME_DARK_GRAY },			// Rack  
+	{ nvgRGB(210, 255, 0),		nvgRGB(42, 47, 37),		nvgRGB(42, 47, 37) },		// Lamp 
+	{ nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0),		nvgRGB(0, 0, 0) },			// Mono
 } };
 // More display styles
 // Purple: (17, 3, 20), (177, 72, 198), (38, 13, 43)
 // Eva: (4, 3, 8), (244, 84, 22), (26, 7, 0) 
+// Windows: (200, 200, 200), (0, 1, 220), (200, 200, 20)
 
 void UI::init(float newPadding, float newFontSize, float newCellPadding) {
 	padding = newPadding;
@@ -66,15 +66,15 @@ void UI::init(float newPadding, float newFontSize, float newCellPadding) {
 };
 
 // Colour getters
-const NVGcolor& UI::getScreenColour() const {
-	return displayStyle[displayStyleIndex][0]; 
-}
-
 const NVGcolor& UI::getForegroundColour() const {
-	return displayStyle[displayStyleIndex][1];
+	return displayStyle[displayStyleIndex][0];
 }
 
 const NVGcolor& UI::getBackgroundColour() const {
+	return displayStyle[displayStyleIndex][1];
+}
+
+const NVGcolor& UI::getScreenColour() const {
 	return displayStyle[displayStyleIndex][2];
 }
 

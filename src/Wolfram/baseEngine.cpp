@@ -27,11 +27,11 @@ void BaseEngine::getEngineLabel(char out[5]) {
 
 // Helpers
 uint8_t BaseEngine::applyOffset(uint8_t inputRow, int inputOffset) {
-    int shift = inputOffset % 8;
+    int shift = inputOffset % 7;
     if (shift > 4)  
-        shift -= 8;
+        shift -= 7;
     if (shift < -4) 
-        shift += 8;
+        shift += 7;
 
     if (shift < 0) {
         shift = -shift;
@@ -40,7 +40,6 @@ uint8_t BaseEngine::applyOffset(uint8_t inputRow, int inputOffset) {
     else if (shift > 0) {
         inputRow = ((inputRow >> shift) | (inputRow << (8 - shift))) & 0xFF;
     }
-
     return inputRow;
 }
 

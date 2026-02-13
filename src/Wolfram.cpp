@@ -1,15 +1,11 @@
-// export RACK_DIR=/home/wes-l/Rack-SDK
-
+// Make with: export RACK_DIR=/home/wes-l/Rack-SDK
 // NanoVG: https://github.com/memononen/nanovg
 
-// BUGS
-// TODO: on wolf vcomode, seed not init or something DONE?
-// TODO: not setting wolf rand seed?	DONE?
-// TODO: check all random, Vec, clamp have rack:: or rack::math::
-// TODO: add headers to all files
 
-// TODO:
-// - Encoder update interval.
+
+
+
+// TODO: add headers
 
 // V2:
 // - onRandomize.
@@ -18,11 +14,12 @@
 
 #include <string>
 #include <atomic>
-#include "ui.hpp"
-#include "baseEngine.hpp"
-#include "wolfEngine.hpp"
-#include "lifeEngine.hpp"
+#include "Wolfram/ui.hpp"
+#include "Wolfram/baseEngine.hpp"
+#include "Wolfram/wolfEngine.hpp"
+#include "Wolfram/lifeEngine.hpp"
 
+static constexpr int NUM_ENGINES = 2;
 static constexpr int NUM_MENU_PAGES = 4;
 
 class SlewLimiter {
@@ -145,6 +142,7 @@ struct Wolfram : Module {
 
 	// UI
 	static constexpr int ENGINE_TO_UI_UPDATE_INTERVAL = 512;
+	static constexpr  float MINI_MENU_DISPLAY_TIME = 0.75f;
 	std::array<EngineToUiLayer, NUM_ENGINES> engineToUiLayerA{};
 	std::array<EngineToUiLayer, NUM_ENGINES> engineToUiLayerB{};
 	std::atomic<EngineToUiLayer*> engineToUiLayerPtr{ engineToUiLayerA.data() };
@@ -153,11 +151,10 @@ struct Wolfram : Module {
 	bool menuActive = false;
 	int displayStyleIndex = 0;
 	int cellStyleIndex = 0;
-	float miniMenuDisplayTime = 0.75f;
 	bool miniMenuActive = false;
 
 	// Select encoder
-	static constexpr float encoderIndent = 1.f / 30.f;
+	static constexpr float ENCODER_INDENT = 1.f / 30.f;
 	float prevEncoderValue = 0.f;
 	bool encoderReset = false;
 
@@ -191,7 +188,7 @@ struct Wolfram : Module {
 		paramQuantities[LENGTH_PARAM]->snapEnabled = true;
 		configParam(PROBABILITY_PARAM, 0.f, 1.f, 1.f, "Probability", "%", 0.f, 100.f);
 		paramQuantities[PROBABILITY_PARAM]->displayPrecision = 3;
-		configParam(OFFSET_PARAM, 0.f, 8.f, 4.f, "Offset", "", 0.f, 1.f, -4.f);
+		configParam(OFFSET_PARAM, 0.f, 7.f, 4.f, "Offset", "", 0.f, 1.f, -4.f);
 		paramQuantities[OFFSET_PARAM]->snapEnabled = true;
 		configParam(X_SCALE_PARAM, 0.f, 1.f, 0.5f, "X CV Scale", "V", 0.f, 10.f);
 		paramQuantities[X_SCALE_PARAM]->displayPrecision = 3;
@@ -295,7 +292,9 @@ struct Wolfram : Module {
 
 		sync = false;
 		vcoMode = false;
-		pageCounter = 0;
+		menuActive = false;
+		miniMenuActive = false;
+		pageCounter = 0; 
 		setSlew(0);
 		setEngine(0);
 		
@@ -520,9 +519,9 @@ struct Wolfram : Module {
 		float probabilityCv = inputs[PROBABILITY_CV_INPUT].getVoltage() * 0.1f;
 		engineCoreParams[engineIndex].probability = rack::clamp(params[PROBABILITY_PARAM].getValue() + probabilityCv, 0.f, 1.f);
 
-		int offsetCv = std::round(inputs[OFFSET_CV_INPUT].getVoltage() * 0.8f);
+		int offsetCv = std::round(inputs[OFFSET_CV_INPUT].getVoltage() * 0.7f);
 		int offsetParam = std::round(params[OFFSET_PARAM].getValue());
-		engineCoreParams[engineIndex].offset = rack::clamp(offsetParam + offsetCv, 0, 8);
+		engineCoreParams[engineIndex].offset = rack::clamp(offsetParam + offsetCv, 0, 7);
 
 		// Menu and mode buttons
 		if (menuTrigger.process(params[MENU_PARAM].getValue()))
@@ -542,10 +541,10 @@ struct Wolfram : Module {
 		engineCoreParams[engineIndex].miniMenuChanged = false;
 		float encoderValue = params[SELECT_PARAM].getValue();
 		float difference = encoderValue - prevEncoderValue;
-		int delta = static_cast<int>(std::round(difference / encoderIndent));
+		int delta = static_cast<int>(std::round(difference / ENCODER_INDENT));
 
 		if ((delta != 0) || encoderReset) {
-			prevEncoderValue += delta * encoderIndent;
+			prevEncoderValue += delta * ENCODER_INDENT;
 
 			if (menuActive) {
 				switch (pageNumber) {
@@ -653,7 +652,7 @@ struct Wolfram : Module {
 		lights[Y_PULSE_LIGHT].setBrightnessSmooth(yGate, args.sampleTime);
 		
 		// Mini menu display
-		if (miniMenuActive && (ruleDisplayTimer.process(args.sampleTime) >= miniMenuDisplayTime))
+		if (miniMenuActive && (ruleDisplayTimer.process(args.sampleTime) >= MINI_MENU_DISPLAY_TIME))
 			miniMenuActive = false;
 
 		if (((args.frame + this->id) % ENGINE_TO_UI_UPDATE_INTERVAL) == 0)
@@ -851,17 +850,14 @@ struct Display : TransparentWidget {
 		for (int row = firstRow; row < 8; row++) {
 			int rowInvert = 7 - row;
 
-			uint8_t rowBits = (matrix >> (rowInvert * 8)) & 0xFF;
+			uint8_t rowBits = (matrix >> (rowInvert << 3)) & 0xFF;
 
 			if (layer == 0)
-				rowBits = ~rowBits;
-
-			rowBits &= 0xFF;
-
-			// TODO: is __builtin_ctz ok?
+				rowBits = static_cast<uint8_t>(~rowBits);
+			
 			int i = 0;
 			while (rowBits && (i < rows)) {
-				int colInvert = __builtin_ctz(rowBits);
+				int colInvert = __builtin_ctz(static_cast<unsigned>(rowBits));
 				rowBits &= rowBits - 1;
 
 				int col = 7 - colInvert;
@@ -1097,7 +1093,7 @@ struct WolframModuleWidget : ModuleWidget {
 
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createIndexSubmenuItem("Display",
-			{ "Redrick", "OLED", "Rack", "Windows", "Lamp", "Mono"},
+			{ "Redrick", "OLED", "Rack", "Lamp", "Mono"},
 			[=]() {
 				return module->displayStyleIndex;
 			},

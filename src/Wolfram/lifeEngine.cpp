@@ -50,7 +50,7 @@ const std::array<LifeEngine::Seed, LifeEngine::NUM_SEEDS> LifeEngine::seed{ {
 	{ "STEP", 0xC1830000000ULL },		// Stairstep Hexomino					Rule: Life, HoneyLife
 	{ "SSSS", 0x4040A0A0A00ULL },		// Creeper Spaceship 					Rule: LowLife
 	{ "SENG", 0x2840240E0000ULL },		// Switch Engine						Rule: Life
-	{ "RNDS", 0xEFA8EFA474577557ULL },	// Sparse Random / Half Density		
+	{ "RNDS", 0xEFA8EFA474577557ULL },	// Sparse / Half Density Random		
 	{ "RNDM", 0x66555566B3AAABB2ULL },	// Symmetrical / Mirrored Random
 	{ " RND", 0xFFFF81006618243CULL },	// True Random
 	{ "NSEP", 0x70141E000000ULL },		// Nonomino Switch Engine Predecessor	Rule: Life
@@ -186,11 +186,11 @@ void LifeEngine::process(const EngineCoreParams& p,
 
 			if (seedIndex == 7) {
 				// Sparse / half density random 
-				resetMatrix = random::get<uint64_t>() & random::get<uint64_t>();
+				resetMatrix = rack::random::get<uint64_t>() & rack::random::get<uint64_t>();
 			}
 			else if (seedIndex == 8) {
 				// Symmetrical / mirrored random
-				uint32_t randomHalf = random::get<uint32_t>();
+				uint32_t randomHalf = rack::random::get<uint32_t>();
 				uint64_t mirroredRandomHalf = 0;
 				for (int i = 0; i < 4; i++) {
 					uint8_t row = (randomHalf >> (i * 8)) & 0xFFUL;
@@ -200,7 +200,7 @@ void LifeEngine::process(const EngineCoreParams& p,
 			}
 			else if (seedIndex == 9) {
 				// True random
-				resetMatrix = random::get<uint64_t>();
+				resetMatrix = rack::random::get<uint64_t>();
 			}
 			else {
 				resetMatrix = seed[seedIndex].value;
@@ -259,8 +259,8 @@ void LifeEngine::process(const EngineCoreParams& p,
 		}
 		else if (modeIndex == 3) {
 			// Random
-			row[0] = random::get<uint8_t>();
-			row[9] = random::get<uint8_t>();
+			row[0] = rack::random::get<uint8_t>();
+			row[9] = rack::random::get<uint8_t>();
 		}
 
 		for (int i = 1; i < 9; i++) {
@@ -494,7 +494,7 @@ void LifeEngine::getHorizontalNeighbours(uint8_t row, uint8_t& west, uint8_t& ea
 	}
 	else if (modeIndex == 3) {
 		// Random
-		west = (row >> 1) | (random::get<bool>() << 7);
-		east = (row << 1) | random::get<bool>();
+		west = (row >> 1) | (rack::random::get<bool>() << 7);
+		east = (row << 1) | rack::random::get<bool>();
 	}
 }

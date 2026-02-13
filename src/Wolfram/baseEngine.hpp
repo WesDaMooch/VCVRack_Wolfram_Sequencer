@@ -1,9 +1,8 @@
 #pragma once
-#include "../../plugin.hpp"
+#include "../plugin.hpp"
 #include <array>
 #include <cstdint>
 
-static constexpr int NUM_ENGINES = 2;
 static constexpr int MAX_SEQUENCE_LENGTH = 64;
 
 struct EngineMenuParams {

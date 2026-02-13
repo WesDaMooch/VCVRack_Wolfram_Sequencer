@@ -156,8 +156,8 @@ void WolfEngine::process(const EngineCoreParams& p,
 		}
 		else if (modeIndex == 2) {
 			// Random
-			left |= random::get<bool>() << 7;
-			right |= random::get<bool>();
+			left |= rack::random::get<bool>() << 7;
+			right |= rack::random::get<bool>();
 		}
 
 		for (int col = 0; col < 8; col++) {
