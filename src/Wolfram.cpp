@@ -1,10 +1,23 @@
-// Make with: export RACK_DIR=/home/wes-l/Rack-SDK
-// NanoVG: https://github.com/memononen/nanovg
+// Wolfram.cpp
+// Part of the Modular Mooch Wolfram module (VCV Rack)
+//
+// GitHub: https://github.com/WesDaMooch/Modular-Mooch-VCV
+// 
+// Copyright (c) 2026 Wesley Lawrence Leggo-Morrell
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TSKVFZSIFXEOZSVEDMJLTLTHBEDGGNDZTXOVELCGOHRIEXENGKTSGX
+// UYEPQIOENITZSWXZOOLSSZNALTNNKKJMEASGIYISNGAZSULJGFTFLC
+// LXOAVSSKUVAMYEUYOUEZKMAYJIWVRGLAIYMEOUKVGPAMYSMLTMDRNZ
+// ZLJEGOAOEXGRBEEFLKEXKPZJIUHEIQOIEJYALXMZLXIVWWJEDLTHFO
+// PTSBNPBISPPPWGOXKRPEAESROYZLFSAAALOQZLBKSGKMEX
 
 
+// Future version updates:
+//
 // TODO: add headers
 // TODO: figure out if the EngineToUiLayer is the best way to do share data
-
+//
 // V1.1:
 // - Replace Slew menu page with FX page.
 // here an effect can be selected that is applied to the output,
@@ -15,12 +28,12 @@
 // FALL - Slew fall
 // FOLD - Wavefolding
 // - V1.1 manual inculed Effects section. 
-
+//
 // V1.2:
 // - onRandomize.
 // - New Effects: 
 // XMOD - some cross modulation with the other output...
-
+//
 // V2:
 // - Polyphonic engines, multiple outputs
 // or an expander which opens up all Algos at once. 

@@ -1,7 +1,17 @@
+// ui.cpp
+// Part of the Modular Mooch Wolfram module (VCV Rack)
+//
+// GitHub: https://github.com/WesDaMooch/Modular-Mooch-VCV
+// 
+// Copyright (c) 2026 Wesley Lawrence Leggo-Morrell
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "ui.hpp"
 
-// Screen, foreground, backgound 
-// TODO: change to foreground, backgound, screen
+// More display styles:
+// Purple: (17, 3, 20), (177, 72, 198), (38, 13, 43)
+// Eva: (4, 3, 8), (244, 84, 22), (26, 7, 0) 
+// Windows: (200, 200, 200), (0, 1, 220), (200, 200, 20)
 const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ {
 	{ nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9),		nvgRGB(58, 16, 19) },		// Redrick
 	{ nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153),	nvgRGB(37, 59, 99) },		// Oled
@@ -9,10 +19,6 @@ const std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> UI::displayStyle{ 
 	{ nvgRGB(210, 255, 0),		nvgRGB(42, 47, 37),		nvgRGB(42, 47, 37) },		// Lamp 
 	{ nvgRGB(255, 255, 255),	nvgRGB(0, 0, 0),		nvgRGB(0, 0, 0) },			// Mono
 } };
-// More display styles
-// Purple: (17, 3, 20), (177, 72, 198), (38, 13, 43)
-// Eva: (4, 3, 8), (244, 84, 22), (26, 7, 0) 
-// Windows: (200, 200, 200), (0, 1, 220), (200, 200, 20)
 
 void UI::init(float newPadding, float newFontSize, float newCellPadding) {
 	padding = newPadding;
@@ -152,7 +158,7 @@ void UI::drawWolfSeedDisplay(NVGcontext* vg, int layer, uint8_t seed) {
 		}
 		nvgStrokeWidth(vg, 0.5f);
 		nvgStroke(vg);
-		//TODO: nvgClosePath(args.vg); ?
+		//TODO:is a nvgClosePath(args.vg) required here
 	}
 
 	nvgFillColor(vg, layer ? getForegroundColour() : getBackgroundColour());

@@ -1,4 +1,12 @@
-﻿#include "wolfEngine.hpp"
+﻿// wolfEngine.cpp
+// Part of the Modular Mooch Wolfram module (VCV Rack)
+//
+// GitHub: https://github.com/WesDaMooch/Modular-Mooch-VCV
+// 
+// Copyright (c) 2026 Wesley Lawrence Leggo-Morrell
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "wolfEngine.hpp"
 
 const char WolfEngine::modeLabel[WolfEngine::NUM_MODES][5] = {
 	"CLIP",

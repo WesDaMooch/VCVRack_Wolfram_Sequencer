@@ -1,3 +1,11 @@
+// baseEngine.hpp
+// Part of the Modular Mooch Wolfram module (VCV Rack)
+//
+// GitHub: https://github.com/WesDaMooch/Modular-Mooch-VCV
+// 
+// Copyright (c) 2026 Wesley Lawrence Leggo-Morrell
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #pragma once
 #include "../plugin.hpp"
 #include <array>
