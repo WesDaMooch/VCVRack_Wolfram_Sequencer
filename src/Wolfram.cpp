@@ -2,15 +2,28 @@
 // NanoVG: https://github.com/memononen/nanovg
 
 
-
-
-
 // TODO: add headers
+// TODO: figure out if the EngineToUiLayer is the best way to do share data
+
+// V1.1:
+// - Replace Slew menu page with FX page.
+// here an effect can be selected that is applied to the output,
+// the amount of effect that is applied is contolled by the Scale params.
+// Effects:
+// GAIN - (0 - 10Vpp)
+// RISE - Slew rise
+// FALL - Slew fall
+// FOLD - Wavefolding
+// - V1.1 manual inculed Effects section. 
+
+// V1.2:
+// - onRandomize.
+// - New Effects: 
+// XMOD - some cross modulation with the other output...
 
 // V2:
-// - onRandomize.
-// - Polyphonic engines. Replace 'Algo' CV with Slew CV
-//	 or an expander which opens up all Algos at once. 
+// - Polyphonic engines, multiple outputs
+// or an expander which opens up all Algos at once. 
 
 #include <string>
 #include <atomic>
@@ -37,6 +50,7 @@ public:
 	}
 
 	float process(float x) {
+		// TODO: could pass ref x
 		y += rack::clamp(x - y, -slew, slew);
 		return y;
 	}
@@ -162,10 +176,8 @@ struct Wolfram : Module {
 	std::array<size_t, 9> sequenceLengths { 2, 3, 4, 6, 8, 12, 16, 32, 64 };
 	size_t sequenceLength = 8;
 	int slewValue = 0;
-	bool slewX = true;
-	bool slewY = true;
 	bool sync = false;
-	bool vcoMode = false;
+	bool oscMode = false;
 	bool ruleModulation = false;
 	bool engineModulation = false;
 	float prevStepVoltage = 0.f;
@@ -264,10 +276,10 @@ struct Wolfram : Module {
 
 	void setSlew(int newSlewSelect) {
 		// Skew slewParam (0 - 100%) -> (0 - 1)
-		// Convert to ms, if VCO mode (0 - 10ms) else (0 - 1000ms)
+		// Convert to ms, if Oscillator Mode (0 - 10ms) else (0 - 1000ms)
 		slewValue = rack::clamp(newSlewSelect, 0, 100);
 		float slewSkew = std::pow(slewValue * 0.01f, 2.f);
-		float slew = vcoMode ? (slewSkew * 10.f) : (slewSkew * 1000.f);
+		float slew = oscMode ? (slewSkew * 10.f) : (slewSkew * 1000.f);
 
 		for (int i = 0; i < 2; i++)
 			slewLimiter[i].setSlewAmountMs(slew, srate);
@@ -291,7 +303,7 @@ struct Wolfram : Module {
 		Module::onReset(e);
 
 		sync = false;
-		vcoMode = false;
+		oscMode = false;
 		menuActive = false;
 		miniMenuActive = false;
 		pageCounter = 0; 
@@ -314,10 +326,8 @@ struct Wolfram : Module {
 		json_t* rootJ = json_object();
 
 		// Save sequencer settings
-		json_object_set_new(rootJ, "vco", json_boolean(vcoMode));
+		json_object_set_new(rootJ, "oscMode", json_boolean(oscMode));
 		json_object_set_new(rootJ, "sync", json_boolean(sync));
-		json_object_set_new(rootJ, "slewX", json_boolean(slewX));
-		json_object_set_new(rootJ, "slewY", json_boolean(slewY));
 		json_object_set_new(rootJ, "slewValue", json_integer(slewValue));
 
 		// Save engine selection
@@ -369,17 +379,9 @@ struct Wolfram : Module {
 		if (syncJ)
 			sync = json_boolean_value(syncJ);
 
-		json_t* vcoModeJ = json_object_get(rootJ, "vco");
-		if (vcoModeJ)
-			vcoMode = json_boolean_value(vcoModeJ);
-
-		json_t* slewXJ = json_object_get(rootJ, "slewX");
-		if (slewXJ)
-			slewX = json_boolean_value(slewXJ);
-
-		json_t* slewYJ = json_object_get(rootJ, "slewY");
-		if (slewYJ)
-			slewY = json_boolean_value(slewYJ);
+		json_t* oscModeJ = json_object_get(rootJ, "oscMode");
+		if (oscModeJ)
+			oscMode = json_boolean_value(oscModeJ);
 
 		json_t* slewValueJ = json_object_get(rootJ, "slewValue");
 		if (slewValueJ)
@@ -494,7 +496,7 @@ struct Wolfram : Module {
 		// Step
 		bool step = false;
 		float stepVoltage = inputs[TRIG_INPUT].getVoltage();
-		if (vcoMode)// Zero crossing
+		if (oscMode)// Zero crossing
 			step = (stepVoltage > 0.f && prevStepVoltage <= 0.f) || (stepVoltage < 0.f && prevStepVoltage >= 0.f);
 		else		// Pulse trigger	
 			step = trigTrigger.process(inputs[TRIG_INPUT].getVoltage(), 0.1f, 2.f);
@@ -612,10 +614,8 @@ struct Wolfram : Module {
 
 		engine[engineIndex]->process(engineCoreParams[engineIndex], &xCv, &yCv, &xBit, &yBit, &modeLED);
 
-		float xCvSlew = slewLimiter[0].process(xCv);
-		float yCvSlew = slewLimiter[1].process(yCv);
-		xCv = slewX ? xCvSlew : xCv;
-		yCv = slewY ? yCvSlew : yCv;
+		xCv = slewLimiter[0].process(xCv);
+		yCv = slewLimiter[1].process(yCv);
 
 		float xAudio = xCv - 0.5;
 		float yAudio = yCv - 0.5;
@@ -624,9 +624,9 @@ struct Wolfram : Module {
 		xAudio = dcFilter[0].highpass();
 		yAudio = dcFilter[1].highpass();
 
-		// CV outputs - 0V to 10V or -5V to 5V in VCO mode (10Vpp)
-		float xOut = vcoMode ? xAudio : xCv;
-		float yOut = vcoMode ? yAudio : yCv;
+		// CV outputs - 0V to 10V or -5V to 5V in Oscillator Mode (10Vpp)
+		float xOut = oscMode ? xAudio : xCv;
+		float yOut = oscMode ? yAudio : yCv;
 		xOut = xOut * params[X_SCALE_PARAM].getValue() * 10.f;
 		yOut = yOut * params[Y_SCALE_PARAM].getValue() * 10.f;
 		outputs[X_CV_OUTPUT].setVoltage(xOut);
@@ -634,10 +634,10 @@ struct Wolfram : Module {
 
 		// Pulse outputs (0V to 10V)
 		if (xBit)
-			xPulse.trigger(vcoMode ? args.sampleTime : 1e-3f);
+			xPulse.trigger(oscMode ? args.sampleTime : 1e-3f);
 
 		if (yBit)
-			yPulse.trigger(vcoMode ? args.sampleTime : 1e-3f);
+			yPulse.trigger(oscMode ? args.sampleTime : 1e-3f);
 
 		bool xGate = xPulse.process(args.sampleTime);
 		bool yGate = yPulse.process(args.sampleTime);
@@ -1072,21 +1072,14 @@ struct WolframModuleWidget : ModuleWidget {
 			}
 		));
 
-		menu->addChild(createSubmenuItem("Slew", "",
-			[=](Menu* menu) {
-				menu->addChild(createBoolPtrMenuItem("X", "", &module->slewX));
-				menu->addChild(createBoolPtrMenuItem("Y", "", &module->slewY));
-			}
-		));
-
 		menu->addChild(createBoolPtrMenuItem("Sync", "", &module->sync));
 	
-		menu->addChild(createBoolMenuItem("VCO", "",
+		menu->addChild(createBoolMenuItem("Oscillator Mode", "",
 			[=]() {
-				return module->vcoMode;
+				return module->oscMode;
 			},
-			[=](bool vco) {
-				module->vcoMode = vco;
+			[=](bool oscMode) {
+				module->oscMode = oscMode;
 				module->onSampleRateChange();
 			}
 		));

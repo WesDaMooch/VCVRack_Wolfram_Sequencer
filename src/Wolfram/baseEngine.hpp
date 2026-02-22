@@ -108,7 +108,7 @@ protected:
 	int injectPending = 0;
 	bool resetPending = false;
 	bool generate = false;
-	bool miniMenuChangePending = false;
+	bool seedResetPending = false;
 	char engineLabel[5] = "BASE";
 
 	virtual void inject(int inject, bool sync) = 0;

@@ -99,7 +99,8 @@ void WolfEngine::process(const EngineCoreParams& p,
 	setRuleCv(p.ruleCv);
 
 	bool refreshDisplay = p.step;
-	generate = (rack::random::get<float>() < p.probability);
+	bool syncStep = p.sync && p.step;
+	generate = rack::random::get<float>() < p.probability;
 
 	bool injectOccured = (p.inject != 0);
 	if (injectOccured && p.sync)
@@ -112,20 +113,22 @@ void WolfEngine::process(const EngineCoreParams& p,
 	}
 
 	// Reset
+	bool seedReset = (p.miniMenuChanged && generate) && !p.sync;
+
 	if (p.miniMenuChanged && p.sync)
-		miniMenuChangePending = true;
+		seedResetPending = true;
 
 	if (p.reset && p.sync)
 		resetPending = true;
 
-	if (((p.reset || p.miniMenuChanged) && !p.sync) || ((resetPending || miniMenuChangePending) && p.sync && p.step)) {
+	if (((p.reset || seedReset) && !p.sync) || ((resetPending || seedResetPending) && syncStep)) {
 		if (generate) {
 			int head = p.sync ? writeHead : readHead;
 			uint8_t resetRow = randSeed ? rack::random::get<uint8_t>() : seed;
 			rowBuffer[head] = resetRow;
 			generate = false;
 		}
-		else if (!miniMenuChangePending) {
+		else if (!seedResetPending) {
 			if (p.sync) {
 				writeHead = 0;
 			}
@@ -135,7 +138,7 @@ void WolfEngine::process(const EngineCoreParams& p,
 			}
 		}
 		resetPending = false;
-		miniMenuChangePending = false;
+		seedResetPending = false;
 		refreshDisplay = true;
 	}
 
@@ -175,14 +178,14 @@ void WolfEngine::process(const EngineCoreParams& p,
 	}
 
 	// Sync inject
-	if (injectPending && p.sync && p.step) {
+	if (injectPending && syncStep) {
 		inject(injectPending, p.sync);
 		injectPending = 0;
 	}
 
 	// Offset
 	int newOffset = p.offset - 4;
-	if ((!p.sync && (offset != newOffset)) || (p.sync && p.step)) {
+	if ((!p.sync && (offset != newOffset)) || syncStep) {
 		offset = newOffset;
 		refreshDisplay = true;
 	}
