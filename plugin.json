@@ -20,8 +20,9 @@
       "keywords": "cellular automata conway life led matrix generative algorithm",
       "tags": [
         "Sequencer",
+        "Function generator",
         "Random",
-        "Digital"
+        "Dual"
       ]
     }
   ]
