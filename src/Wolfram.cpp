@@ -106,9 +106,9 @@ struct Wolfram : Module {
 	};
 	enum LightId {
 		MODE_LIGHT,
-		X_CV_LIGHT,
+		X_LIGHT,
 		X_PULSE_LIGHT,
-		Y_CV_LIGHT,
+		Y_LIGHT,
 		Y_PULSE_LIGHT,
 		LIGHTS_LEN
 	};
@@ -231,9 +231,9 @@ struct Wolfram : Module {
 		configOutput(Y_OUTPUT, "Y");
 		configOutput(Y_PULSE_OUTPUT, "Y Pulse");
 		configLight(MODE_LIGHT, "Mode");
-		configLight(X_CV_LIGHT, "X CV");
+		configLight(X_LIGHT, "X");
 		configLight(X_PULSE_LIGHT, "X Pulse");
-		configLight(Y_CV_LIGHT, "Y CV");
+		configLight(Y_LIGHT, "Y");
 		configLight(Y_PULSE_LIGHT, "Y Pulse");
 
 		// Load engines
@@ -489,8 +489,8 @@ struct Wolfram : Module {
 				outputs[X_PULSE_OUTPUT].setVoltage(0.f);
 				outputs[Y_PULSE_OUTPUT].setVoltage(0.f);
 				lights[MODE_LIGHT].setBrightness(0.f);
-				lights[X_CV_LIGHT].setBrightness(0.f);
-				lights[Y_CV_LIGHT].setBrightness(0.f);
+				lights[X_LIGHT].setBrightness(0.f);
+				lights[Y_LIGHT].setBrightness(0.f);
 				lights[X_PULSE_LIGHT].setBrightness(0.f);
 				lights[Y_PULSE_LIGHT].setBrightness(0.f);
 				return;
@@ -658,8 +658,8 @@ struct Wolfram : Module {
 
 		// LIGHTS
 		lights[MODE_LIGHT].setBrightnessSmooth(modeLED, args.sampleTime);
-		lights[X_CV_LIGHT].setBrightness(xOut * 0.1);
-		lights[Y_CV_LIGHT].setBrightness(yOut * 0.1);
+		lights[X_LIGHT].setBrightness(xOut * 0.1);
+		lights[Y_LIGHT].setBrightness(yOut * 0.1);
 		lights[X_PULSE_LIGHT].setBrightnessSmooth(xGate, args.sampleTime);
 		lights[Y_PULSE_LIGHT].setBrightnessSmooth(yGate, args.sampleTime);
 		
@@ -1060,10 +1060,10 @@ struct WolframModuleWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(41.91f, 99.852f)), module, Wolfram::Y_PULSE_OUTPUT));
 		// LEDs
 		addChild(createLightCentered<DiagonalLuckyLight<RedLight>>(mm2px(Vec(53.34f, 47.767f)), module, Wolfram::MODE_LIGHT)); 
-		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, Wolfram::X_CV_LIGHT));		
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(7.62f, 90.225f)), module, Wolfram::X_LIGHT));		
 		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(19.05f, 90.225f)), module, Wolfram::X_PULSE_LIGHT));	
 		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(41.91f, 90.225f)), module, Wolfram::Y_PULSE_LIGHT));	
-		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, Wolfram::Y_CV_LIGHT));
+		addChild(createLightCentered<LuckyLight<RedLight>>(mm2px(Vec(53.34f, 90.225f)), module, Wolfram::Y_LIGHT));
 		
 		Display* display = new Display(module, mm2px(10.14f), box.size.x, mm2px(32.f));
 		addChild(display);
