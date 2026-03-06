@@ -1,7 +1,7 @@
 {
   "slug": "ModularMooch",
   "name": "Modular Mooch",
-  "version": "2.6.6",
+  "version": "2.1.0",
   "license": "GPL-3.0-or-later",
   "brand": "Modular Mooch",
   "author": "Wesley Leggo-Morrell",
@@ -17,6 +17,7 @@
       "name": "Wolfram",
       "description": "Multi-algorithmic Generative Sequencer",
       "manualUrl": "https://github.com/WesDaMooch/Modular-Mooch-VCV/blob/main/img/manuals/Wolfram_Manual.pdf",
+      "keywords": "cellular automata conway life led matrix generative algorithm",
       "tags": [
         "Sequencer",
         "Random",
