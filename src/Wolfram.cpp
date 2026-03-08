@@ -717,7 +717,6 @@ struct Display : TransparentWidget {
 	std::array<rack::math::Vec, NUM_COLS> wolfSeedPos{};
 
 	// Display styles
-	// static constexpr
 	std::array<std::array<NVGcolor, 3>, NUM_DISPLAY_STYLES> displayStyle{ {
 		{ nvgRGB(228, 7, 7),		nvgRGB(78, 12, 9),		nvgRGB(58, 16, 19) },		// Redrick
 		{ nvgRGB(205, 254, 254),	nvgRGB(39, 70, 153),	nvgRGB(37, 59, 99) },		// Oled
@@ -819,7 +818,6 @@ struct Display : TransparentWidget {
 		if ((row < 0) || (row >= NUM_TEXT_CHARS))
 			return;
 
-		nvgBeginPath(vg);
 		nvgFillColor(vg, getForegroundColour());
 		nvgText(vg, textPos[row].x, textPos[row].y, text, nullptr);
 	}
@@ -1029,7 +1027,6 @@ struct Display : TransparentWidget {
 				rowBits = static_cast<uint8_t>(~rowBits);
 
 			while (rowBits) {
-				//int colInvert = __builtin_ctz(static_cast<unsigned>(rowBits));
 				int colInvert = rack::math::log2(rowBits & -rowBits);
 				rowBits &= rowBits - 1;
 
@@ -1055,6 +1052,10 @@ struct Display : TransparentWidget {
 			module->engineToUiLayerPtr.load(std::memory_order_acquire):
 			nullptr;
 
+		int firstRow = 0;
+		bool menuActive = module ? module->menuActive : false;
+		bool miniMenuActive = module ? module->miniMenuActive : false;
+
 		// Backgound
 		if (layer == 0) {
 			nvgBeginPath(vg);
@@ -1068,10 +1069,6 @@ struct Display : TransparentWidget {
 			nvgStroke(vg);
 			nvgClosePath(vg);
 		}
-
-		int firstRow = 0;
-		bool menuActive = module ? module->menuActive : false;
-		bool miniMenuActive = module ? module->miniMenuActive : false;
 
 		if (menuActive || miniMenuActive)
 			drawMenu(vg, engineLayer, menuActive, miniMenuActive, firstRow, layer);
