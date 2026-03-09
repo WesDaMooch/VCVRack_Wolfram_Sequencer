@@ -1,4 +1,4 @@
-// baseEngine.hpp
+// algoEngine.hpp
 // Part of the Modular Mooch Wolfram module (VCV Rack)
 //
 // GitHub: https://github.com/WesDaMooch/Modular-Mooch-VCV
