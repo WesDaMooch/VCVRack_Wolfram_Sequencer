@@ -12,9 +12,12 @@
 #include <cstdint>
 
 // TODO:
-// - process() should be defined in algoEngine,
+// - process() should be defined in algoEngine or in Wolfram module <- a better idea,
 // with functions such as generate(), inject() ect defined in child algoithms.
-// May require a renderOuputs(references to outs and modeLed) function.
+// process() can just give output voltages, pulses, and modeLED.
+// 
+// The current reset() may need renameing initialize(),
+// and could be called in constuctor to remove repeated code
 
 static constexpr int MAX_SEQUENCE_LENGTH = 64;
 
