@@ -894,7 +894,7 @@ struct Display : TransparentWidget {
 			nvgBeginPath(vg);
 			for (int col = 0; col < NUM_COLS; col++) {
 				if ((col >= 1) && (col <= 7)) {
-					// TODO: move to init
+					// TODO: move to constructor. 
 					nvgMoveTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y - 1);
 					nvgLineTo(vg, wolfSeedPos[col].x - padding, wolfSeedPos[col].y + 1);
 
