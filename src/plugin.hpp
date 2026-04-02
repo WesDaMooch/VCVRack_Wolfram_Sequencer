@@ -6,6 +6,7 @@ using namespace rack;
 extern Plugin* pluginInstance;
 
 extern Model* modelWolfram;
+extern Model* modelModal;
 
 // Custom components
 struct M1900hBlackKnob : RoundKnob {
