@@ -5,7 +5,7 @@ using namespace rack;
 
 extern Plugin* pluginInstance;
 
-extern Model* modelWolframModule;
+extern Model* modelWolfram;
 
 // Custom components
 struct M1900hBlackKnob : RoundKnob {
@@ -13,7 +13,6 @@ struct M1900hBlackKnob : RoundKnob {
 
 	M1900hBlackKnob() {
 		setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hBlackKnob.svg")));
-
 		fg = new widget::SvgWidget;
 		fb->addChildAbove(fg, tw);
 		fg->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hKnob_fg.svg")));
@@ -25,7 +24,6 @@ struct M1900hBlackEncoder : RoundKnob {
 
 	M1900hBlackEncoder() {
 		setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hBlackEncoder.svg")));
-
 		fg = new widget::SvgWidget;
 		fb->addChildAbove(fg, tw);
 		fg->setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/M1900hKnob_fg.svg")));
