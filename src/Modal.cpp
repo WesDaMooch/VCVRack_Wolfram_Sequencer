@@ -2,12 +2,50 @@
 
 #include "plugin.hpp"
 #include <array>
+#include <vector>
+
+#include <cmath>
 
 static constexpr int NUM_MODES = 2;
 
-struct Filter
+// Second Order 'Biquad' Direct Form I Filter
+class BiquadDF1
 {
+protected:
+	float b0 = 0.0;
+	float a1 = 0.0, a2 = 0.0;
+	
+	float y1 = 0.0, y2 = 0.0;
 
+public:
+
+	void set(float fs, float frequency, float T60, float amplitude)
+	{
+		float omega = 2.0 * M_PI * frequency / fs;
+
+		float decay = std::exp(-6.91 / (T60 * fs));
+
+		a1 = -2.0 * decay * std::cos(omega);
+		a2 = decay * decay;
+
+		b0 = amplitude * (1.0 - decay);
+	}
+
+	void reset()
+	{
+		y1 = 0.0;
+		y2 = 0.0;
+	}
+
+	float proccess(float x)
+	{
+		double y = b0 * x - a1 * y1 - a2 * y2;
+
+		y2 = y1;
+		y1 = y;
+
+		return y;
+	}
 };
 
 struct Modal : Module
@@ -36,8 +74,10 @@ struct Modal : Module
 	// DSP
 	int srate = 48000;
 	
-	dsp::RCFilter mode;
+	//dsp::RCFilter mode;
 	//std::array<Filter, NUM_MODES> mode = {};
+
+	std::vector<BiquadDF1> modes;
 
 	Modal() 
 	{
@@ -45,9 +85,15 @@ struct Modal : Module
 		configInput(AUDIO_INPUT, "Input");
 		configOutput(AUDIO_OUTPUT, "Output");
 
-		//mode.setCutoffFreq(10);
-
 		onSampleRateChange();
+
+		BiquadDF1 m1;
+		m1.set(srate, 440.f, 1.f, 1.f);
+		modes.push_back(m1);
+
+		BiquadDF1 m2;
+		m2.set(srate, 444.f, 3.f, 1.f);
+		modes.push_back(m2);
 	}
 
 
@@ -77,15 +123,20 @@ struct Modal : Module
 	{
 		float input = inputs[AUDIO_INPUT].getVoltage();
 
-		mode.setCutoffFreq(0.001);
+		// Convert to digital audio range (-1 tp +1)
+		input *= 0.1;
+		input = rack::clamp(input, -1.f, 1.f);
 
-		mode.process(input);
-		float output = mode.lowpass();
+		float output = 0.0;
+		for (int i = 0; i < NUM_MODES; i++)
+		{
+			output += modes[i].proccess(input);
+		}
 
-		//for (int i = 0; i < NUM_MODES; i++)
-		//{
-		//	//mode[i].
-		//}
+		output = output / (float)NUM_MODES;
+
+		// Convert to voltage range (-10 to +10)
+		output *= 10.f;
 
 		outputs[AUDIO_OUTPUT].setVoltage(output);
 	}
